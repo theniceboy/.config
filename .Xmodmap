@@ -1,3 +1,7 @@
+clear control
+clear mod1
+
+
 keycode   8 =
 keycode   9 = Escape NoSymbol Escape
 keycode  10 = 1 exclam 1 exclam exclamdown onesuperior exclamdown
@@ -246,3 +250,6 @@ keycode 252 =
 keycode 253 =
 keycode 254 = XF86WWAN NoSymbol XF86WWAN
 keycode 255 = XF86RFKill NoSymbol XF86RFKill
+
+add control = Control_L Control_R
+add mod1 = Alt_L

@@ -2,7 +2,7 @@ pointer = 1 2 3 5 4 7 6 8 9 10 11 12
 
 clear control
 clear mod1
-
+clear lock
 
 keycode   8 =
 keycode   9 = Escape NoSymbol Escape

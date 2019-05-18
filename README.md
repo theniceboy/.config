@@ -79,3 +79,18 @@
 3. Start a new terminal session.
 
 
+## Syntax highlighting
+
+```
+brew install zsh-syntax-highlighting
+```
+
+If you do not have or do not like homebrew, follow [the installation instructions](https://github.com/zsh-users/zsh-syntax-highlighting/blob/master/INSTALL.md) instead.
+
+After installation, add the following line
+
+```
+source /usr/local/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
+```
+
+to **the end** of your `.zshrc` file. After that, it's best to restart your terminal. Sourcing your `~/.zshrc` does not seem to work well with this plugin.

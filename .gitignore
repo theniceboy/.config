@@ -1,0 +1,11 @@
+# ignore everything
+/*
+/*/
+
+# ... but these:
+!/i3/
+!/polybar/
+!/ranger/
+!/.Xmodmap
+!/.zshrc
+!/.gitignore

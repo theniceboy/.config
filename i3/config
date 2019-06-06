@@ -27,6 +27,11 @@ font pango:monospace 8
 # font, it doesn’t scale on retina/hidpi displays.
 
 exec_always --no-startup-id ~/.config/i3/polybar.sh &
+exec_always --no-startup-id compton --config ~/.config/compton/compton.conf
+exec_always variety
+exec_always fcitx
+exec_always --no-startup-id ~/scripts/inverse-scroll.sh
+exec_always --no-startup-id ~/scripts/tap-to-click.sh
 
 for_window [class="^.*"] border pixel 1
 new_window 1pixel
@@ -35,14 +40,23 @@ new_window 1pixel
 floating_modifier $mod
 
 # start a terminal
-bindsym $mod+Return exec i3-sensible-terminal
+bindsym $mod+Return exec deepin-terminal -e ranger
+
+# open ranger
+bindsym $mod+Shift+t exec deepin-terminal -e ranger
 
 # kill focused window
 bindsym $mod+Shift+q kill
 
 # Open browser
-bindsym $mod+b exec chromium
+bindsym $mod+c exec google-chrome-stable
 
+# Open music player
+bindsym $mod+m exec netease-cloud-music
+
+# Switching keyboard layouts
+bindsym $mod+Shift+k exec xmodmap ~/.Xmodmap-cn
+bindsym $mod+Shift+m exec xmodmap ~/.Xmodmap
 
 # start dmenu (a program launcher)
 bindsym $mod+s exec dmenu_run
@@ -154,9 +168,9 @@ mode "resize" {
         # Pressing up will shrink the window’s height.
         # Pressing down will grow the window’s height.
         bindsym n resize shrink width 10 px or 10 ppt
-        bindsym e resize grow height 10 px or 10 ppt
-        bindsym i resize shrink height 10 px or 10 ppt
-        bindsym o resize grow width 10 px or 10 ppt
+        bindsym u resize grow height 10 px or 10 ppt
+        bindsym e resize shrink height 10 px or 10 ppt
+        bindsym i resize grow width 10 px or 10 ppt
 
         # same bindings, but for the arrow keys
         bindsym Left resize shrink width 10 px or 10 ppt

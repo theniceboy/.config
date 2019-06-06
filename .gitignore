@@ -6,6 +6,7 @@
 !/i3/
 !/polybar/
 !/ranger/
+!/compton/
 !/.Xmodmap
 !/.zshrc
 !/.gitignore

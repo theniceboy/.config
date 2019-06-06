@@ -30,7 +30,7 @@ alert = #bd2c40
 [bar/bar1]
 ;monitor = ${env:MONITOR:HDMI-1}
 width = 100%
-height = 23
+height = 30
 ;offset-x = 1%
 ;offset-y = 1%
 radius = 0.0
@@ -218,7 +218,7 @@ label = %percentage_used%%
 
 [module/network]
 type = internal/network
-interface = wlp2s0
+interface = wlp0s20f3
 interval = 3.0
 
 label = %essid%
@@ -259,7 +259,7 @@ format-disconnected =
 type = internal/date
 interval = 5
 
-date = " %Y-%m-%d"
+date = " %Y-%m-%d "
 
 time = %H:%M
 time-alt = %H:%M:%S
@@ -331,9 +331,9 @@ bar-volume-empty-foreground = ${colors.foreground-alt}
 
 [module/battery]
 type = internal/battery
-battery = BAT1
+battery = BAT0
 adapter = ADP1
-full-at = 98
+full-at = 100
 
 format-charging = <animation-charging> <label-charging>
 format-charging-underline = #ffb52a

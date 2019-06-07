@@ -40,10 +40,11 @@ new_window 1pixel
 floating_modifier $mod
 
 # start a terminal
-bindsym $mod+Return exec deepin-terminal -e ranger
+bindsym $mod+Return exec kitty
+bindsym $mod+Shift+Return exec kitty -e screenfetch
 
 # open ranger
-bindsym $mod+Shift+t exec deepin-terminal -e ranger
+bindsym $mod+Shift+t exec kitty -e ranger
 
 # kill focused window
 bindsym $mod+Shift+q kill
@@ -200,3 +201,4 @@ bindsym XF86AudioMute exec --no-startup-id pactl set-sink-mute 0 toggle # mute s
 bindsym XF86MonBrightnessUp exec xbacklight -inc 10 # increase screen brightness
 bindsym XF86MonBrightnessDown exec xbacklight -dec 10 # decrease screen brightness
 
+gaps inner 15

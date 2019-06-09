@@ -32,6 +32,7 @@ exec_always variety
 exec_always fcitx
 exec_always --no-startup-id ~/scripts/inverse-scroll.sh
 exec_always --no-startup-id ~/scripts/tap-to-click.sh
+exec_always albert
 
 for_window [class="^.*"] border pixel 1
 new_window 1pixel

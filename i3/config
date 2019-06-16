@@ -41,11 +41,10 @@ new_window 1pixel
 floating_modifier $mod
 
 # start a terminal
-bindsym $mod+Return exec kitty
-bindsym $mod+Shift+Return exec kitty -e screenfetch
+bindsym $mod+Return exec alacritty
 
 # open ranger
-bindsym $mod+Shift+t exec kitty -e ranger
+bindsym $mod+Shift+t exec alacritty -e ranger
 
 # kill focused window
 bindsym $mod+Shift+q kill

@@ -8,6 +8,7 @@
 !/ranger/
 !/compton/
 !/kitty/
+!/alacritty/
 !/.Xmodmap
 !/.zshrc
 !/.gitignore

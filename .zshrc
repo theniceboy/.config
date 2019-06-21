@@ -1,14 +1,35 @@
 # If you come from bash you might have to change your $PATH.
 # export PATH=$HOME/bin:/usr/local/bin:$PATH
+#
+export TERM="xterm-256color"
+
+autoload -Uz compinit
+compinit
+# Completion for kitty
+kitty + complete setup zsh | source /dev/stdin
 
 # Path to your oh-my-zsh installation.
   export ZSH="/home/david/.oh-my-zsh"
-export RANGER_LOAD_DEFAULT_RC=false
+
 # Set name of the theme to load --- if set to "random", it will
 # load a random theme each time oh-my-zsh is loaded, in which case,
 # to know which specific one was loaded, run: echo $RANDOM_THEME
 # See https://github.com/robbyrussell/oh-my-zsh/wiki/Themes
-ZSH_THEME="agnoster"
+#ZSH_THEME="kafeitu"
+ZSH_THEME="ys"
+
+alias sudo="sudo -E"
+alias setproxy="sudo nohup /usr/bin/sslocal -c /etc/shadowsocks/config.json &"
+alias unsetproxy="unset ALL_PROXY"
+alias ip="curl -i http://ip.cn"
+alias s="neofetch"
+alias ra="ranger"
+alias lg="lazygit"
+alias c="clear"
+
+
+source /usr/share/zsh/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh
+source /usr/share/zsh/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
 
 # Set list of themes to pick from when loading at random
 # Setting this variable when ZSH_THEME=random will cause zsh to load
@@ -97,3 +118,4 @@ source $ZSH/oh-my-zsh.sh
 # Example aliases
 # alias zshconfig="mate ~/.zshrc"
 # alias ohmyzsh="mate ~/.oh-my-zsh"
+#source /usr/share/zsh-theme-powerlevel9k/powerlevel9k.zsh-theme

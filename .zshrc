@@ -24,6 +24,7 @@ alias s="neofetch"
 alias ra="ranger"
 alias lg="lazygit"
 alias c="clear"
+alias eg="git config credential.helper store"
 
 
 source /usr/share/zsh/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh

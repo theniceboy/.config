@@ -10,6 +10,7 @@
 !/kitty/
 !/alacritty/
 !/.Xmodmap
+!/.Xmodmap-cn
 !/.zshrc
 !/.gitignore
 !/README.md

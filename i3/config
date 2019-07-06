@@ -49,6 +49,9 @@ bindsym $mod+Shift+t exec alacritty -e ranger
 # kill focused window
 bindsym $mod+Shift+q kill
 
+bindsym $mod+b exec variety -n
+bindsym $mod+shift+b exec variety -p
+
 # Open browser
 bindsym $mod+c exec google-chrome-stable
 

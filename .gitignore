@@ -9,6 +9,9 @@
 !/compton/
 !/kitty/
 !/alacritty/
+!/fish/
+!/neofetch/
+!/omf/
 !/.Xmodmap
 !/.Xmodmap-cn
 !/.zshrc

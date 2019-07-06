@@ -1,0 +1,13 @@
+package argu
+package balias
+package battery
+package config
+package expand
+package marlin
+package spark
+package sudope
+package tab
+package weather
+package wttr
+theme agnoster
+theme default

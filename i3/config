@@ -43,8 +43,8 @@ floating_modifier $mod
 # start a terminal
 bindsym $mod+Return exec alacritty
 
-# open ranger
-bindsym $mod+Shift+t exec alacritty -e ranger
+# open file manager
+bindsym $mod+d exec dde-file-manager
 
 # kill focused window
 bindsym $mod+Shift+q kill

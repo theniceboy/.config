@@ -1,5 +1,33 @@
-set viewmode miller
+# ===================================================================
+# This file contains the default startup commands for ranger.
+# To change them, it is recommended to create either /etc/ranger/rc.conf
+# (system-wide) or ~/.config/ranger/rc.conf (per user) and add your custom
+# commands there.
+#
+# If you copy this whole file there, you may want to set the environment
+# variable RANGER_LOAD_DEFAULT_RC to FALSE to avoid loading it twice.
+#
+# The purpose of this file is mainly to define keybindings and settings.
+# For running more complex python code, please create a plugin in "plugins/" or
+# a command in "commands.py".
+#
+# Each line is a command that will be run before the user interface
+# is initialized.  As a result, you can not use commands which rely
+# on the UI such as :delete or :mark.
+# ===================================================================
 
+# ===================================================================
+# == Options
+# ===================================================================
+
+# Which viewmode should be used?  Possible values are:
+#     miller: Use miller columns which show multiple levels of the hierarchy
+#     multipane: Midnight-commander like multipane view showing all tabs next
+#                to each other
+set viewmode miller
+#set viewmode multipane
+
+# How many columns are there, and what are their relative widths?
 set column_ratios 1,3,4
 
 # Which files should be hidden? (regular expression)
@@ -16,7 +44,7 @@ set confirm_on_delete multiple
 # Use non-default path for file preview script?
 # ranger ships with scope.sh, a script that calls external programs (see
 # README.md for dependencies) to preview images, archives, etc.
-set preview_script ~/.config/ranger/scope.sh
+#set preview_script ~/.config/ranger/scope.sh
 
 # Use the external preview script or display simple plain text or image previews?
 set use_preview_script true
@@ -29,7 +57,7 @@ set automatically_count_files true
 set open_all_images true
 
 # Be aware of version control systems and display information.
-set vcs_aware true
+set vcs_aware false
 
 # State of the four backends git, hg, bzr, svn. The possible states are
 # disabled, local (only show local info), enabled (show local and remote
@@ -40,7 +68,7 @@ set vcs_backend_bzr disabled
 set vcs_backend_svn disabled
 
 # Use one of the supported image preview protocols
-set preview_images true
+set preview_images false
 
 # Set the preview image method. Supported methods:
 #
@@ -78,11 +106,19 @@ set preview_images true
 #   while slower, this allows remote previews,
 #   for example during an ssh session.
 #   Tmux is unsupported.
+#
+# * ueberzug:
+#   Preview images in full color with the external command "ueberzug".
+#   Images are shown by using a child window.
+#   Only for users who run X11 in GNU/Linux.
 set preview_images_method w3m
 
 # Delay in seconds before displaying an image with the w3m method.
 # Increase it in case of experiencing display corruption.
 set w3m_delay 0.02
+
+# Manually adjust the w3mimg offset when using a terminal which needs this
+set w3m_offset 0
 
 # Default iTerm2 font size (see: preview_images_method: iterm2)
 set iterm2_font_width 8
@@ -125,7 +161,7 @@ set draw_progress_bar_in_status_bar true
 set draw_borders none
 
 # Display the directory name in tabs?
-set dirname_in_tabs true
+set dirname_in_tabs false
 
 # Enable the mouse support?
 set mouse_enabled true
@@ -141,7 +177,7 @@ set display_free_space_in_status_bar true
 set display_tags_in_all_columns true
 
 # Set a title for the window?
-set update_title true
+set update_title false
 
 # Set the title to "ranger" in the tmux program?
 set update_tmux_title true
@@ -154,7 +190,7 @@ set shorten_title 3
 set hostname_in_titlebar true
 
 # Abbreviate $HOME with ~ in the titlebar (first line) of ranger?
-set tilde_in_titlebar true
+set tilde_in_titlebar false
 
 # How many directory-changes or console-commands should be kept in history?
 set max_history_size 20
@@ -206,7 +242,7 @@ set xterm_alt_key false
 set cd_bookmarks true
 
 # Changes case sensitivity for the cd command tab completion
-set cd_tab_case insensitive
+set cd_tab_case sensitive
 
 # Use fuzzy tab completion with the "cd" command. For example,
 # ":cd /u/lo/b<tab>" expands to ":cd /usr/local/bin".
@@ -248,7 +284,7 @@ set relative_current_zero false
 set one_indexed false
 
 # Save tabs on exit
-set save_tabs_on_exit true
+set save_tabs_on_exit false
 
 # Enable scroll wrapping - moving down while on the last item will wrap around to
 # the top and vice versa.
@@ -261,6 +297,9 @@ set global_inode_type_filter
 # This setting allows to freeze the list of files to save I/O bandwidth.  It
 # should be 'false' during start-up, but you can toggle it by pressing F.
 set freeze_files false
+
+# Print file sizes in bytes instead of the default human-readable format.
+set size_in_bytes false
 
 # ===================================================================
 # == Local Options
@@ -291,54 +330,73 @@ alias search     scout -rs
 alias search_inc scout -rts
 alias travel     scout -aefklst
 
-
 # ===================================================================
 # == Define keys for the browser
 # ===================================================================
 
-# Quick edit rc
-map gc chain shell vim -p ~/.config/ranger/rc.conf; source ~/.config/ranger/rc.conf
-
 # Basic
-map q quit
-map Q quitall
-map ; console
-map : console
-map V console shell nvim%space 
-map r  chain draw_possible_programs; console open_with%%space
+map     Q quitall
+map     q quit
+copymap q ZZ ZQ
 
-map <Space> mark_files toggle=True
-map v       mark_files all=True toggle=True
-
+map R     reload_cwd
+map F     set freeze_files!
+map <C-r> reset
+map <C-l> redraw_window
 map <C-c> abort
-map w taskview_open
+map <esc> change_mode normal
+map ~ set viewmode!
 
-# Jumping around
+map i display_file
+map <A-j> scroll_preview 1
+map <A-k> scroll_preview -1
+map ? help
+map W display_log
+map w taskview_open
+map S shell $SHELL
+
+map :  console
+map ;  console
+map !  console shell%space
+map @  console -p6 shell  %%s
+map #  console shell -p%space
+map s  console shell%space
+map r  chain draw_possible_programs; console open_with%%space
+map f  console find%space
 map cd console cd%space
 
-map H     history_go -1
-map L     history_go 1
-map ]     move_parent 1
-map [     move_parent -1
-#map }     traverse
+map <C-p> chain console; eval fm.ui.console.history_move(-1)
 
-map gh cd ~
-map gi cd ~/Github
-map gd cd ~/Desktop
-map gff cd ~/.config
-map gfi cd ~/.config/i3
-map gfr cd ~/.config/ranger
-map ge cd /etc
-map gus cd /usr/share
-map guf cd /usr/share/fonts
-map gud cd /usr/share/doc
-map gd cd /dev
-map go cd /opt
-map gv cd /var
-map gm cd /media
-map gM cd /mnt
-map gr cd /
+# Change the line mode
+map Mf linemode filename
+map Mi linemode fileinfo
+map Mm linemode mtime
+map Mh linemode humanreadablemtime
+map Mp linemode permissions
+map Ms linemode sizemtime
+map MH linemode sizehumanreadablemtime
+map Mt linemode metatitle
 
+# Tagging / Marking
+map t       tag_toggle
+map ut      tag_remove
+map "<any>  tag_toggle tag=%any
+map <Space> mark_files toggle=True
+map v       mark_files all=True toggle=True
+map uv      mark_files all=True val=False
+map V       toggle_visual_mode
+map uV      toggle_visual_mode reverse=True
+
+# For the nostalgics: Midnight Commander bindings
+map <F1> help
+map <F2> rename_append
+map <F3> display_file
+map <F4> edit
+map <F5> copy
+map <F6> cut
+map <F7> console mkdir%space
+map <F8> console delete
+map <F10> exit
 
 # In case you work on a keyboard with dvorak layout
 map <UP>       move up=1
@@ -353,22 +411,50 @@ map <CR>       move right=1
 #map <DELETE>   console delete
 map <INSERT>   console touch%space
 
-
 # VIM-like
-copymap <UP>       u
-copymap <DOWN>     e
-copymap <LEFT>     n
-copymap <RIGHT>    i
+copymap <UP>       k
+copymap <DOWN>     j
+copymap <LEFT>     h
+copymap <RIGHT>    l
 copymap <HOME>     gg
 copymap <END>      G
-map E move down=5
-map U move up=5
-copymap <PAGEDOWN> <C-E>
-copymap <PAGEUP>   <C-U>
+copymap <PAGEDOWN> <C-F>
+copymap <PAGEUP>   <C-B>
 
+map J  move down=0.5  pages=True
+map K  move up=0.5    pages=True
+copymap J <C-D>
+copymap K <C-U>
+
+# Jumping around
+map H     history_go -1
+map L     history_go 1
+map ]     move_parent 1
+map [     move_parent -1
+map }     traverse
+map {     traverse_backwards
+map )     jump_non
+
+map gh cd ~
+map ge cd /etc
+map gu cd /usr
+map gd cd /dev
+map gl cd -r .
+map gL cd -r %f
+map go cd /opt
+map gv cd /var
+map gm cd /media
+map gi eval fm.cd('/run/media/' + os.getenv('USER'))
+map gM cd /mnt
+map gs cd /srv
+map gp cd /tmp
+map gr cd /
+map gR eval fm.cd(ranger.RANGERDIR)
+map g/ cd /
+map g? cd /usr/share/doc/ranger
 
 # External Programs
-map I  open_with
+map E  edit
 map du shell -p du --max-depth=1 -h --apparent-size
 map dU shell -p du --max-depth=1 -h --apparent-size | sort -rh
 map yp yank path
@@ -377,17 +463,12 @@ map yn yank name
 map y. yank name_without_extension
 
 # Filesystem Operations
+map =  chmod
 
-map M console mkcd%space
-
-map + chmod
-
-map cw eval fm.execute_console("bulkrename") if fm.thisdir.marked_items else fm.open_console("rename ")
-#map cw console rename%space
-#map cW console bulkrename
+map cw console rename%space
 map a  rename_append
 map A  eval fm.open_console('rename ' + fm.thisfile.relative_path.replace("%", "%%"))
-map k  eval fm.open_console('rename ' + fm.thisfile.relative_path.replace("%", "%%"), position=7)
+map I  eval fm.open_console('rename ' + fm.thisfile.relative_path.replace("%", "%%"), position=7)
 
 map pp paste
 map po paste overwrite=True
@@ -397,42 +478,68 @@ map pl paste_symlink relative=False
 map pL paste_symlink relative=True
 map phl paste_hardlink
 map pht paste_hardlinked_subtree
+map pd console paste dest=
+map p`<any> paste dest=%any_path
+map p'<any> paste dest=%any_path
 
 map dD console delete
 
 map dd cut
-map ld uncut
+map ud uncut
 map da cut mode=add
 map dr cut mode=remove
 map dt cut mode=toggle
 
 map yy copy
-map ly uncut
+map uy uncut
 map ya copy mode=add
 map yr copy mode=remove
 map yt copy mode=toggle
 
-map C console compress%space
-map X console extracthere
-map cp shell pandoc %f -o %f.pdf
-map ytv console shell youtube-dl -ic%space
-map yta console shell youtube-dl -xic%space
-
+# Temporary workarounds
+map dgg eval fm.cut(dirarg=dict(to=0), narg=quantifier)
+map dG  eval fm.cut(dirarg=dict(to=-1), narg=quantifier)
+map dj  eval fm.cut(dirarg=dict(down=1), narg=quantifier)
+map dk  eval fm.cut(dirarg=dict(up=1), narg=quantifier)
+map ygg eval fm.copy(dirarg=dict(to=0), narg=quantifier)
+map yG  eval fm.copy(dirarg=dict(to=-1), narg=quantifier)
+map yj  eval fm.copy(dirarg=dict(down=1), narg=quantifier)
+map yk  eval fm.copy(dirarg=dict(up=1), narg=quantifier)
 
 # Searching
 map /  console search%space
-map =  search_next
-map -  search_next forward=False
-map <C-f> fzf_select
-map f console scout -ftsea%space
+map n  search_next
+map N  search_next forward=False
+map ct search_next order=tag
+map cs search_next order=size
+map ci search_next order=mimetype
+map cc search_next order=ctime
+map cm search_next order=mtime
+map ca search_next order=atime
 
 # Tabs
-map tu     tab_new
-map ti     tab_move 1
-map tn   tab_move -1
-map lq        tab_restore
-map tmi     tab_shift 1
-map tmn     tab_shift -1
+map <C-n>     tab_new
+map <C-w>     tab_close
+map <TAB>     tab_move 1
+map <S-TAB>   tab_move -1
+map <A-Right> tab_move 1
+map <A-Left>  tab_move -1
+map gt        tab_move 1
+map gT        tab_move -1
+map gn        tab_new
+map gc        tab_close
+map uq        tab_restore
+map <a-1>     tab_open 1
+map <a-2>     tab_open 2
+map <a-3>     tab_open 3
+map <a-4>     tab_open 4
+map <a-5>     tab_open 5
+map <a-6>     tab_open 6
+map <a-7>     tab_open 7
+map <a-8>     tab_open 8
+map <a-9>     tab_open 9
+map <a-r>     tab_shift 1
+map <a-l>     tab_shift -1
 
 # Sorting
 map or set sort_reverse!
@@ -473,53 +580,44 @@ map zs    set sort_case_insensitive!
 map zu    set autoupdate_cumulative_size!
 map zv    set use_preview_script!
 map zf    console filter%space
-# copymap zf zz
+copymap zf zz
 
+# Filter stack
+map .n console filter_stack add name%space
+map .m console filter_stack add mime%space
+map .d filter_stack add type d
+map .f filter_stack add type f
+map .l filter_stack add type l
+map .| filter_stack add or
+map .& filter_stack add and
+map .! filter_stack add not
+map .r console filter_stack rotate
+map .c filter_stack clear
+map .* filter_stack decompose
+map .p filter_stack pop
+map .. filter_stack show
 
 # Bookmarks
 map `<any>  enter_bookmark %any
 map '<any>  enter_bookmark %any
 map m<any>  set_bookmark %any
-map dm<any> unset_bookmark %any
+map um<any> unset_bookmark %any
 
-#map m<bg>   draw_bookmarks
-#copymap m<bg>  lm<bg> `<bg> '<bg>
+map m<bg>   draw_bookmarks
+copymap m<bg>  um<bg> `<bg> '<bg>
 
-# ===================================================================
-# == Taskview Keybindings
-# ===================================================================
+# Generate all the chmod bindings with some python help:
+eval for arg in "rwxXst": cmd("map +u{0} shell -f chmod u+{0} %s".format(arg))
+eval for arg in "rwxXst": cmd("map +g{0} shell -f chmod g+{0} %s".format(arg))
+eval for arg in "rwxXst": cmd("map +o{0} shell -f chmod o+{0} %s".format(arg))
+eval for arg in "rwxXst": cmd("map +a{0} shell -f chmod a+{0} %s".format(arg))
+eval for arg in "rwxXst": cmd("map +{0}  shell -f chmod u+{0} %s".format(arg))
 
-# Movement
-tmap <up>        taskview_move up=1
-tmap <down>      taskview_move down=1
-tmap <home>      taskview_move to=0
-tmap <end>       taskview_move to=-1
-tmap <pagedown>  taskview_move down=1.0  pages=True
-tmap <pageup>    taskview_move up=1.0    pages=True
-#tmap <C-d>       taskview_move down=0.5  pages=True
-#tmap <C-u>       taskview_move up=0.5    pages=True
-
-copytmap <UP>       u
-copytmap <DOWN>     e
-copytmap <HOME>     gg
-copytmap <END>      G
-copytmap <PAGEDOWN> <C-E>
-copytmap <PAGEUP>   <C-U>
-
-# Changing priority and deleting tasks
-tmap <C-E>      eval -q fm.ui.taskview.task_move(-1)
-tmap <C-U>      eval -q fm.ui.taskview.task_move(0)
-tmap dd         eval -q fm.ui.taskview.task_remove()
-#tmap <pagedown> eval -q fm.ui.taskview.task_move(-1)
-#tmap <pageup>   eval -q fm.ui.taskview.task_move(0)
-tmap <delete>   eval -q fm.ui.taskview.task_remove()
-
-# Basic
-#tmap <C-l> redraw_window
-tmap <ESC> taskview_close
-copytmap <ESC> q Q w <C-c>
-
-
+eval for arg in "rwxXst": cmd("map -u{0} shell -f chmod u-{0} %s".format(arg))
+eval for arg in "rwxXst": cmd("map -g{0} shell -f chmod g-{0} %s".format(arg))
+eval for arg in "rwxXst": cmd("map -o{0} shell -f chmod o-{0} %s".format(arg))
+eval for arg in "rwxXst": cmd("map -a{0} shell -f chmod a-{0} %s".format(arg))
+eval for arg in "rwxXst": cmd("map -{0}  shell -f chmod u-{0} %s".format(arg))
 
 # ===================================================================
 # == Define keys for the console
@@ -535,7 +633,6 @@ cmap <C-l>   redraw_window
 
 copycmap <ESC> <C-c>
 copycmap <CR>  <C-j>
-map S shell $SHELL
 
 # Move around
 cmap <up>    eval fm.ui.console.history_move(-1)
@@ -577,7 +674,70 @@ copycmap <backspace> <backspace2>
 # This special expression allows typing in numerals:
 cmap <allow_quantifiers> false
 
+# ===================================================================
+# == Pager Keybindings
+# ===================================================================
 
-# a plugin that adds file glyphs / icon support to Ranger:
-# https://github.com/alexanderjeurissen/ranger_devicons
-default_linemode devicons
+# Movement
+pmap  <down>      pager_move  down=1
+pmap  <up>        pager_move  up=1
+pmap  <left>      pager_move  left=4
+pmap  <right>     pager_move  right=4
+pmap  <home>      pager_move  to=0
+pmap  <end>       pager_move  to=-1
+pmap  <pagedown>  pager_move  down=1.0  pages=True
+pmap  <pageup>    pager_move  up=1.0    pages=True
+pmap  <C-d>       pager_move  down=0.5  pages=True
+pmap  <C-u>       pager_move  up=0.5    pages=True
+
+copypmap <UP>       k  <C-p>
+copypmap <DOWN>     j  <C-n> <CR>
+copypmap <LEFT>     h
+copypmap <RIGHT>    l
+copypmap <HOME>     g
+copypmap <END>      G
+copypmap <C-d>      d
+copypmap <C-u>      u
+copypmap <PAGEDOWN> n  f  <C-F>  <Space>
+copypmap <PAGEUP>   p  b  <C-B>
+
+# Basic
+pmap     <C-l> redraw_window
+pmap     <ESC> pager_close
+copypmap <ESC> q Q i <F3>
+pmap E      edit_file
+
+# ===================================================================
+# == Taskview Keybindings
+# ===================================================================
+
+# Movement
+tmap <up>        taskview_move up=1
+tmap <down>      taskview_move down=1
+tmap <home>      taskview_move to=0
+tmap <end>       taskview_move to=-1
+tmap <pagedown>  taskview_move down=1.0  pages=True
+tmap <pageup>    taskview_move up=1.0    pages=True
+tmap <C-d>       taskview_move down=0.5  pages=True
+tmap <C-u>       taskview_move up=0.5    pages=True
+
+copytmap <UP>       k  <C-p>
+copytmap <DOWN>     j  <C-n> <CR>
+copytmap <HOME>     g
+copytmap <END>      G
+copytmap <C-u>      u
+copytmap <PAGEDOWN> n  f  <C-F>  <Space>
+copytmap <PAGEUP>   p  b  <C-B>
+
+# Changing priority and deleting tasks
+tmap J          eval -q fm.ui.taskview.task_move(-1)
+tmap K          eval -q fm.ui.taskview.task_move(0)
+tmap dd         eval -q fm.ui.taskview.task_remove()
+tmap <pagedown> eval -q fm.ui.taskview.task_move(-1)
+tmap <pageup>   eval -q fm.ui.taskview.task_move(0)
+tmap <delete>   eval -q fm.ui.taskview.task_remove()
+
+# Basic
+tmap <C-l> redraw_window
+tmap <ESC> taskview_close
+copytmap <ESC> q Q w <C-c>

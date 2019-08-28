@@ -13,7 +13,7 @@
 !/fish/
 !/neofetch/
 !/omf/
-!/.compton.conf
+!/compton.conf
 !/.Xmodmap
 !/.Xmodmap-cn
 !/.zshrc

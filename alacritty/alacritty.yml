@@ -289,7 +289,7 @@ visual_bell:
 #
 # Window opacity as a floating point number from `0.0` to `1.0`.
 # The value `0.0` is completely transparent and `1.0` is opaque.
-background_opacity: 0.85
+background_opacity: 0.8
 
 # Mouse bindings
 #
@@ -314,7 +314,7 @@ mouse:
   #
   # The `double_click` and `triple_click` settings control the time
   # alacritty should wait for accepting multiple clicks as one double
-  # or triple click.
+  # or triple click5
   double_click: { threshold: 300 }
   triple_click: { threshold: 300 }
 

@@ -316,6 +316,7 @@ exec --no-startup-id clipit
 # exec --no-startup-id start_conky_green
 exec_always --no-startup-id ff-theme-util
 exec_always --no-startup-id fix_xcursor
+exec_always --no-startup-id ~/.config/i3/run-mailsync.sh
 exec_always variety
 exec_always fcitx
 #exec_always --no-startup-id ~/.config/i3/tap-to-click.sh

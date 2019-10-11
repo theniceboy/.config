@@ -84,4 +84,6 @@ alias s='neofetch'
 alias sra='sudo -E ranger'
 alias sudo='sudo -E'
 alias vim='nvim'
+alias unity='./Downloads/UnityHub.AppImage'
+alias gs='git config credential.helper store'
 

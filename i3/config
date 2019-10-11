@@ -265,41 +265,41 @@ bindsym $mod+Shift+f exec "i3-nagbar -t warning -m 'You pressed the exit shortcu
 #bindsym $mod+0 mode "$mode_system"
 #set $mode_system (l)ock, (e)xit, switch_(u)ser, (s)uspend, (h)ibernate, (r)eboot, (Shift+s)hutdown
 #mode "$mode_system" {
-    #bindsym l exec --no-startup-id i3exit lock, mode "default"
-    #bindsym s exec --no-startup-id i3exit suspend, mode "default"
-    #bindsym u exec --no-startup-id i3exit switch_user, mode "default"
-    #bindsym e exec --no-startup-id i3exit logout, mode "default"
-    #bindsym h exec --no-startup-id i3exit hibernate, mode "default"
-    #bindsym r exec --no-startup-id i3exit reboot, mode "default"
-    #bindsym Shift+s exec --no-startup-id i3exit shutdown, mode "default"
+#bindsym l exec --no-startup-id i3exit lock, mode "default"
+#bindsym s exec --no-startup-id i3exit suspend, mode "default"
+#bindsym u exec --no-startup-id i3exit switch_user, mode "default"
+#bindsym e exec --no-startup-id i3exit logout, mode "default"
+#bindsym h exec --no-startup-id i3exit hibernate, mode "default"
+#bindsym r exec --no-startup-id i3exit reboot, mode "default"
+#bindsym Shift+s exec --no-startup-id i3exit shutdown, mode "default"
 
-    ## exit system mode: "Enter" or "Escape"
-    #bindsym Return mode "default"
-    #bindsym Escape mode "default"
+## exit system mode: "Enter" or "Escape"
+#bindsym Return mode "default"
+#bindsym Escape mode "default"
 #}
 
 # Resize window (you can also use the mouse for that)
 bindsym $mod+p mode "resize"
 mode "resize" {
-        # These bindings trigger as soon as you enter the resize mode
-        # Pressing left will shrink the window’s width.
-        # Pressing right will grow the window’s width.
-        # Pressing up will shrink the window’s height.
-        # Pressing down will grow the window’s height.
-        bindsym n resize shrink width 5 px or 5 ppt
-        bindsym u resize grow height 5 px or 5 ppt
-        bindsym e resize shrink height 5 px or 5 ppt
-        bindsym i resize grow width 5 px or 5 ppt
+# These bindings trigger as soon as you enter the resize mode
+# Pressing left will shrink the window’s width.
+# Pressing right will grow the window’s width.
+# Pressing up will shrink the window’s height.
+# Pressing down will grow the window’s height.
+	bindsym n resize shrink width 5 px or 5 ppt
+		bindsym u resize grow height 5 px or 5 ppt
+		bindsym e resize shrink height 5 px or 5 ppt
+		bindsym i resize grow width 5 px or 5 ppt
 
-        # same bindings, but for the arrow keys
-        bindsym Left resize shrink width 10 px or 10 ppt
-        bindsym Down resize grow height 10 px or 10 ppt
-        bindsym Up resize shrink height 10 px or 10 ppt
-        bindsym Right resize grow width 10 px or 10 ppt
+# same bindings, but for the arrow keys
+		bindsym Left resize shrink width 10 px or 10 ppt
+		bindsym Down resize grow height 10 px or 10 ppt
+		bindsym Up resize shrink height 10 px or 10 ppt
+		bindsym Right resize grow width 10 px or 10 ppt
 
-        # exit resize mode: Enter or Escape
-        bindsym Return mode "default"
-        bindsym Escape mode "default"
+# exit resize mode: Enter or Escape
+		bindsym Return mode "default"
+		bindsym Escape mode "default"
 }
 
 # Autostart applications
@@ -309,18 +309,17 @@ exec --no-startup-id compton -b
 exec --no-startup-id nm-applet
 exec --no-startup-id xfce4-power-manager
 exec --no-startup-id pamac-tray
-exec --no-startup-id clipit
 # exec --no-startup-id blueman-applet
 # exec_always --no-startup-id sbxkb
 #exec --no-startup-id start_conky_maia
 # exec --no-startup-id start_conky_green
-exec_always --no-startup-id ff-theme-util
-exec_always --no-startup-id fix_xcursor
-exec_always --no-startup-id ~/.config/i3/run-mailsync.sh
-exec_always variety
-exec_always fcitx
+exec --no-startup-id ff-theme-util
+exec --no-startup-id fix_xcursor
+exec --no-startup-id ~/.config/i3/run-mailsync.sh
+exec variety
+exec fcitx
 #exec_always --no-startup-id ~/.config/i3/tap-to-click.sh
-exec_always --no-startup-id ~/.config/i3/inverse-scroll.sh
+exec --no-startup-id ~/.config/i3/inverse-scroll.sh
 
 # Color palette used for the terminal ( ~/.Xresources file )
 # Colors are gathered based on the documentation:
@@ -328,7 +327,7 @@ exec_always --no-startup-id ~/.config/i3/inverse-scroll.sh
 # Change the variable name at the place you want to match the color
 # of your terminal like this:
 # [example]
-# If you want your bar to have the same background color as your 
+# If you want your bar to have the same background color as your
 # terminal background change the line 362 from:
 # background #14191D
 # to:
@@ -354,32 +353,39 @@ set_from_resource $term_color14    color14
 set_from_resource $term_color15    color15
 
 # Start i3bar to display a workspace bar (plus the system information i3status if available)
+#bar {
+#status_command ~/cmake-apps/bumblebee-status/bumblebee-status -m cpu memory battery time pasink pasource -p time.format="%H:%M" -t iceberg-powerline
+#}
 bar {
-	i3bar_command i3bar
-	status_command i3status
-	position bottom
+	id bar-1
+		i3bar_command i3bar
+		status_command i3status
+		position bottom
 
 ## please set your primary output first. Example: 'xrandr --output eDP1 --primary'
 #	tray_output primary
 #	tray_output eDP1
 
-	bindsym button4 nop
-	bindsym button5 nop
-   font xft:URWGothic-Book 16
-	strip_workspace_numbers yes
+		bindsym button4 nop
+		bindsym button5 nop
+		font xft:URWGothic-Book 16
+		strip_workspace_numbers yes
 
-    colors {
-        background #222D31
-        statusline #F9FAF9
-        separator  #454947
+		colors {
+#background #222D31
+#statusline #F9FAF9
+#separator  #454947
+			background #222222
+			statusline #eeeeee
+			separator #666666
 
 #                      border  backgr. text
-        focused_workspace  #F9FAF9 #16a085 #292F34
-        active_workspace   #595B5B #353836 #FDF6E3
-        inactive_workspace #595B5B #222D31 #EEE8D5
-        binding_mode       #16a085 #2C2C2C #F9FAF9
-        urgent_workspace   #16a085 #FDF6E3 #E5201D
-    }
+				focused_workspace  #F9FAF9 #16a085 #292F34
+				active_workspace   #595B5B #353836 #FDF6E3
+				inactive_workspace #595B5B #222D31 #EEE8D5
+				binding_mode       #16a085 #2C2C2C #F9FAF9
+				urgent_workspace   #16a085 #FDF6E3 #E5201D
+		}
 }
 
 # hide/unhide i3status bar
@@ -387,13 +393,13 @@ bindsym $mod+m bar mode toggle
 
 # Theme colors
 # class                   border  backgr. text    indic.   child_border
-  client.focused          #556064 #556064 #80FFF9 #FDF6E3
-  client.focused_inactive #2F3D44 #2F3D44 #1ABC9C #454948
-  client.unfocused        #2F3D44 #2F3D44 #1ABC9C #454948
-  client.urgent           #CB4B16 #FDF6E3 #1ABC9C #268BD2
-  client.placeholder      #000000 #0c0c0c #ffffff #000000 
+client.focused          #556064 #556064 #80FFF9 #FDF6E3
+client.focused_inactive #2F3D44 #2F3D44 #1ABC9C #454948
+client.unfocused        #2F3D44 #2F3D44 #1ABC9C #454948
+client.urgent           #CB4B16 #FDF6E3 #1ABC9C #268BD2
+client.placeholder      #000000 #0c0c0c #ffffff #000000
 
-  client.background       #2B2C2B
+client.background       #2B2C2B
 
 #############################
 ### settings for i3-gaps: ###
@@ -411,7 +417,7 @@ gaps outer -2
 # Smart gaps (gaps used if only more than one container on the workspace)
 smart_gaps on
 
-# Smart borders (draw borders around container only if it is not the only container on this workspace) 
+# Smart borders (draw borders around container only if it is not the only container on this workspace)
 # on|no_gaps (on=always activate and no_gaps=only activate if the gap size to the edge of the screen is 0)
 smart_borders on
 
@@ -422,32 +428,32 @@ set $mode_gaps_inner Inner Gaps: +|-|0 (local), Shift + +|-|0 (global)
 bindsym $mod+Shift+g mode "$mode_gaps"
 
 mode "$mode_gaps" {
-        bindsym o      mode "$mode_gaps_outer"
-        bindsym i      mode "$mode_gaps_inner"
-        bindsym Return mode "default"
-        bindsym Escape mode "default"
+	bindsym o      mode "$mode_gaps_outer"
+		bindsym i      mode "$mode_gaps_inner"
+		bindsym Return mode "default"
+		bindsym Escape mode "default"
 }
 mode "$mode_gaps_inner" {
-        bindsym plus  gaps inner current plus 5
-        bindsym minus gaps inner current minus 5
-        bindsym 0     gaps inner current set 0
+	bindsym plus  gaps inner current plus 5
+		bindsym minus gaps inner current minus 5
+		bindsym 0     gaps inner current set 0
 
-        bindsym Shift+plus  gaps inner all plus 5
-        bindsym Shift+minus gaps inner all minus 5
-        bindsym Shift+0     gaps inner all set 0
+		bindsym Shift+plus  gaps inner all plus 5
+		bindsym Shift+minus gaps inner all minus 5
+		bindsym Shift+0     gaps inner all set 0
 
-        bindsym Return mode "default"
-        bindsym Escape mode "default"
+		bindsym Return mode "default"
+		bindsym Escape mode "default"
 }
 mode "$mode_gaps_outer" {
-        bindsym plus  gaps outer current plus 5
-        bindsym minus gaps outer current minus 5
-        bindsym 0     gaps outer current set 0
+	bindsym plus  gaps outer current plus 5
+		bindsym minus gaps outer current minus 5
+		bindsym 0     gaps outer current set 0
 
-        bindsym Shift+plus  gaps outer all plus 5
-        bindsym Shift+minus gaps outer all minus 5
-        bindsym Shift+0     gaps outer all set 0
+		bindsym Shift+plus  gaps outer all plus 5
+		bindsym Shift+minus gaps outer all minus 5
+		bindsym Shift+0     gaps outer all set 0
 
-        bindsym Return mode "default"
-        bindsym Escape mode "default"
+		bindsym Return mode "default"
+		bindsym Escape mode "default"
 }

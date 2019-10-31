@@ -1,0 +1,51 @@
+export GOPATH=$HOME/go
+export PATH=$PATH:$HOME/go/bin
+export TERM=xterm-256color
+
+#autoload edit-command-line; zle -N edit-command-line
+#bindkey '^v' edit-command-line
+
+#alias av='source venv/bin/activate.fish'
+alias c='clear'
+alias cdiff='colordiff'
+alias cs='cowsay'
+#alias dv='deactivate'
+alias gc='git config credential.helper store'
+alias ipy='ipython'
+alias l='ls -la'
+alias lg='lazygit'
+alias ms='mailsync'
+alias mt='neomutt'
+alias nv='nvim'
+alias ra='ranger'
+alias s='neofetch'
+alias sra='sudo -E ranger'
+alias sudo='sudo -E'
+alias vim='nvim'
+alias gs='git config credential.helper store'
+
+bindkey -v
+bindkey -M vicmd "k" vi-insert
+bindkey -M vicmd "K" vi-insert-bol
+bindkey -M vicmd "n" vi-backward-char
+bindkey -M vicmd "i" vi-forward-char
+bindkey -M vicmd "N" vi-beginning-of-line
+bindkey -M vicmd "I" vi-end-of-line
+bindkey -M vicmd "e" down-line-or-history
+bindkey -M vicmd "u" up-line-or-history
+bindkey -M vicmd "l" undo
+#bindkey -M vicmd "-" vi-rev-repeat-search
+bindkey -M vicmd "=" vi-repeat-search
+bindkey -M vicmd "h" vi-forward-word-end
+
+function zle-line-init zle-keymap-select {
+    RPS1="${${KEYMAP/vicmd/-- NOR --}/(main|viins)/-- INS --}"
+    RPS2=$RPS1
+    zle reset-prompt
+}
+
+zle -N zle-line-init
+zle -N zle-keymap-select
+
+KEYTIMEOUT=1
+

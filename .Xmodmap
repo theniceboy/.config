@@ -255,5 +255,3 @@ keycode 255 = XF86RFKill NoSymbol XF86RFKill
 add control = Control_L Control_R
 add mod1 = Alt_L
 
-pointer = 1 2 3 5 4 6 7 8 9 10 11 12
-

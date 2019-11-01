@@ -1,6 +1,7 @@
 export GOPATH=$HOME/go
 export PATH=$PATH:$HOME/go/bin
-export TERM=xterm-256color
+#export TERM=xterm-256color
+export TERM=screen-256color
 
 #autoload edit-command-line; zle -N edit-command-line
 #bindkey '^v' edit-command-line

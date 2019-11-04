@@ -78,3 +78,4 @@ zle -N zle-keymap-select
 
 KEYTIMEOUT=1
 
+export PMY_TRIGGER_KEY='^t'

@@ -19,10 +19,11 @@
 !/.Xmodmap-cn
 !/.zshrc
 !/.gitignore
-!/llpp.conf
+#!/llpp.conf
 !/README.md
 !/vimium-options.json
 !/zsh
 !/i3status/
 !/mutt/
 /mutt/accounts/*
+!/my-packages.txt

@@ -1,0 +1,22 @@
+{
+  "settingsVersion": "1.64.6",
+  "exclusionRules": [
+  ],
+  "filterLinkHints": false,
+  "waitForEnterForFilteredHints": true,
+  "hideHud": false,
+  "keyMappings": "unmap t\nunmap n\nunmap N\nunmap <c-n>\nunmap B\nunmap l\nunmap <c-r>\n\nmap o Vomnibar.activateInNewTab\nmap O Vomnibar.activate\nmap b Vomnibar.activateBookmarksInNewTab\nmap B Vomnibar.activateBookmarks\nmap <c-p> Vomnibar.activateTabSelection\nmap l goBack\nmap h goForward\nmap u scrollUp\nmap e scrollDown\nmap U scrollUp count=4 #scrollFullPageUp\nmap E scrollDown count=4 #FullPageDown\nmap n scrollLeft\nmap i scrollRight\nmap Q removeTab\nmap ti nextTab\nmap tn previousTab\nmap tu createTab\nmap te moveTabToNewWindow\nmap tmn moveTabLeft\nmap tmi moveTabRight\nmap = performFind\nmap - performBackwardsFind\nmap k focusInput\n# map k enterInsertMode\nmap v enterVisualMode\nmap V enterVisualLineMode",
+  "linkHintCharacters": "tneiouywmrc",
+  "linkHintNumbers": "0123456789",
+  "newTabUrl": "about:newtab",
+  "nextPatterns": "next,more,newer,>,›,→,»,≫,>>",
+  "previousPatterns": "prev,previous,back,older,<,‹,←,«,≪,<<",
+  "regexFindMode": false,
+  "ignoreKeyboardLayout": false,
+  "scrollStepSize": 70,
+  "smoothScroll": true,
+  "grabBackFocus": false,
+  "searchEngines": "w: https://www.wikipedia.org/w/index.php?title=Special:Search&search=%s Wikipedia\n\n# More examples.\n#\n# (Vimium supports search completion Wikipedia, as\n# above, and for these.)\n#\n# g: https://www.google.com/search?q=%s Google\n# l: https://www.google.com/search?q=%s&btnI I'm feeling lucky...\n# y: https://www.youtube.com/results?search_query=%s Youtube\n# gm: https://www.google.com/maps?q=%s Google maps\n# b: https://www.bing.com/search?q=%s Bing\n# d: https://duckduckgo.com/?q=%s DuckDuckGo\n# az: https://www.amazon.com/s/?field-keywords=%s Amazon\n# qw: https://www.qwant.com/?q=%s Qwant",
+  "searchUrl": "https://www.google.com/search?q=",
+  "userDefinedLinkHintCss": "div > .vimiumHintMarker {\n/* linkhint boxes */\nbackground: -webkit-gradient(linear, left top, left bottom, color-stop(0%,#FFF785),\n  color-stop(100%,#FFC542));\nborder: 1px solid #E3BE23;\n}\n\ndiv > .vimiumHintMarker span {\n/* linkhint text */\ncolor: black;\nfont-weight: bold;\nfont-size: 12px;\n}\n\ndiv > .vimiumHintMarker > .matchingCharacter {\n}"
+}

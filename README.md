@@ -3,7 +3,7 @@ This config folder includes `i3` and `alacritty` config, however, I'm using [dwm
 
 # Important stuff:
 ## Ranger
-use `ueberzug` and `ranger-git`
+use pip install `ueberzug` and `ranger-git`
 
 ## mutt
 In `~/.gnupg/gpg-agent.conf`:

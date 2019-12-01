@@ -18,7 +18,14 @@ alias lg='lazygit'
 alias ms='mailsync'
 alias mt='neomutt'
 alias nv='nvim'
-alias ra='ranger'
+ra() {
+	if [ -z "$RANGER_LEVEL" ]
+	then
+		ranger
+	else
+		exit
+	fi
+}
 alias s='neofetch'
 alias sra='sudo -E ranger'
 alias sudo='sudo -E'
@@ -46,15 +53,10 @@ bindkey -M vicmd "h" vi-forward-word-end
 #}
 
 function zle-keymap-select {
-  if [[ ${KEYMAP} == vicmd ]] ||
-     [[ $1 = 'block' ]]; then
-    echo -ne '\e[1 q'
-
-  elif [[ ${KEYMAP} == main ]] ||
-       [[ ${KEYMAP} == viins ]] ||
-       [[ ${KEYMAP} = '' ]] ||
-       [[ $1 = 'beam' ]]; then
-    echo -ne '\e[5 q'
+	if [[ ${KEYMAP} == vicmd ]] || [[ $1 = 'block' ]]; then
+		echo -ne '\e[1 q'
+	elif [[ ${KEYMAP} == main ]] || [[ ${KEYMAP} == viins ]] || [[ ${KEYMAP} = '' ]] || [[ $1 = 'beam' ]]; then
+		echo -ne '\e[5 q'
   fi
 }
 zle -N zle-keymap-select
@@ -64,11 +66,11 @@ echo -ne '\e[5 q'
 
 # Use beam shape cursor for each new prompt.
 preexec() {
-   echo -ne '\e[5 q'
+	echo -ne '\e[5 q'
 }
 
 _fix_cursor() {
-   echo -ne '\e[5 q'
+	echo -ne '\e[5 q'
 }
 precmd_functions+=(_fix_cursor)
 

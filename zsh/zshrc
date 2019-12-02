@@ -18,14 +18,15 @@ alias lg='lazygit'
 alias ms='mailsync'
 alias mt='neomutt'
 alias nv='nvim'
-ra() {
-	if [ -z "$RANGER_LEVEL" ]
-	then
-		ranger
-	else
-		exit
-	fi
-}
+alias ra='ranger'
+# ra() {
+	#if [ -z "$RANGER_LEVEL" ]
+	#then
+		#ranger
+	#else
+		#exit
+	#fi
+#}
 alias s='neofetch'
 alias sra='sudo -E ranger'
 alias sudo='sudo -E'
@@ -84,8 +85,6 @@ KEYTIMEOUT=1
 export FZF_DEFAULT_OPTS='--bind ctrl-e:down,ctrl-u:up --preview "[[ $(file --mime {}) =~ binary ]] && echo {} is a binary file || (bat --style=numbers --color=always {} || highlight -O ansi -l {} || coderay {} || rougify {} || cat {}) 2> /dev/null | head -500"'
 export FZF_DEFAULT_COMMAND='ag --hidden --ignore .git -g ""'
 export FZF_COMPLETION_TRIGGER='\'
-source /usr/share/fzf/key-bindings.zsh
-source /usr/share/fzf/completion.zsh
-
-#eval "$(pmy init)"
-#export PMY_TRIGGER_KEY='^t'
+export FZF_TMUX_HEIGHT='80%'
+source ~/.config/zsh/key-bindings.zsh
+source ~/.config/zsh/completion.zsh

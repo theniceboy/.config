@@ -18,6 +18,7 @@ alias lg='lazygit'
 alias ms='mailsync'
 alias mt='neomutt'
 alias nv='nvim'
+alias r='echo $RANGER_LEVEL'
 alias ra='ranger'
 # ra() {
 	#if [ -z "$RANGER_LEVEL" ]

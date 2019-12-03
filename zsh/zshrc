@@ -90,3 +90,8 @@ export FZF_TMUX_HEIGHT='80%'
 export FZF_PREVIEW_COMMAND='[[ $(file --mime {}) =~ binary ]] && echo {} is a binary file || (ccat --color=always {} || highlight -O ansi -l {} || cat {}) 2> /dev/null | head -500'
 source ~/.config/zsh/key-bindings.zsh
 source ~/.config/zsh/completion.zsh
+
+if [ -f ~/.sconfig/zsh/zshrc ]; then
+	source ~/.sconfig/zsh/zshrc
+fi
+

@@ -31,6 +31,8 @@ export QT_IM_MODULE=fcitx
 export XMODIFIERS="@im=fcitx"
 ```
 
+#### Fcitx users need to set the first input method to be Keyboard - layout
+
 ## fonts
 #### locale
 In `locale.conf`:

@@ -1,0 +1,43 @@
+confirmonquit: false
+git:
+  autofetch: true
+  merging:
+    manualcommit: false
+  skiphookprefix: WIP
+gui:
+  commitlength:
+    show: true
+  mouseevents: true
+  scrollheight: 2
+  scrollpastbottom: true
+  theme:
+    activebordercolor:
+    - cyan
+    - bold
+    inactivebordercolor:
+    - white
+    lighttheme: false
+    optionstextcolor:
+    - blue
+reporting: "off"
+splashupdatesindex: 0
+startuppopupversion: 1
+keybinding:
+  universal:
+    prevItem-alt: 'u' # go one line up
+    nextItem-alt: 'e' # go one line down
+    prevBlock-alt: 'n' # goto the previous block / panel
+    nextBlock-alt: 'i' # goto the next block / panel
+    new: 'k'
+    edit: 'o'
+    openFile: 'O'
+    scrollUpMain-alt1: 'U' # main panel scrool up
+    scrollDownMain-alt1: 'E' # main panel scrool down
+    scrollDownMain-alt2: '<c-e>' # main panel scrool down
+  status:
+    checkForUpdate: '<c-u>'
+  files:
+    ignoreFile: 'I'
+  commits:
+    moveDownCommit: '<c-e>' # move commit down one
+    moveUpCommit: '<c-u>' # move commit up one

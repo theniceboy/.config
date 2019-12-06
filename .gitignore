@@ -27,3 +27,6 @@
 !/mutt/
 /mutt/accounts/*
 !/my-packages.txt
+!/jesseduffield/
+/jesseduffield/lazygit/*
+!/jesseduffield/lazygit/config.yml

@@ -24,20 +24,89 @@ splashupdatesindex: 0
 startuppopupversion: 1
 keybinding:
   universal:
-    prevItem-alt: 'u' # go one line up
-    nextItem-alt: 'e' # go one line down
-    prevBlock-alt: 'n' # goto the previous block / panel
-    nextBlock-alt: 'i' # goto the next block / panel
-    new: 'k'
-    edit: 'o'
-    openFile: 'O'
-    scrollUpMain-alt1: 'U' # main panel scrool up
-    scrollDownMain-alt1: 'E' # main panel scrool down
-    scrollDownMain-alt2: '<c-e>' # main panel scrool down
+    quit: 'q'
+    quit-alt1: '<c-c>'
+    return: '<esc>'
+    quitWithoutChangingDirectory: 'Q'
+    togglePanel: '<tab>'
+    prevItem: '<up>'
+    nextItem: '<down>'
+    prevItem-alt: 'k'
+    nextItem-alt: 'j'
+    prevBlock: '<left>'
+    nextBlock: '<right>'
+    prevBlock-alt: 'h'
+    nextBlock-alt: 'l'
+    optionMenu: 'x'
+    optionMenu-alt1: '?'
+    select: '<space>'
+    goInto: '<enter>'
+    remove: 'd'
+    new: 'n'
+    edit: 'e'
+    openFile: 'o'
+    scrollUpMain: '<pgup>'
+    scrollDownMain: '<pgdown>'
+    scrollUpMain-alt1: 'K'
+    scrollDownMain-alt1: 'J'
+    scrollUpMain-alt2: '<c-u>'
+    scrollDownMain-alt2: '<c-d>'
+    executeCustomCommand: 'X'
+    createRebaseOptionsMenu: 'm'
+    pushFiles: 'P'
+    pullFiles: 'p'
+    refresh: 'R'
+    createPatchOptionsMenu: '<c-p>'
+    nextBranchTab: ']'
+    prevBranchTab: '['
   status:
-    checkForUpdate: '<c-u>'
+    checkForUpdate: 'u'
+    recentRepos: '<enter>'
   files:
-    ignoreFile: 'I'
+    commitChanges: 'c'
+    commitChangesWithoutHook: 'w'
+    amendLastCommit: 'A'
+    commitChangesWithEditor: 'C'
+    ignoreFile: 'i'
+    refreshFiles: 'r'
+    stashAllChanges: 's'
+    viewStashOptions: 'S'
+    toggleStagedAll: 'a'
+    viewResetOptions: 'D'
+    fetch: 'f'
+  branches:
+    createPullRequest: 'o'
+    checkoutBranchByName: 'c'
+    forceCheckoutBranch: 'F'
+    rebaseBranch: 'r'
+    mergeIntoCurrentBranch: 'M'
+    fastForward: 'f'
+    pushTag: 'P'
+    setUpstream: 'u'
   commits:
-    moveDownCommit: '<c-e>' # move commit down one
-    moveUpCommit: '<c-u>' # move commit up one
+    squashDown: 's'
+    renameCommit: 'r'
+    renameCommitWithEditor: 'R'
+    viewResetOptions: 'g'
+    markCommitAsFixup: 'f'
+    createFixupCommit: 'F'
+    squashAboveCommits: 'S'
+    moveDownCommit: '<c-j>'
+    moveUpCommit: '<c-k>'
+    amendToCommit: 'A'
+    pickCommit: 'p'
+    revertCommit: 't'
+    cherryPickCopy: 'c'
+    cherryPickCopyRange: 'C'
+    pasteCommits: 'v'
+    tagCommit: 'T'
+  stash:
+    popStash: 'g'
+  commitFiles:
+    checkoutCommitFile: 'c'
+  main:
+    toggleDragSelect: 'v'
+    toggleDragSelect-alt: 'V'
+    toggleSelectHunk: 'a'
+    PickBothHunks: 'b'
+    undo: 'z'

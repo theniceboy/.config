@@ -57,24 +57,12 @@ Just install `noto-fonts` (not `-all`). It's already bloated. Check `/usr/share/
 
 #### Emoji
 ```
-ttf-linux-libertine # probably not actually needed, only aesthetic
-ttf-inconsolata # the monospace font
-ttf-emojione
-ttf-symbola
-ttf-joypixels
-ttf-twemoji-color
-noto-fonts-emoji
+yay -S ttf-linux-libertine ttf-inconsolata ttf-joypixels ttf-twemoji-color noto-fonts-emoji ttf-liberation ttf-droid
 ```
 
 #### Chinese
 ```
-wqy-bitmapfont 1.0.0RC1-3
-wqy-microhei 0.2.0_beta-9
-wqy-microhei-lite 0.2.0_beta-9
-wqy-zenhei 0.9.45-7
-adobe-source-han-mono
-adobe-source-han-sans
-adobe-source-han-serif
+yay -S wqy-bitmapfont wqy-microhei wqy-microhei-lite wqy-zenhei adobe-source-han-mono-cn-fonts adobe-source-han-sans-cn-fonts adobe-source-han-serif-cn-fonts
 ```
 
 ## gtk-theme

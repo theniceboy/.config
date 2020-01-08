@@ -40,3 +40,6 @@ keybinding:
   commits:
     moveDownCommit: '<c-e>'
     moveUpCommit: '<c-u>'
+    toggleDiffCommit: 'l'
+  branches:
+    viewGitFlowOptions: 'I'

@@ -1,6 +1,7 @@
 export GOPATH=$HOME/go
 export PATH=$PATH:$HOME/.gem/ruby/2.6.0
 export PATH=$PATH:$HOME/go/bin
+export PATH=$PATH:/home/linuxbrew/.linuxbrew/bin
 export TERM=xterm-256color
 export TERM_ITALICS=true
 export RANGER_LOAD_DEFAULT_RC="false"

@@ -33,6 +33,7 @@ alias ra='ranger'
 	#fi
 #}
 alias s='neofetch'
+alias g='onefetch'
 alias sra='sudo -E ranger'
 alias sudo='sudo -E'
 alias vim='nvim'

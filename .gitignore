@@ -6,9 +6,9 @@
 !/i3/
 !/polybar/
 !/ranger/
-/ranger/plugins/__pycache__/*
-/ranger/colorschemes/__pycache__/*
-/ranger/folders.conf
+ranger/plugins/__pycache__/*
+ranger/colorschemes/__pycache__/*
+ranger/folders.conf
 !/kitty/
 !/alacritty/
 !/fish/
@@ -30,3 +30,10 @@
 !/jesseduffield/
 /jesseduffield/lazygit/*
 !/jesseduffield/lazygit/config.yml
+!/tmux.conf
+
+ranger/colorschemes/__init__.pyo
+ranger/colorschemes/default.pyo
+ranger/plugins/__init__.pyo
+ranger/plugins/devicons.pyo
+ranger/plugins/devicons_linemode.pyo

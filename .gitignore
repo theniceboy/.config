@@ -30,3 +30,6 @@
 !/jesseduffield/
 /jesseduffield/lazygit/*
 !/jesseduffield/lazygit/config.yml
+!/pudb/
+/pudb/*
+!/pudb/pudb.cfg

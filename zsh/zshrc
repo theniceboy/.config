@@ -21,8 +21,8 @@ alias l='ls -la'
 alias lg='lazygit'
 alias ms='mailsync'
 alias mt='neomutt'
-alias nv='nvim'
 alias r='echo $RANGER_LEVEL'
+alias pu='python3 -m pudb'
 alias ra='ranger'
 # ra() {
 	#if [ -z "$RANGER_LEVEL" ]

@@ -40,6 +40,7 @@ alias vim='nvim'
 alias gs='git config credential.helper store'
 alias bat='sudo tlp bat'
 alias ac='sudo tlp ac'
+alias gy='git-yolo'
 
 bindkey -v
 bindkey -M vicmd "k" vi-insert

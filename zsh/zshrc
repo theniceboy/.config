@@ -2,6 +2,7 @@ export GOPATH=$HOME/go
 export PATH=$PATH:$HOME/.gem/ruby/2.6.0
 export PATH=$PATH:$HOME/go/bin
 export PATH=$PATH:/home/linuxbrew/.linuxbrew/bin
+export PATH=$PATH:/home/david/prog/flutter/bin
 export TERM=xterm-256color
 export TERM_ITALICS=true
 export RANGER_LOAD_DEFAULT_RC="false"
@@ -10,11 +11,11 @@ export RANGER_LOAD_DEFAULT_RC="false"
 #autoload edit-command-line; zle -N edit-command-line
 #bindkey '^v' edit-command-line
 
-#alias av='source venv/bin/activate.fish'
+alias av='source venv/bin/activate'
 alias c='clear'
 alias cdiff='colordiff'
 alias cs='calcurse'
-#alias dv='deactivate'
+alias dv='deactivate'
 alias gc='git config credential.helper store'
 alias ipy='ipython'
 alias l='ls -la'

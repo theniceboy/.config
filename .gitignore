@@ -37,3 +37,6 @@ ranger/colorschemes/default.pyo
 ranger/plugins/__init__.pyo
 ranger/plugins/devicons.pyo
 ranger/plugins/devicons_linemode.pyo
+!/pudb/
+/pudb/*
+!/pudb/pudb.cfg

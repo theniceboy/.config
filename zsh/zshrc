@@ -4,6 +4,8 @@ export PATH=$PATH:$HOME/go/bin
 export PATH=$PATH:/home/linuxbrew/.linuxbrew/bin
 export PATH=$PATH:$HOME/.local/bin
 #export TERM=xterm-256color
+export PATH=$PATH:/home/david/prog/flutter/bin
+export TERM=xterm-256color
 export TERM_ITALICS=true
 export RANGER_LOAD_DEFAULT_RC="false"
 export TERM=screen-256color
@@ -13,19 +15,19 @@ export XDG_CONFIG_HOME=/home/david/.config
 #autoload edit-command-line; zle -N edit-command-line
 #bindkey '^v' edit-command-line
 
-#alias av='source venv/bin/activate.fish'
+alias av='source venv/bin/activate'
 alias c='clear'
 alias cdiff='colordiff'
 alias cs='calcurse'
-#alias dv='deactivate'
+alias dv='deactivate'
 alias gc='git config credential.helper store'
 alias ipy='ipython'
 alias l='ls -la'
 alias lg='lazygit'
 alias ms='mailsync'
 alias mt='neomutt'
-alias nv='nvim'
 alias r='echo $RANGER_LEVEL'
+alias pu='python3 -m pudb'
 alias ra='ranger'
 # ra() {
 	#if [ -z "$RANGER_LEVEL" ]
@@ -43,6 +45,7 @@ alias vim='nvim'
 alias gs='git config credential.helper store'
 alias bat='sudo tlp bat'
 alias ac='sudo tlp ac'
+alias gy='git-yolo'
 
 bindkey -v
 bindkey -M vicmd "k" vi-insert

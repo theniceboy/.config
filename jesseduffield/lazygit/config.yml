@@ -28,6 +28,8 @@ keybinding:
     nextItem-alt: 'e'
     prevBlock-alt: 'n'
     nextBlock-alt: 'i'
+    nextMatch: '='
+    prevMatch: '-'
     new: 'k'
     edit: 'o'
     openFile: 'O'

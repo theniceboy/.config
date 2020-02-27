@@ -48,6 +48,8 @@ alias ac='sudo tlp ac'
 alias gy='git-yolo'
 alias nb='newsboat -r'
 alias nt="sh -c 'cd $(pwd); st' > /dev/null 2>&1 &"
+alias ta='tmux a'
+alias tm='tmux'
 
 bindkey -v
 bindkey -M vicmd "k" vi-insert

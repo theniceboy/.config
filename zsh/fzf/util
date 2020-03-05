@@ -33,6 +33,7 @@ ac     [alias]              sudo tlp ac
 gy     [alias]              git-yolo
 nb     [alias]              newsboat -r
 nt     [alias]              sh -c 'cd $(pwd); st' > /dev/null 2>&1 &"
+lo     [alias]              lsof -p $(fps) +w
 
 local cmd=$(echo $helptxt | eval "fzf ${FZF_DEFAULT_OPTS} --header='[utils:show]'" | awk '{print $1}')
 

@@ -1,0 +1,42 @@
+### UTILS
+# show utils commands and custom aliasses
+
+local helptxt="bcp    [brew:clean]
+bip    [brew:install]
+bup    [brew:update]
+cani   [caniuse:features]
+fp     [find:path]
+kp     [kill:path]
+ks     [kill:tcp]
+av     [alias]              source venv/bin/activate
+c      [alias]              clear
+cdiff  [alias]              colordiff
+cs     [alias]              calcurse
+dv     [alias]              deactivate
+gc     [alias]              git config credential.helper store
+ipy    [alias]              ipython
+l      [alias]              ls -la
+lg     [alias]              lazygit
+ms     [alias]              mailsync
+mt     [alias]              neomutt
+r      [alias]              echo $RANGER_LEVEL
+pu     [alias]              python3 -m pudb
+ra     [alias]              ranger
+s      [alias]              neofetch
+g      [alias]              onefetch
+sra    [alias]              sudo -E ranger
+sudo   [alias]              sudo -E
+vim    [alias]              nvim
+gs     [alias]              git config credential.helper store
+bat    [alias]              sudo tlp bat
+ac     [alias]              sudo tlp ac
+gy     [alias]              git-yolo
+nb     [alias]              newsboat -r
+nt     [alias]              sh -c 'cd $(pwd); st' > /dev/null 2>&1 &"
+
+local cmd=$(echo $helptxt | eval "fzf ${FZF_DEFAULT_OPTS} --header='[utils:show]'" | awk '{print $1}')
+
+if [[ -n $cmd ]]; then
+  eval ${cmd}
+fi
+

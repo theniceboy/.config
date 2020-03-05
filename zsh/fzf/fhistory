@@ -1,0 +1,13 @@
+#!/usr/bin/env zsh
+
+setopt localoptions pipefail
+
+# TODO: sort is not stream command, bad performance #
+local selected=( $(fc -rl 1 | sort -k 2 -u | sort -rn |
+    fzf --height 50% -n2..,.. --tiebreak=index --bind=ctrl-r:toggle-sort --query=$1 +m) )
+
+local ret=$?
+if [[ -n $selected ]]; then
+    print $selected[1]
+fi
+return $ret

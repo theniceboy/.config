@@ -1,0 +1,80 @@
+#!/usr/bin/env zsh
+
+setopt localoptions
+
+local s_path level
+local only_dir
+while getopts ':dl:s:' opt; do
+    case $opt in
+    d)
+        only_dir=1
+        ;;
+    l)
+        level=$OPTARG
+        ;;
+    s)
+        s_path=$OPTARG
+        ;;
+    \?)
+        echo "Invalid option -$OPTARG." >&2
+        ;;
+    esac
+done
+
+local cmd="command find -L ${s_path:-.} -mindepth 1 ${level:+-maxdepth $level} \
+\\( -path '*/\\.git' \
+-o -path '*/venv' \
+-o -fstype 'sysfs' \
+-o -fstype 'devfs' \
+-o -fstype 'devtmpfs' \
+-o -fstype 'proc' \\) -prune \
+-o -type d -print"
+
+if [[ -z $only_dir ]]; then
+    cmd="$cmd -o -type f -print -o -type l -print"
+fi
+
+cmd="$cmd 2>/dev/null"
+
+if [[ -z $s_path || $s_path == '.' ]]; then
+    cmd="$cmd | cut -b3-"
+fi
+
+local fzf_opts="--height=50% --reverse -m --tiebreak=end \
+--preview-window=right:60%:wrap \
+--bind=ctrl-alt-u:preview-up,ctrl-alt-e:preview-down"
+
+local fzf_preview_cmd='
+    t=${$(readlink {}):-{}}
+    if [[ $(file -i $t) =~ directory ]]; then
+        (exa --color=always -T -L 1 {} ||
+            tree -C -L 1 {} ||
+            echo {} is a directory.) 2>/dev/null
+    elif [[ $(file -i $t) =~ binary ]]; then
+        echo {} is a binary file.
+    else
+        ccat --color=always {} 2>/dev/null
+    fi
+'
+
+local -a ret_array
+local ret=0
+
+eval $cmd | fzf ${(z)fzf_opts} --preview $fzf_preview_cmd ${(z)EXTRA_OPTS} | {
+    while read item; do
+        printf "${(q)item} "
+    done
+} | sed -E '$s/ $//'
+
+ret_array=($pipestatus)
+# ignore find command error code 1 such as loop detect or permission
+if (( $ret_array[1] == 1 )); then
+    ret=0
+fi
+local p_ret
+for p_ret in $ret_array[2,-1]; do
+    if (( p_ret )); then
+        ret=$p_ret
+    fi
+done
+return $ret

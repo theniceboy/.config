@@ -1,0 +1,42 @@
+#!/usr/bin/env zsh
+
+local ret=0
+local tokens=(${(z)LBUFFER})
+local -a cmd_opts=()
+local -a extra_fzf_opts=()
+if [[ $1 == 'only_dir' ]]; then
+    cmd_opts+='-d'
+    extra_fzf_opts+='+m'
+fi
+if (( $#tokens )) && [[ $LBUFFER[-1] != ' ' ]]; then
+    local is_wave=0
+    local dir=${(e)tokens[-1]}
+    if [[ $dir[1] == ~* ]]; then
+        is_wave=1
+    fi
+    dir=${dir/#'~'/$HOME}
+    local base
+    if [[ ! -d $dir ]]; then
+        base=$(basename $dir)
+        dir=$(dirname $dir)
+    fi
+    cmd_opts+="-s $dir"
+    extra_fzf_opts+=${base:+--query $base}
+    match=$(EXTRA_OPTS=${(z)extra_fzf_opts} ffind ${(z)cmd_opts})
+    ret=$?
+    if (( ret == 0 || ret == 141 )); then
+        if (( is_wave )); then
+            match=$(sed "s| $HOME| ~|g" <<<$match)
+        fi
+        if (( $#tokens == 1 )); then
+            LBUFFER=$match
+        else
+            LBUFFER="$tokens[0,-2] $match"
+        fi
+    fi
+else
+    LBUFFER=$LBUFFER$(EXTRA_OPTS=${(z)extra_fzf_opts} ffind ${(z)cmd_opts})
+    ret=$?
+fi
+zle reset-prompt
+return $ret

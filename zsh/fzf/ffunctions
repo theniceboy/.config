@@ -1,0 +1,5 @@
+#!/usr/bin/env zsh
+
+setopt localoptions pipefail
+
+print -l ${(k)functions} | fzf  --height=50%

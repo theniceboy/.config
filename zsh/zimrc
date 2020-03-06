@@ -9,7 +9,7 @@ zmodule magicmace
 zmodule zsh-users/zsh-completions
 zmodule zsh-users/zsh-autosuggestions
 zmodule zsh-users/zsh-history-substring-search
-zmodule zdharma/fast-syntax-highlighting
+zmodule theniceboy/fast-syntax-highlighting
 zmodule supercrabtree/k
 zmodule mafredri/zsh-async
 zmodule hlissner/zsh-autopair

@@ -1,10 +1,10 @@
-#!/usr/bin/env sh
+#!/usr/bin/env bash
 
 new_window() {
     [[ -x $(command -v fzf 2>/dev/null) ]] || return
     pane_id=$(tmux show -gqv '@fzf_pane_id')
     [[ -n $pane_id ]] && tmux kill-pane -t $pane_id >/dev/null 2>&1
-    tmux new-window "sh $0 do_action" >/dev/null 2>&1
+    tmux new-window "bash $0 do_action" >/dev/null 2>&1
 }
 
 # invoked by pane-focus-in event
@@ -23,7 +23,7 @@ do_action() {
     current_pane_id=$(tmux display-message -p '#D')
     tmux set -g @fzf_pane_id $current_pane_id
 
-    cmd="sh $0 panes_src"
+    cmd="bash $0 panes_src"
     set -- 'tmux capture-pane -pe -S' \
         '$(start=$(( $(tmux display-message -t {1} -p "#{pane_height}")' \
         '- $FZF_PREVIEW_LINES ));' \

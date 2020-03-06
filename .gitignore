@@ -31,7 +31,7 @@ ranger/folders.conf
 /jesseduffield/lazygit/*
 !/jesseduffield/lazygit/config.yml
 !/.tmux.conf
-
+!/tmux/
 ranger/colorschemes/__init__.pyo
 ranger/colorschemes/default.pyo
 ranger/plugins/__init__.pyo

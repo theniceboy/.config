@@ -217,7 +217,7 @@ handle_mime() {
     case "${mimetype}" in
         # Text
         text/* | */xml)
-            if  command -v ccat 2>/dev/null; then
+            if  command -v ccat &>/dev/null; then
                 ccat --color=always ${FILE_PATH}
                 exit 0
             fi

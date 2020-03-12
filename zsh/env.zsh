@@ -1,5 +1,6 @@
 export GOPATH=$HOME/go
 export PATH=$PATH:$HOME/.gem/ruby/2.6.0
+export PATH=$PATH:/usr/local/bin
 export PATH=$PATH:$HOME/go/bin
 export PATH=$PATH:/home/linuxbrew/.linuxbrew/bin
 export PATH=$PATH:$HOME/.local/bin

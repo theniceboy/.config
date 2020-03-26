@@ -1,0 +1,77 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require 'colorize'
+require 'json'
+
+# Ciu, short for CanIUse
+# A shell script that downloads JSON data and displays results
+# in table form with colors
+module Ciu
+  MAX_AGE   = 86_400 # 1 day in seconds
+  STATUSSES = { 'rec' => 'rc', 'unoff' => 'un', 'other' => 'ot' }.freeze
+  COL       = '   '.freeze
+  VER_BACK  = 2
+  FETCH_URL = 'https://raw.githubusercontent.com/Fyrd/caniuse/master/data.json'.freeze
+  STAT_SYMS = { 'n' => '-', 'y' => '+', 'p' => '~' }.freeze
+  LIST      = %w[ie edge safari ios_saf opera
+                 op_mob firefox chrome android bb].freeze
+  NAMES     = { 'firefox' => 'ff', 'chrome' => 'chr', 'safari' => 'saf',
+                'ios_saf' => 'saf_ios', 'opera' => 'opr', 'op_mob' => 'opr_mob',
+                'android' => 'andr' }.freeze
+
+  def self.features
+    data
+  end
+
+  def self.row(ft)
+    [
+      status(ft['status']).green,
+      support(ft['usage_perc_y']).light_black,
+      title(ft['title']),
+      stats(ft['stats']).light_black
+    ].join(COL).bold
+  end
+
+  def self.title(str, maxw = 30, fill = '...')
+    return str[0..(maxw - fill.size - 1)] + fill if str.size >= maxw
+    str + (' ' * (maxw - str.size))
+  end
+
+  def self.status(status)
+    '[' + (STATUSSES[status] || status) + ']'
+  end
+
+  def self.support(percentage)
+    (percentage.to_s + '%').ljust(6)
+  end
+
+  def self.stats(stats)
+    LIST.map do |browser|
+      stats[browser].values.last(VER_BACK)
+                    .map { |ypn| STAT_SYMS.fetch ypn, '-' }
+                    .join + (NAMES[browser] || browser)
+    end.join COL
+  end
+
+  def self.data
+    @data ||= begin
+      path = File.expand_path '~/.caniuse-fzf-data'
+      exists = File.exist? path
+      update = exists && File.mtime(path).to_i < Time.now.to_i - MAX_AGE
+
+      exists && !update ? File.read(path) : download!
+    end
+  end
+
+  def self.download!
+    path = File.expand_path '~/.caniuse-fzf-data'
+    json = JSON.parse `curl --silent #{FETCH_URL}`
+    data = json['data'].values.map(&method(:row)).join "\n"
+
+    File.open(path, 'w') { |f| f.write data }
+    data
+  end
+end
+
+puts Ciu.features

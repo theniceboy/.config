@@ -40,3 +40,4 @@ ranger/plugins/devicons_linemode.pyo
 !/pudb/
 /pudb/*
 !/pudb/pudb.cfg
+!/bin

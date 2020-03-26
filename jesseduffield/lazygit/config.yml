@@ -4,10 +4,13 @@ git:
   merging:
     manualcommit: false
   skiphookprefix: WIP
+  paging:
+    colorArg: always
+    pager: delta --dark --paging=never --24-bit-color=never
 gui:
   commitlength:
     show: true
-  mouseevents: true
+  mouseevents: false
   scrollheight: 2
   scrollpastbottom: true
   theme:
@@ -37,6 +40,8 @@ keybinding:
     scrollDownMain-alt1: 'E'
     scrollUpMain-alt2: '<c-u>'
     scrollDownMain-alt2: '<c-e>'
+    undo: '<c-z>'
+    redo: '<c-r>'
   files:
     ignoreFile: 'I'
   commits:

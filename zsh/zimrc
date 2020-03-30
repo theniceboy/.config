@@ -13,4 +13,5 @@ zmodule theniceboy/fast-syntax-highlighting
 zmodule supercrabtree/k
 zmodule mafredri/zsh-async
 zmodule hlissner/zsh-autopair
+zmodule pabloariasal/zfm
 #zmodule cusxio/delta-prompt

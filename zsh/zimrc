@@ -15,4 +15,5 @@ zmodule mafredri/zsh-async
 zmodule hlissner/zsh-autopair
 zmodule pabloariasal/zfm
 zmodule agkozak/zsh-z
+zmodule Aloxaf/fzf-tab
 #zmodule cusxio/delta-prompt

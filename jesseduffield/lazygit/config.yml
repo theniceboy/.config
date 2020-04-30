@@ -50,3 +50,4 @@ keybinding:
     toggleDiffCommit: 'l'
   branches:
     viewGitFlowOptions: 'I'
+    setUpstream: 'U'

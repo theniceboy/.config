@@ -84,10 +84,10 @@ handle_extension() {
             elinks -dump "${FILE_PATH}" && exit 5
             ;; # Continue with next handler on failure
         # JSON
-        json)
-            jq --color-output . "${FILE_PATH}" && exit 5
-            python -m json.tool -- "${FILE_PATH}" && exit 5
-            ;;
+        #json)
+            #jq --color-output . "${FILE_PATH}" && exit 5
+            #python -m json.tool -- "${FILE_PATH}" && exit 5
+            #;;
     esac
 }
 

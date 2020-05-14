@@ -2,9 +2,13 @@
 
 cd ~/.config
 git pull
+git status
 cd ~/.sconfig
 git pull
+git status
 cd ~/scripts
 git pull
+git status
 cd ~/.config/nvim
 git pull
+git status

@@ -11,9 +11,7 @@ zmodule zsh-users/zsh-autosuggestions
 zmodule zsh-users/zsh-history-substring-search
 zmodule zdharma/fast-syntax-highlighting
 zmodule supercrabtree/k
-zmodule mafredri/zsh-async
 zmodule hlissner/zsh-autopair
 zmodule pabloariasal/zfm
 zmodule agkozak/zsh-z
 zmodule Aloxaf/fzf-tab
-#zmodule cusxio/delta-prompt

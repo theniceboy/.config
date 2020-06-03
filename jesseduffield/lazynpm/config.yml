@@ -1,0 +1,81 @@
+gui:
+  scrollHeight: 2
+  mouseEvents: false
+  sidePanelWidth: 0.3333
+  theme:
+    lightTheme: false
+    activeBorderColor:
+      - green
+      - bold
+    inactiveBorderColor:
+      - white
+    optionsTextColor:
+      - blue
+    selectedLineBgColor:
+      - blue
+update:
+  method: prompt # can be: prompt | background | never
+  days: 14 # how often a update is checked for
+reporting: 'off' # one of: 'on' | 'off' | 'undetermined'
+splashUpdatesIndex: 0
+confirmOnQuit: false
+keybinding:
+  universal:
+    quit: 'q'
+    quit-alt1: '<c-c>'
+    return: '<esc>'
+    quitWithoutChangingDirectory: 'Q'
+    togglePanel: '<tab>'
+    prevItem: '<up>'
+    nextItem: '<down>'
+    prevItem-alt: 'k'
+    nextItem-alt: 'j'
+    prevPage: ','
+    nextPage: '.'
+    gotoTop: '<'
+    gotoBottom: '>'
+    prevBlock: '<left>'
+    nextBlock: '<right>'
+    prevBlock-alt: 'h'
+    nextBlock-alt: 'l'
+    nextMatch: 'n'
+    prevMatch: 'N'
+    startSearch: '/'
+    optionMenu: 'x'
+    optionMenu-alt1: '?'
+    select: '<space>'
+    goInto: '<enter>'
+    remove: 'd'
+    new: 'n'
+    edit: 'e'
+    openFile: 'o'
+    scrollUpMain: '<pgup>'
+    scrollDownMain: '<pgdown>'
+    scrollUpMain-alt1: 'K'
+    scrollDownMain-alt1: 'J'
+    scrollUpMain-alt2: '<c-u>'
+    scrollDownMain-alt2: '<c-d>'
+    executeCustomCommand: ':'
+    refresh: 'R'
+    nextTab: ']'
+    prevTab: '['
+    nextScreenMode: '+'
+    prevScreenMode: '_'
+    kill: 'z'
+    redo: '<c-z>'
+    install: 'i'
+    update: 'u'
+    cleanInstall: 'I'
+  status:
+    checkForUpdate: 'u'
+  main:
+    toggleDragSelect: 'v'
+    toggleDragSelect-alt: 'V'
+  packages:
+    link: 'l'
+    globalLink: 'L'
+    build: 'b'
+    pack: 'p'
+    publish: 'P'
+  dependencies:
+    changeType: 't'

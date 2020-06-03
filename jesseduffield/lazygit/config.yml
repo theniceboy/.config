@@ -40,14 +40,15 @@ keybinding:
     scrollDownMain-alt1: 'E'
     scrollUpMain-alt2: '<c-u>'
     scrollDownMain-alt2: '<c-e>'
-    undo: '<c-z>'
+    undo: 'l'
     redo: '<c-r>'
+    diffingMenu: 'M'
+    filteringMenu: '<c-f>'
   files:
     ignoreFile: 'I'
   commits:
     moveDownCommit: '<c-e>'
     moveUpCommit: '<c-u>'
-    toggleDiffCommit: 'l'
   branches:
     viewGitFlowOptions: 'I'
     setUpstream: 'U'

@@ -7,6 +7,10 @@ git:
   paging:
     colorArg: always
     pager: delta --dark --paging=never --24-bit-color=never --theme="OneHalfDark"
+  commitPrefixes:
+    my_project: # This is repository folder name
+      pattern: "^\\w+\\/(\\w+-\\w+)"
+      replace: "[$1] "
 gui:
   commitlength:
     show: true

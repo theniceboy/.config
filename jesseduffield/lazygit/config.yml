@@ -18,14 +18,18 @@ gui:
   scrollheight: 2
   scrollpastbottom: true
   theme:
-    activebordercolor:
-    - cyan
-    - bold
-    inactivebordercolor:
-    - white
-    lighttheme: false
-    optionstextcolor:
-    - blue
+    lightTheme: false
+    activeBorderColor:
+      - cyan
+      - bold
+    inactiveBorderColor:
+      - white
+    optionsTextColor:
+      - blue
+    selectedLineBgColor:
+      - default
+    selectedRangeBgColor:
+      - blue
 reporting: "off"
 splashupdatesindex: 0
 startuppopupversion: 1

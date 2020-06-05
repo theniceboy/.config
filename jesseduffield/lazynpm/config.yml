@@ -1,81 +1,82 @@
+confirmonquit: false
 gui:
-  scrollHeight: 2
-  mouseEvents: false
-  sidePanelWidth: 0.3333
+  mouseevents: false
+  scrollheight: 2
+  sidepanelwidth: 0.3333
   theme:
-    lightTheme: false
-    activeBorderColor:
-      - green
-      - bold
-    inactiveBorderColor:
-      - white
-    optionsTextColor:
-      - blue
-    selectedLineBgColor:
-      - blue
-update:
-  method: prompt # can be: prompt | background | never
-  days: 14 # how often a update is checked for
-reporting: 'off' # one of: 'on' | 'off' | 'undetermined'
-splashUpdatesIndex: 0
-confirmOnQuit: false
+    activebordercolor:
+    - green
+    - bold
+    inactivebordercolor:
+    - white
+    lighttheme: false
+    optionstextcolor:
+    - blue
+    selectedlinebgcolor:
+    - blue
 keybinding:
-  universal:
-    quit: 'q'
-    quit-alt1: '<c-c>'
-    return: '<esc>'
-    quitWithoutChangingDirectory: 'Q'
-    togglePanel: '<tab>'
-    prevItem: '<up>'
-    nextItem: '<down>'
-    prevItem-alt: 'k'
-    nextItem-alt: 'j'
-    prevPage: ','
-    nextPage: '.'
-    gotoTop: '<'
-    gotoBottom: '>'
-    prevBlock: '<left>'
-    nextBlock: '<right>'
-    prevBlock-alt: 'h'
-    nextBlock-alt: 'l'
-    nextMatch: 'n'
-    prevMatch: 'N'
-    startSearch: '/'
-    optionMenu: 'x'
-    optionMenu-alt1: '?'
-    select: '<space>'
-    goInto: '<enter>'
-    remove: 'd'
-    new: 'n'
-    edit: 'e'
-    openFile: 'o'
-    scrollUpMain: '<pgup>'
-    scrollDownMain: '<pgdown>'
-    scrollUpMain-alt1: 'K'
-    scrollDownMain-alt1: 'J'
-    scrollUpMain-alt2: '<c-u>'
-    scrollDownMain-alt2: '<c-d>'
-    executeCustomCommand: ':'
-    refresh: 'R'
-    nextTab: ']'
-    prevTab: '['
-    nextScreenMode: '+'
-    prevScreenMode: '_'
-    kill: 'z'
-    redo: '<c-z>'
-    install: 'i'
-    update: 'u'
-    cleanInstall: 'I'
-  status:
-    checkForUpdate: 'u'
-  main:
-    toggleDragSelect: 'v'
-    toggleDragSelect-alt: 'V'
-  packages:
-    link: 'l'
-    globalLink: 'L'
-    build: 'b'
-    pack: 'p'
-    publish: 'P'
   dependencies:
-    changeType: 't'
+    changetype: t
+  main:
+    toggledragselect: v
+    toggledragselect-alt: V
+  packages:
+    build: b
+    globallink: L
+    link: l
+    pack: p
+    publish: P
+  status:
+    checkforupdate: h
+  universal:
+    cleaninstall: I
+    edit: o
+    executecustomcommand: ':'
+    gointo: <enter>
+    gotobottom: '>'
+    gototop: <
+    install: l
+    kill: z
+    new: k
+    nextblock: <right>
+    nextblock-alt: i
+    nextitem: <down>
+    nextitem-alt: e
+    nextmatch: =
+    nextpage: .
+    nextscreenmode: +
+    nexttab: ']'
+    openfile: O
+    optionmenu: x
+    optionmenu-alt1: '?'
+    prevblock: <left>
+    prevblock-alt: "n"
+    previtem: <up>
+    previtem-alt: u
+    prevmatch: '-'
+    prevpage: ','
+    prevscreenmode: _
+    prevtab: '['
+    quit: q
+    quit-alt1: <c-c>
+    quitwithoutchangingdirectory: Q
+    redo: <c-r>
+    refresh: R
+    remove: d
+    return: <esc>
+    scrolldownmain: <pgdown>
+    scrolldownmain-alt1: E
+    scrolldownmain-alt2: <c-d>
+    scrollupmain: <pgup>
+    scrollupmain-alt1: U
+    scrollupmain-alt2: <c-u>
+    select: <space>
+    startsearch: /
+    togglepanel: <tab>
+    update: h
+reporting: "off"
+splashupdatesindex: 0
+startuppopupversion: 1
+update:
+  days: 14
+  method: prompt

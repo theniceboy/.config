@@ -21,6 +21,7 @@ ranger/folders.conf
 !/.gitignore
 #!/llpp.conf
 !/README.md
+!/README_cn.md
 !/vimium-options.json
 !/zsh
 !/i3status/

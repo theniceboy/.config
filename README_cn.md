@@ -1,7 +1,12 @@
 # 我的配置文件...
+
+[English Ver.](./README.md)
+
 此份配置文件包含 `i3` 和 `alacritty` 的配置, 不管怎样, 我现在已在使用 [dwm](https://github.com/theniceboy/dwm) 和 [st](https://github.com/theniceboy/st)
 
 顺便说一句, 我的脚本都在[此仓库中](https://github.com/theniceboy/scripts)
+
+中文翻译: [KiteAB](https://github.com/KiteAB)
 
 # 重要的东西:
 ## Ranger

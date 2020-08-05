@@ -1,4 +1,7 @@
 # My config...
+
+[中文版](./README_cn.md)
+
 This config folder includes `i3` and `alacritty` config, however, I'm using [dwm](https://github.com/theniceboy/dwm) and [st](https://github.com/theniceboy/st) now.
 
 BTW, my scripts are in [this repo](https://github.com/theniceboy/scripts).

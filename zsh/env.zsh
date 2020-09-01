@@ -19,6 +19,7 @@ export PATH=$PATH:/usr/local/opt/node@12/bin
 export PATH=$PATH:$LOCALPROG/flutter/bin
 export PATH=$PATH:$LOCALPROG/flutter/bin/cache/dart-sdk/bin
 export PATH="$PATH":"$HOME/.pub-cache/bin"
+export FLUTTER_ROOT=$LOCALPROG/flutter
 export TERM=xterm-256color
 export TERM_ITALICS=true
 export RANGER_LOAD_DEFAULT_RC="false"

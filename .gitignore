@@ -42,5 +42,6 @@ ranger/plugins/devicons_linemode.pyo
 /pudb/*
 !/pudb/pudb.cfg
 !/bin
+!/lmk
 
 jesseduffield/lazynpm/state.yml

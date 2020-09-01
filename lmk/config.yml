@@ -1,0 +1,19 @@
+keybindings:
+  universal:
+    scrollup: u
+    scrolldown: e
+    goback: n
+    showdetails: i
+    insertscrollup: <c-u>
+    insertscrolldown: <c-e>
+    secondaryscrollUp: U
+    secondaryscrollDown: E
+    confirm: <enter>
+    cancel: <esc>
+    quit: q
+    quitinsert: <c-c>
+    changesite: <tab>
+  normalpanels:
+    searchinsite: s
+    search: /
+    revealquestion: r

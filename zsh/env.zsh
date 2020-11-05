@@ -11,6 +11,7 @@ export PATH=$PATH:/home/linuxbrew/.linuxbrew/sbin
 export PATH=$PATH:$HOME/.linuxbrew/bin
 export PATH=$PATH:$HOME/.linuxbrew/sbin
 export PATH=$PATH:$HOME/.local/bin
+export PATH=$PATH:/usr/local/Cellar/node/15.0.1/bin
 export PATH=$PATH:/usr/local/Cellar/node/14.2.0/bin
 export PATH=$PATH:$HOME/.cargo/bin
 export PATH=$PATH:/snap/bin

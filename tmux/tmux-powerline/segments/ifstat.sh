@@ -12,7 +12,7 @@ run_segment() {
 		sed="gsed"
 	fi
 
-	data=$(ifstat -z -S -q 1 1)
+	data=$(ifstat -z -T -S -q 1 1)
 	interfaces=$(echo -e "${data}" | head -n 1)
 	flow_data=$(echo -e "${data}" | tail -n 1 | ${sed} "s/\s\{1,\}/,/g")
 	index=1
@@ -27,7 +27,7 @@ run_segment() {
 				;;
 		esac
 		if [ -n "${type}" ]; then
-			format=$(echo "${format} ${type} ⇊ %5.01f ⇈ %5.01f")
+			format=$(echo "${format} ${type} ⇊ %5.0f ⇈ %5.0f")
 			holder=$(echo "${holder},\$$((index)),\$$((index+1))")
 		fi
 		index=$((index+2))

@@ -45,3 +45,5 @@ ranger/plugins/devicons_linemode.pyo
 !/lmk
 
 jesseduffield/lazynpm/state.yml
+
+ranger/__pycache__/commands.cpython-39.opt-1.pyc

@@ -31,6 +31,7 @@ splashupdatesindex: 0
 startuppopupversion: 1
 keybinding:
   universal:
+    quit-alt1: '<esc>'
     prevItem-alt: 'u'
     nextItem-alt: 'e'
     prevBlock-alt: 'n'

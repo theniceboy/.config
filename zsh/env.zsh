@@ -1,3 +1,4 @@
+export PATH=$HOME/.local/bin:$PATH
 export XDG_CONFIG_HOME=$HOME/.config
 export LOCALBIN=$XDG_CONFIG_HOME/bin
 export PATH=$PATH:$LOCALBIN
@@ -10,7 +11,6 @@ export PATH=$PATH:/home/linuxbrew/.linuxbrew/bin
 export PATH=$PATH:/home/linuxbrew/.linuxbrew/sbin
 export PATH=$PATH:$HOME/.linuxbrew/bin
 export PATH=$PATH:$HOME/.linuxbrew/sbin
-export PATH=$PATH:$HOME/.local/bin
 export PATH=$PATH:/usr/local/Cellar/node/15.0.1/bin
 export PATH=$PATH:/usr/local/Cellar/node/14.2.0/bin
 export PATH=$PATH:$HOME/.cargo/bin

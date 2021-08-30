@@ -12,4 +12,4 @@ fi
 autopair-init
 source ~/.zim/modules/fzf-tab/fzf-tab.plugin.zsh
 
-
+source ~/.config/zsh/prompt.zsh

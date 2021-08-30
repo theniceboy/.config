@@ -5,6 +5,7 @@ zmodule termtitle
 zmodule utility
 zmodule completion
 zmodule git-info
+zmodule prompt-pwd
 zmodule magicmace
 zmodule zsh-users/zsh-completions
 zmodule zsh-users/zsh-autosuggestions

@@ -28,4 +28,4 @@ export RANGER_LOAD_DEFAULT_RC="false"
 export EDITOR=nvim
 export ZSH_AUTOSUGGEST_USE_ASYNC=1
 export ZSH_AUTOSUGGEST_MANUAL_REBIND=1
-
+export TERM=screen-256color-bce

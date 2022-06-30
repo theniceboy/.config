@@ -17,6 +17,7 @@ export PATH=$PATH:/opt/homebrew/bin
 export PATH=$PATH:$HOME/.cargo/bin
 export PATH=$PATH:/snap/bin
 export PATH=$PATH:/usr/local/opt/node@12/bin
+export PATH=$PATH:$HOME/Library/Python/3.9/bin
 #export TERM=xterm-256color
 export PATH=$PATH:$LOCALPROG/bin
 export PATH=$PATH:$LOCALPROG/flutter/bin

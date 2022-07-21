@@ -51,6 +51,7 @@ keybinding:
     filteringMenu: '<c-f>'
   files:
     ignoreFile: 'I'
+    IgnoreOrExcludeFile: 'I'
   commits:
     moveDownCommit: '<c-e>'
     moveUpCommit: '<c-u>'

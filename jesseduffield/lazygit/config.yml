@@ -28,10 +28,11 @@ gui:
       - blue
 reporting: "off"
 splashupdatesindex: 0
+quitOnTopLevelReturn: true
 startuppopupversion: 1
 keybinding:
   universal:
-    quit-alt1: '<esc>'
+    return: '<esc>'
     prevItem-alt: 'u'
     nextItem-alt: 'e'
     prevBlock-alt: 'n'

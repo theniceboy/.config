@@ -8,6 +8,8 @@ git:
     colorArg: always
     pager: delta --dark --paging=never --24-bit-color=never --syntax-theme="OneHalfDark"
 gui:
+  border: "rounded"
+  showBottomLine: false
   commitlength:
     show: true
   mouseevents: false

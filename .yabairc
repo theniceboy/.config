@@ -1,40 +1,43 @@
 #!/usr/bin/env sh
 
-sudo /opt/homebrew/bin/yabai --load-sa
-yabai -m signal --add event=dock_did_restart action="sudo /opt/homebrew/bin/yabai --load-sa"
+sudo /Users/david/prog/yabai/bin/yabai --load-sa
+/Users/david/prog/yabai/bin/yabai -m signal --add event=dock_did_restart action="sudo /Users/david/prog/yabai/bin/yabai --load-sa"
 
 # global settings
-yabai -m config mouse_follows_focus          off
-yabai -m config focus_follows_mouse          off
-yabai -m config window_origin_display        default
-yabai -m config window_placement             second_child
-yabai -m config window_topmost               on
-yabai -m config window_shadow                on
-yabai -m config window_opacity               off
-yabai -m config window_opacity_duration      2000.0
-yabai -m config active_window_opacity        1.0
-yabai -m config normal_window_opacity        0.85
-yabai -m config window_border                off
-yabai -m config window_border_width          6
-yabai -m config active_window_border_color   0xff775759
-yabai -m config normal_window_border_color   0xff555555
-yabai -m config insert_feedback_color        0xffd75f5f
-yabai -m config split_ratio                  0.50
-yabai -m config auto_balance                 off
-yabai -m config mouse_modifier               fn
-yabai -m config mouse_action1                move
-yabai -m config mouse_action2                resize
-yabai -m config mouse_drop_action            swap
+/Users/david/prog/yabai/bin/yabai -m config mouse_follows_focus          off
+/Users/david/prog/yabai/bin/yabai -m config focus_follows_mouse          off
+/Users/david/prog/yabai/bin/yabai -m config window_origin_display        default
+/Users/david/prog/yabai/bin/yabai -m config window_placement             second_child
+/Users/david/prog/yabai/bin/yabai -m config window_topmost               off
+/Users/david/prog/yabai/bin/yabai -m config window_shadow                on
+/Users/david/prog/yabai/bin/yabai -m config window_opacity               off
+/Users/david/prog/yabai/bin/yabai -m config window_opacity_duration      2000.0
+/Users/david/prog/yabai/bin/yabai -m config active_window_opacity        1.0
+/Users/david/prog/yabai/bin/yabai -m config normal_window_opacity        0.85
+/Users/david/prog/yabai/bin/yabai -m config window_border                off
+/Users/david/prog/yabai/bin/yabai -m config window_border_width          6
+/Users/david/prog/yabai/bin/yabai -m config active_window_border_color   0xff775759
+/Users/david/prog/yabai/bin/yabai -m config normal_window_border_color   0xff555555
+/Users/david/prog/yabai/bin/yabai -m config insert_feedback_color        0xffd75f5f
+/Users/david/prog/yabai/bin/yabai -m config split_ratio                  0.50
+/Users/david/prog/yabai/bin/yabai -m config --space 1 split_ratio        0.73
+/Users/david/prog/yabai/bin/yabai -m config --space 2 split_ratio        0.50
+/Users/david/prog/yabai/bin/yabai -m config auto_balance                 off
+/Users/david/prog/yabai/bin/yabai -m config mouse_modifier               fn
+/Users/david/prog/yabai/bin/yabai -m config mouse_action1                move
+/Users/david/prog/yabai/bin/yabai -m config mouse_action2                resize
+/Users/david/prog/yabai/bin/yabai -m config mouse_drop_action            swap
 
 # general space settings
-yabai -m config layout                       bsp
-yabai -m config top_padding                  10
-yabai -m config bottom_padding               10
-yabai -m config left_padding                 10
-yabai -m config right_padding                10
-yabai -m config window_gap                   10
+/Users/david/prog/yabai/bin/yabai -m config layout                       bsp
+/Users/david/prog/yabai/bin/yabai -m config top_padding                  00
+/Users/david/prog/yabai/bin/yabai -m config bottom_padding               00
+/Users/david/prog/yabai/bin/yabai -m config left_padding                 00
+/Users/david/prog/yabai/bin/yabai -m config right_padding                00
+/Users/david/prog/yabai/bin/yabai -m config window_gap                   10
+# yabai -m config window_animation_duration    0.00
 
-yabai -m rule --add app="^iStat*" sticky=on layer=above manage=off border=off
-yabai -m rule --add app="^System Preferences*" manage=off
+/Users/david/prog/yabai/bin/yabai -m rule --add app="^iStat*" sticky=on layer=above manage=off border=off
+/Users/david/prog/yabai/bin/yabai -m rule --add app="^System Preferences*" manage=off
 
 echo "yabai configuration loaded.."

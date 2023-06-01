@@ -81,7 +81,7 @@ keymap = [
 	{ keys = [ "p", "o" ],		command = "paste_files --overwrite=true" },
 
 	{ keys = [ "a" ],		command = "rename_append" },
-	{ keys = [ "A" ],		command = "rename_prepend" },
+	{ keys = [ "k" ],		command = "rename_prepend" },
 
 	{ keys = [ "T" ],		command = ":touch " },
 
@@ -92,6 +92,8 @@ keymap = [
 	{ keys = [ "w" ],		command = "show_tasks --exit-key=w" },
 	{ keys = [ "c", "b" ],		command = "bulk_rename" },
 	{ keys = [ "c", "m" ],		command = "set_mode" },
+	{ keys = [ "c", "w" ],		command = "rename_keep_ext" },
+	{ keys = [ "c", "n" ],		command = ":rename " },
 
 	{ keys = [ ":" ],		command = ":" },
 	{ keys = [ ";" ],		command = ":" },
@@ -100,7 +102,6 @@ keymap = [
 	{ keys = [ "S" ],		command = "shell zsh" },
 	{ keys = [ "ctrl+g" ],		command = "shell lazygit" },
 	{ keys = [ "M" ],		command = ":mkdir " },
-	{ keys = [ "c", "w" ],		command = ":rename " },
 
 	{ keys = [ "/" ],		command = ":search_inc " },
 	{ keys = [ "f" ],		command = ":filter  " },
@@ -109,6 +110,7 @@ keymap = [
 	{ keys = [ "\\" ],		command = ":search_glob " },
 	# { keys = [ "ctrl+f" ],		command = "search_fzf" },
 	{ keys = [ "ctrl+f" ],		command = "subdir_fzf" },
+	{ keys = [ "ctrl+p" ],		command = "subdir_fzf" },
 
 	{ keys = [ "=" ],		command = "search_next" },
 	{ keys = [ "-" ],		command = "search_prev" },

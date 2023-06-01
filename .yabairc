@@ -20,8 +20,6 @@ sudo /opt/homebrew/bin/yabai --load-sa
 /opt/homebrew/bin/yabai -m config normal_window_border_color   0xff555555
 /opt/homebrew/bin/yabai -m config insert_feedback_color        0xffd75f5f
 /opt/homebrew/bin/yabai -m config split_ratio                  0.50
-/opt/homebrew/bin/yabai -m config --space 1 split_ratio        0.73
-/opt/homebrew/bin/yabai -m config --space 2 split_ratio        0.50
 /opt/homebrew/bin/yabai -m config auto_balance                 off
 /opt/homebrew/bin/yabai -m config mouse_modifier               fn
 /opt/homebrew/bin/yabai -m config mouse_action1                move

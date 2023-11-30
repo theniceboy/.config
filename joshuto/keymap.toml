@@ -80,7 +80,8 @@ keymap = [
 	{ keys = [ "p", "p" ],		command = "paste_files" },
 	{ keys = [ "p", "o" ],		command = "paste_files --overwrite=true" },
 
-	{ keys = [ "a" ],		command = "rename_append" },
+	{ keys = [ "a" ],		command = "rename_append_base" },
+	{ keys = [ "A" ],		command = "rename_append" },
 	{ keys = [ "k" ],		command = "rename_prepend" },
 
 	{ keys = [ "T" ],		command = ":touch " },

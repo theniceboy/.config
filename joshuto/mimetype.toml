@@ -69,7 +69,6 @@ mkv.inherit	= "video_default"
 m4v.inherit	= "video_default"
 mov.inherit	= "video_default"
 mp4.inherit	= "video_default"
-ts.inherit	= "video_default"
 webm.inherit	= "video_default"
 wmv.inherit	= "video_default"
 

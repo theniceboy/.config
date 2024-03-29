@@ -9,7 +9,7 @@ git:
     pager: delta --dark --paging=never --24-bit-color=never --syntax-theme="OneHalfDark"
 gui:
   border: "rounded"
-  showBottomLine: false
+  showBottomLine: true
   commitlength:
     show: true
   mouseevents: false
@@ -25,13 +25,16 @@ gui:
     optionsTextColor:
       - blue
     selectedLineBgColor:
-      - default
+      - reverse
     selectedRangeBgColor:
       - blue
 reporting: "off"
 splashupdatesindex: 0
 quitOnTopLevelReturn: true
 startuppopupversion: 1
+nerdFontsVersion: "3"
+showIcons: true
+showFileIcons: true
 keybinding:
   universal:
     return: '<esc>'
@@ -52,12 +55,20 @@ keybinding:
     redo: '<c-r>'
     diffingMenu: 'M'
     filteringMenu: '<c-f>'
+    toggleRangeSelect: v
+
   files:
     ignoreFile: 'I'
     IgnoreOrExcludeFile: 'I'
   commits:
     moveDownCommit: '<c-e>'
     moveUpCommit: '<c-u>'
+    openInBrowser: o
+    viewBisectOptions: b
+    startInteractiveRebase: O
+    cherryPickCopy: C
+    pasteCommits: V
+
   branches:
     viewGitFlowOptions: 'I'
     setUpstream: 'U'

@@ -6,7 +6,7 @@ require("yaziline"):setup {
 	filename_trim_length = 6 -- trim 6 chars from both ends
 }
 require("starship"):setup {
-	config_file = "starship.toml",
+	config_file = "~/.config/yazi/starship.toml",
 }
 require("git"):setup {}
 

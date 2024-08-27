@@ -5,7 +5,9 @@ require("yaziline"):setup {
 	filename_max_length = 24, -- trim when filename > 24
 	filename_trim_length = 6 -- trim 6 chars from both ends
 }
-require("starship"):setup {}
+require("starship"):setup {
+	config_file = "starship.toml",
+}
 require("git"):setup {}
 
 Status:children_add(function()

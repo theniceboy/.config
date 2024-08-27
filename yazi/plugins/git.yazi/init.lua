@@ -162,11 +162,6 @@ local M = {
 		end
 		Linemode:children_add(linemode_git,8000)
 
-		local function header_git(self)
-			return (st.git_branch and st.git_branch ~= "") and ui.Line {ui.Span(" <".. st.git_branch .. st.git_is_dirty .. ">"):fg("#f6a6da")} or ui.Line {}				
-		end
-		Header:children_add(header_git,1400,Header.LEFT)
-
 		ps.sub("cd",handle_path_change)
 		ps.sub("delete",flush_empty_folder_status)
 		ps.sub("trash",flush_empty_folder_status)

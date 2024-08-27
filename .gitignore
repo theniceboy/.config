@@ -46,8 +46,10 @@ ranger/plugins/devicons_linemode.pyo
 !/.yabairc
 !/Default.bttpreset
 !/joshuto
+!/yazi
 !/*.bttpreset
 
 jesseduffield/lazynpm/state.yml
 
 ranger/__pycache__/commands.cpython-39.opt-1.pyc
+yazi/bookmark

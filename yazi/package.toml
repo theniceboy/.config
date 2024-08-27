@@ -1,0 +1,5 @@
+[plugin]
+deps = [{ use = "llanosrocas/yaziline", rev = "5886330" }, { use = "Rolv-Apneseth/starship", rev = "20d5a4d" }]
+
+[flavor]
+deps = []

@@ -12,7 +12,7 @@ alias ms='mailsync'
 alias mt='neomutt'
 alias r='echo $RANGER_LEVEL'
 alias pu='python3 -m pudb'
-alias ra='joshuto'
+alias ra='yazi'
 # ra() {
 	#if [ -z "$RANGER_LEVEL" ]
 	#then
@@ -23,7 +23,7 @@ alias ra='joshuto'
 #}
 alias s='neofetch'
 alias g='onefetch'
-alias sra='sudo -E ranger'
+alias sra='sudo -E yazi'
 # alias sudo='sudo -E'
 alias vim='nvim'
 alias gs='git config credential.helper store'

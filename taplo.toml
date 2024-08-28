@@ -1,0 +1,5 @@
+[formatting]
+align_entries = true
+column_width = 120
+indent_tables = true
+indent_entries = false

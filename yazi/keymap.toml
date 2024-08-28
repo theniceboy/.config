@@ -91,6 +91,7 @@ keymap = [
 
 	# Create
 	{ on = "T", run = "create", desc = "Create a file (ends with / for directories)" },
+	{ on = "M", run = "create --dir", desc = "Create a directory" },
 
 	# Rename
 	{ on = "k", run = "rename --cursor=start", desc = "Rename selected file(s)" },

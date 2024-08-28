@@ -13,28 +13,12 @@ prepend_keymap = [
 	], run = "plugin yamb --args=save", desc = "Add bookmark" },
 	{ on = [
 		"'",
-		"g",
-	], run = "plugin yamb --args=jump_by_key", desc = "Jump bookmark by key" },
-	{ on = [
-		"'",
 		"'",
 	], run = "plugin yamb --args=jump_by_fzf", desc = "Jump bookmark by fzf" },
 	{ on = [
 		"'",
-		"d",
-	], run = "plugin yamb --args=delete_by_key", desc = "Delete bookmark by key" },
-	{ on = [
-		"'",
-		"A",
-	], run = "plugin yamb --args=delete_all", desc = "Delete all bookmarks" },
-	{ on = [
-		"'",
 		"r",
-	], run = "plugin yamb --args=rename_by_key", desc = "Rename bookmark by key" },
-	{ on = [
-		"'",
-		"R",
-	], run = "plugin yamb --args=rename_by_fzf", desc = "Rename bookmark by fzf" },
+	], run = "plugin yamb --args=delete_by_key", desc = "Delete bookmark by key" },
 ]
 
 keymap = [

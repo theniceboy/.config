@@ -48,6 +48,7 @@ ranger/plugins/devicons_linemode.pyo
 !/joshuto
 !/yazi
 !/*.bttpreset
+!/taplo.toml
 
 jesseduffield/lazynpm/state.yml
 

@@ -94,6 +94,7 @@ keymap = [
 	{ on = "M", run = "create --dir", desc = "Create a directory" },
 
 	# Rename
+	{ on = ["c", "w"], run = "rename --empty=all", desc = "Rename selected file(s)" },
 	{ on = "k", run = "rename --cursor=start", desc = "Rename selected file(s)" },
 	{ on = "a", run = "rename --cursor=before_ext", desc = "Rename selected file(s)" },
 	{ on = "A", run = "rename --cursor=end", desc = "Rename selected file(s)" },

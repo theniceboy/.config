@@ -27,6 +27,7 @@ export PATH=$HOME/fvm/default/bin:$PATH
 export PATH=$PATH:$LOCALPROG/flutter/bin:$PATH
 export PATH=$PATH:$LOCALPROG/flutter/bin/cache/dart-sdk/bin
 export PATH="$PATH":"$HOME/.pub-cache/bin"
+export PATH="/opt/homebrew/opt/gnu-sed/libexec/gnubin:$PATH"
 export FLUTTER_ROOT=$LOCALPROG/flutter
 export TERM=xterm-256color-italic
 export TERM_ITALICS=true

@@ -201,7 +201,7 @@ keymap = [
 	{ on = "<F1>", run = "help", desc = "Open help" },
 ]
 
-[select]
+[pick]
 
 keymap = [
 	{ on = "<Esc>", run = "close", desc = "Cancel selection" },

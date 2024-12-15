@@ -187,7 +187,7 @@ quit_title  = "{n} task{s} running, sure to quit? (y/N)"
 quit_origin = "top-center"
 quit_offset = [0, 2, 50, 3]
 
-[select]
+[pick]
 open_title  = "Open with:"
 open_origin = "hovered"
 open_offset = [0, 1, 50, 7]
@@ -197,6 +197,3 @@ sort_by        = "none"
 sort_sensitive = false
 sort_reverse   = false
 sort_translit  = false
-
-[log]
-enabled = false

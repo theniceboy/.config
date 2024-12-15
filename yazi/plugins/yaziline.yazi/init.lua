@@ -38,14 +38,14 @@ local function setup(_, options)
     return ui.Span(" " .. mode .. " "):style(style)
   end
 
-  function Status:size()
+	function Status:size()
     local h = self._tab.current.hovered
     if not h then
-      return ui.Line {}
+        return ui.Line {}
     end
 
     local style = self:style()
-    return ui.Span(current_separator_style.separator_close .. " " .. ya.readable_size(h:size() or h.cha.length) .. " ")
+    return ui.Span(current_separator_style.separator_close .. " " .. ya.readable_size(h:size() or h.cha.len) .. " ")
         :fg(style.bg):bg(THEME.status.separator_style.bg)
   end
 
@@ -85,14 +85,18 @@ local function setup(_, options)
     }
   end
 
-  function Status:modified()
+	function Status:modified()
     local hovered = cx.active.current.hovered
+    if not hovered then
+        return ui.Line {}  -- Return empty line if no file is hovered
+    end
+    
     local cha = hovered.cha
-    local time = (cha.modified or 0) // 1
+    local time = (cha.mtime or 0) // 1  -- Use mtime instead of modified
 
-    return ui.Span(os.date("%Y-%m-%d %H:%M", time) .. " " .. current_separator_style.separator_open_thin .. " "):fg(
-      THEME.status.separator_style.fg)
-  end
+    return ui.Span(os.date("%Y-%m-%d %H:%M", time) .. " " .. current_separator_style.separator_open_thin .. " ")
+        :fg(THEME.status.separator_style.fg)
+end
 
   function Status:percentage()
     local percent = 0
@@ -127,7 +131,7 @@ local function setup(_, options)
   end
 
   Status:children_add(Status.files, 4000, Status.LEFT)
-  Status:children_add(Status.modified, 0, Status.RIGHT)
+  Status:children_add(Status.mtime, 0, Status.RIGHT)
 end
 
 return { setup = setup }

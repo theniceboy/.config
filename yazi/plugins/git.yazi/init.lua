@@ -1,214 +1,211 @@
-local function string_split(input,delimiter)
+local WIN = ya.target_family() == "windows"
+local PATS = {
+	{ "[MT]", 6 }, -- Modified
+	{ "[AC]", 5 }, -- Added
+	{ "?$", 4 }, -- Untracked
+	{ "!$", 3 }, -- Ignored
+	{ "D", 2 }, -- Deleted
+	{ "U", 1 }, -- Updated
+	{ "[AD][AD]", 1 }, -- Updated
+}
 
-	local result = {}
-
-	for match in (input..delimiter):gmatch("(.-)"..delimiter) do
-	        table.insert(result, match)
-	end
-	return result
-end
-
-local function set_status_color(status)
-	if status == nil then
-		return "#6cc749"
-	elseif status == "M" then
-		return "#ec613f"
-	elseif status == "A" then
-		return "#ec613f"
-	elseif status == "." then
-		return "#ae96ee"
-	elseif status == "?" then
-		return "#D4BB91"
-	elseif status == "R" then
-		return "#ec613f"
-	else
-		return "#ec613f"
-	end
-	
-end
-
-local function fix_str_ch(str)
-    local chinese_chars, num_replacements = str:gsub("\\(%d%d%d)", function (s)
-        return string.char(tonumber(s, 8))
-    end)
-    return num_replacements > 0 and chinese_chars:sub(2,-2) or chinese_chars
-end
-
-local function make_git_table(git_status_str)
-	local file_table = {}
-	local git_status
-	local is_dirty = false
-	local filename
-	local multi_path
-	local is_ignore_dir = false
-	local is_untracked_dir = false
-	local convert_name
-	local split_table = string_split(git_status_str:sub(1,-2),"\n")
-	for _, value in ipairs(split_table) do
-		split_value = string_split(value," ")
-		if split_value[#split_value - 1] == "" then
-			split_value = string_split(value,"  ")
+local function match(line)
+	local signs = line:sub(1, 2)
+	for _, p in ipairs(PATS) do
+		local path
+		if signs:find(p[1]) then
+			path = line:sub(4, 4) == '"' and line:sub(5, -2) or line:sub(4)
+			path = WIN and path:gsub("/", "\\") or path
 		end
-
-		if split_value[#split_value - 1] == "??" then 
-			git_status = "?"
-			is_dirty = true
-		elseif split_value[#split_value - 1] == "!!" then
-			git_status = "."
-		elseif split_value[#split_value - 1] == "->" then
-			git_status = "R"
-			is_dirty = true
+		if not path then
+		elseif path:find("[/\\]$") then
+			return p[2] == 3 and 30 or p[2], path:sub(1, -2)
 		else
-			git_status = split_value[#split_value - 1]
-			is_dirty = true
+			return p[2], path
 		end
-		if split_value[#split_value]:sub(-2,-1) == "./" and git_status == "." then
-			is_ignore_dir = true
-			return file_table,is_dirty,is_ignore_dir,is_untracked_dir
-		end
-
-		if split_value[#split_value]:sub(-2,-1) == "./" and git_status == "?" then
-			is_untracked_dir = true
-			return file_table,is_dirty,is_ignore_dir,is_untracked_dir
-		end
-
-		multi_path = string_split(split_value[#split_value],"/")
-		if (multi_path[#multi_path] == "" and #multi_path == 2) or git_status ~= "." then
-			filename = multi_path[1]
-		else 
-			filename = split_value[#split_value]
-		end
-		
-		convert_name = fix_str_ch(filename)
-		file_table[convert_name] = git_status
 	end
-
-	return file_table,is_dirty,is_ignore_dir,is_untracked_dir
 end
 
-local save = ya.sync(function(st, cwd, git_branch,git_file_status,git_is_dirty,git_status_str,is_ignore_dir,is_untracked_dir)
-	if cx.active.current.cwd == Url(cwd) then
-		st.git_branch = git_branch
-		st.git_file_status = git_file_status
-		st.git_is_dirty = git_is_dirty and "*" or ""
-		st.git_status_str = git_status_str
-		st.is_ignore_dir = is_ignore_dir
-		st.is_untracked_dir= is_untracked_dir
-		ya.render()
+local function root(cwd)
+	local is_worktree = function(url)
+		local file, head = io.open(tostring(url)), nil
+		if file then
+			head = file:read(8)
+			file:close()
+		end
+		return head == "gitdir: "
 	end
-end)
 
-local clear_state = ya.sync(function(st)
-	st.git_branch = ""
-	st.git_file_status = ""
-	st.git_is_dirty = ""
+	repeat
+		local next = cwd:join(".git")
+		local cha = fs.cha(next)
+		if cha and (cha.is_dir or is_worktree(next)) then
+			return tostring(cwd)
+		end
+		cwd = cwd:parent()
+	until not cwd
+end
+
+local function bubble_up(changed)
+	local new, empty = {}, Url("")
+	for k, v in pairs(changed) do
+		if v ~= 3 and v ~= 30 then
+			local url = Url(k):parent()
+			while url and url ~= empty do
+				local s = tostring(url)
+				new[s] = (new[s] or 0) > v and new[s] or v
+				url = url:parent()
+			end
+		end
+	end
+	return new
+end
+
+local function propagate_down(ignored, cwd, repo)
+	local new, rel = {}, cwd:strip_prefix(repo)
+	for k, v in pairs(ignored) do
+		if v == 30 then
+			if rel:starts_with(k) then
+				new[tostring(repo:join(rel))] = 30
+			elseif cwd == repo:join(k):parent() then
+				new[k] = 3
+			end
+		end
+	end
+	return new
+end
+
+local add = ya.sync(function(st, cwd, repo, changed)
+	st.dirs[cwd] = repo
+	st.repos[repo] = st.repos[repo] or {}
+	for k, v in pairs(changed) do
+		if v == 0 then
+			st.repos[repo][k] = nil
+		elseif v == 30 then
+			st.dirs[k] = ""
+		else
+			st.repos[repo][k] = v
+		end
+	end
 	ya.render()
 end)
 
-local function update_git_status(path)
-	ya.manager_emit("plugin", { "git", args = ya.quote(tostring(path))})	
-end
-
-local is_in_git_dir = ya.sync(function(st)
-	return (st.git_branch ~= nil and st.git_branch ~= "") and cx.active.current.cwd or nil
-end)
-
-local flush_empty_folder_status = ya.sync(function(st)
-	local cwd = cx.active.current.cwd
-	local folder = cx.active.current
-	if #folder.window == 0 then
-		clear_state()
-		ya.manager_emit("plugin", { "git", args = ya.quote(tostring(cwd))})		
+local remove = ya.sync(function(st, cwd)
+	local dir = st.dirs[cwd]
+	if not dir then
+		return
 	end
-end)
 
-local handle_path_change = ya.sync(function(st)
-	local cwd = cx.active.current.cwd
-	if st.cwd ~= cwd then
-		st.cwd = cwd
-		clear_state()
-		ya.manager_emit("plugin", { "git", args = ya.quote(tostring(cwd))})		
+	ya.render()
+	st.dirs[cwd] = nil
+	if not st.repos[dir] then
+		return
 	end
-end)
 
-
-local M = {
-	setup = function(st,opts)
-	
-		local function linemode_git(self)
-			local f = self._file
-			local git_span = {}
-			local git_status
-			if st.git_branch ~= nil and st.git_branch ~= "" then
-				local name = f.name:gsub("\r", "?", 1)
-				if st.is_ignore_dir then
-					git_status = "."
-				elseif st.is_untracked_dir then
-					git_status = "?"
-				elseif st.git_file_status and st.git_file_status[name] then
-					git_status = st.git_file_status[name]
-				else 
-					git_status = nil
-				end
-			
-				local color = set_status_color(git_status)
-				if f:is_hovered() then
-					git_span = (git_status ) and ui.Span(git_status .." ") or ui.Span("✓ ")	
-				else
-					git_span = (git_status) and ui.Span(git_status .." "):fg(color) or ui.Span("✓ "):fg(color)	
-				end
-			end
-			return git_span
-		end
-		Linemode:children_add(linemode_git,8000)
-
-		ps.sub("cd",handle_path_change)
-		ps.sub("delete",flush_empty_folder_status)
-		ps.sub("trash",flush_empty_folder_status)
-	end,
-
-	entry = function(_, args)
-		local output
-		local git_is_dirty
-		local is_ignore_dir,is_untracked_dir
-
-		local git_branch
-		local command = "git symbolic-ref HEAD 2> /dev/null" 
-		local file = io.popen(command, "r")
-		output = file:read("*a") 
-		file:close()
-
-		if output ~= nil and  output ~= "" then
-			local split_output = string_split(output:sub(1,-2),"/")
-			
-			git_branch = split_output[3]
-		elseif is_in_git_dir() then
-			git_branch = nil
-		else
+	for _, r in pairs(st.dirs) do
+		if r == dir then
 			return
 		end
-		
-		local git_status_str = ""
-		local git_file_status = nil
-		local command = "git status --ignored -s --ignore-submodules=dirty 2> /dev/null" 
-		local file = io.popen(command, "r")
-		output = file:read("*a") 
-		file:close()
-
-		if output ~= nil and  output ~= "" then
-			git_status_str = output
-			git_file_status,git_is_dirty,is_ignore_dir,is_untracked_dir = make_git_table(git_status_str)
-		end
-		save(args[1], git_branch,git_file_status,git_is_dirty,git_status_str,is_ignore_dir,is_untracked_dir)
-	end,
-}
-
-function M:fetch()
-	local path = is_in_git_dir()
-	if path then
-		update_git_status(path)	
 	end
+	st.repos[dir] = nil
+end)
+
+local function setup(st, opts)
+	st.dirs = {}
+	st.repos = {}
+
+	opts = opts or {}
+	opts.order = opts.order or 1500
+
+	-- Chosen by ChatGPT fairly, PRs are welcome to adjust them
+	local t = THEME.git or {}
+	local styles = {
+		[6] = t.modified and ui.Style(t.modified) or ui.Style():fg("#ffa500"),
+		[5] = t.added and ui.Style(t.added) or ui.Style():fg("#32cd32"),
+		[4] = t.untracked and ui.Style(t.untracked) or ui.Style():fg("#a9a9a9"),
+		[3] = t.ignored and ui.Style(t.ignored) or ui.Style():fg("#696969"),
+		[2] = t.deleted and ui.Style(t.deleted) or ui.Style():fg("#ff4500"),
+		[1] = t.updated and ui.Style(t.updated) or ui.Style():fg("#1e90ff"),
+	}
+	local signs = {
+		[6] = t.modified_sign and t.modified_sign or "",
+		[5] = t.added_sign and t.added_sign or "",
+		[4] = t.untracked_sign and t.untracked_sign or "",
+		[3] = t.ignored_sign and t.ignored_sign or "",
+		[2] = t.deleted_sign and t.deleted_sign or "",
+		[1] = t.updated_sign and t.updated_sign or "U",
+	}
+
+	Linemode:children_add(function(self)
+		local url = self._file.url
+		local dir = st.dirs[tostring(url:parent())]
+		local change
+		if dir then
+			change = dir == "" and 3 or st.repos[dir][tostring(url):sub(#dir + 2)]
+		end
+
+		if not change or signs[change] == "" then
+			return ui.Line("")
+		elseif self._file:is_hovered() then
+			return ui.Line { ui.Span(" "), ui.Span(signs[change]) }
+		else
+			return ui.Line { ui.Span(" "), ui.Span(signs[change]):style(styles[change]) }
+		end
+	end, opts.order)
+end
+
+local function fetch(self, job)
+	-- TODO: remove this once Yazi 0.4 is released
+	job = job or self
+
+	local cwd = job.files[1].url:parent()
+	local repo = root(cwd)
+	if not repo then
+		remove(tostring(cwd))
+		return 1
+	end
+
+	local paths = {}
+	for _, f in ipairs(job.files) do
+		paths[#paths + 1] = tostring(f.url)
+	end
+
+	-- stylua: ignore
+	local output, err = Command("git")
+		:cwd(tostring(cwd))
+		:args({ "--no-optional-locks", "-c", "core.quotePath=", "status", "--porcelain", "-unormal", "--no-renames", "--ignored=matching" })
+		:args(paths)
+		:stdout(Command.PIPED)
+		:output()
+	if not output then
+		ya.err("Cannot spawn git command, error code " .. tostring(err))
+		return 0
+	end
+
+	local changed, ignored = {}, {}
+	for line in output.stdout:gmatch("[^\r\n]+") do
+		local sign, path = match(line)
+		if sign == 30 then
+			ignored[path] = sign
+		else
+			changed[path] = sign
+		end
+	end
+
+	if job.files[1].cha.is_dir then
+		ya.dict_merge(changed, bubble_up(changed))
+		ya.dict_merge(changed, propagate_down(ignored, cwd, Url(repo)))
+	else
+		ya.dict_merge(changed, propagate_down(ignored, cwd, Url(repo)))
+	end
+
+	for _, p in ipairs(paths) do
+		local s = p:sub(#repo + 2)
+		changed[s] = changed[s] or 0
+	end
+	add(tostring(cwd), repo, changed)
+
 	return 3
 end
 
-return M
+return { setup = setup, fetch = fetch }

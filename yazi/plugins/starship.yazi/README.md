@@ -6,10 +6,10 @@ Starship prompt plugin for [Yazi](https://github.com/sxyazi/yazi)
 
 ## Requirements
 
-- [Yazi](https://github.com/sxyazi/yazi) - latest main branch
+- [Yazi](https://github.com/sxyazi/yazi)
 - [starship](https://github.com/starship/starship)
 
-### Package manager
+## Installation
 
 ```bash
 ya pack -a Rolv-Apneseth/starship
@@ -17,15 +17,10 @@ ya pack -a Rolv-Apneseth/starship
 
 ### Manual
 
-#### Linux / MacOS
-
 ```sh
+# Linux / MacOS
 git clone https://github.com/Rolv-Apneseth/starship.yazi.git ~/.config/yazi/plugins/starship.yazi
-```
-
-#### Windows
-
-```sh
+# Windows
 git clone https://github.com/Rolv-Apneseth/starship.yazi.git %AppData%\yazi\config\plugins\starship.yazi
 ```
 

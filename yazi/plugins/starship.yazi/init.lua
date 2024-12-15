@@ -61,7 +61,12 @@ return {
         ps.sub("tab", callback)
     end,
 
-    entry = function(_, args)
+    entry = function(_, job_or_args)
+        -- yazi 2024-11-29 changed the way arguments are passed to the plugin
+        -- entry point. They were moved inside {args = {...}}. If the user is using
+        -- a version before this change, they can use the old implementation.
+        -- https://github.com/sxyazi/yazi/pull/1966
+        local args = job_or_args.args or job_or_args
         local command = Command("starship"):arg("prompt"):cwd(args[1]):env("STARSHIP_SHELL", "")
 
         -- Point to custom starship config

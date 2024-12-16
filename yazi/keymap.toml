@@ -19,6 +19,9 @@ prepend_keymap = [
 		"'",
 		"r",
 	], run = "plugin yamb --args=delete_by_key", desc = "Delete bookmark by key" },
+	{ on = [
+		"P",
+	], run = "spot", desc = "Open spotter" },
 ]
 
 keymap = [
@@ -177,6 +180,24 @@ keymap = [
 	# Help
 	{ on = "~", run = "help", desc = "Open help" },
 	{ on = "<F1>", run = "help", desc = "Open help" },
+]
+
+[spot]
+keymap = [
+	# Navigation
+	{ on = "u", run = "arrow -1", desc = "Move up" },
+	{ on = "e", run = "arrow 1", desc = "Move down" },
+
+	# Close
+	{ on = "<Esc>", run = "close", desc = "Close spotter" },
+	{ on = "q", run = "close", desc = "Close spotter" },
+
+	# Swipe through files
+	{ on = "<C-u>", run = "swipe -5", desc = "Swipe 5 files up" },
+	{ on = "<C-e>", run = "swipe 5", desc = "Swipe 5 files down" },
+
+	# Copy content
+	{ on = "y", run = "copy cell", desc = "Copy cell content" },
 ]
 
 [tasks]

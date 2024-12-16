@@ -22,6 +22,10 @@ prepend_keymap = [
 	{ on = [
 		"P",
 	], run = "spot", desc = "Open spotter" },
+	{ on = [
+		"c",
+		"a",
+	], run = "plugin compress", desc = "Archive selected files" },
 ]
 
 keymap = [

@@ -18,6 +18,9 @@ git clone https://github.com/h-hg/yamb.yazi.git ~/.config/yazi/plugins/yamb.yazi
 
 # Windows
 git clone https://github.com/h-hg/yamb.yazi.git $env:APPDATA\yazi\config\plugins\yamb.yazi
+
+# if you are using Yazi version >= 3.0
+ya pack -a h-hg/yamb
 ```
 
 ## Usage
@@ -52,6 +55,8 @@ table.insert(bookmarks, {
 require("yamb"):setup {
   -- Optional, the path ending with path seperator represents folder.
   bookmarks = bookmarks,
+  -- Optional, recieve notification everytime you jump.
+  jump_notify = true,
   -- Optional, the cli of fzf.
   cli = "fzf",
   -- Optional, a string used for randomly generating keys, where the preceding characters have higher priority.

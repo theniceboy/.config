@@ -102,7 +102,7 @@ local which_find = function(bookmarks)
   return cands[idx].path
 end
 
-local action_jump = function(bookmarks, path)
+local action_jump = function(bookmarks, path, jump_notify)
   if path == nil then
     return
   end
@@ -112,12 +112,14 @@ local action_jump = function(bookmarks, path)
   else
     ya.manager_emit("reveal", { path })
   end
-  ya.notify {
-    title = "Bookmarks",
-    content = 'Jump to "' .. tag .. '"',
-    timeout = 2,
-    level = "info",
-  }
+  if jump_notify then
+    ya.notify {
+      title = "Bookmarks",
+      content = 'Jump to "' .. tag .. '"',
+      timeout = 2,
+      level = "info",
+    }
+  end
 end
 
 local generate_key = function(bookmarks)
@@ -294,6 +296,7 @@ return {
         (ya.target_family() == "windows" and os.getenv("APPDATA") .. "\\yazi\\config\\bookmark") or
         (os.getenv("HOME") .. "/.config/yazi/bookmark")
     state.cli = options.cli or "fzf"
+    state.jump_notify = options.jump_notify and true
     -- init the keys
     local keys = options.keys or "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
     state.keys = {}
@@ -325,12 +328,12 @@ return {
     save_to_file(state.path, bookmarks)
     state.bookmarks = bookmarks
   end,
-  entry = function(self, args)
-    local action = args[1]
+  entry = function(self, jobs)
+    local action = jobs.args[1]
     if not action then
       return
     end
-    local mb_path, cli, bookmarks = get_state_attr("path"), get_state_attr("cli"), get_state_attr("bookmarks")
+    local mb_path, cli, bookmarks, jump_notify = get_state_attr("path"), get_state_attr("cli"), get_state_attr("bookmarks"), get_state_attr("jump_notify")
     if action == "save" then
       action_save(mb_path, bookmarks, get_hovered_path())
     elseif action == "delete_by_key" then
@@ -340,9 +343,9 @@ return {
     elseif action == "delete_all" then
       action_delete_all(mb_path)
     elseif action == "jump_by_key" then
-      action_jump(bookmarks, which_find(bookmarks))
+      action_jump(bookmarks, which_find(bookmarks), jump_notify)
     elseif action == "jump_by_fzf" then
-      action_jump(bookmarks, fzf_find(cli, mb_path))
+      action_jump(bookmarks, fzf_find(cli, mb_path), jump_notify)
     elseif action == "rename_by_key" then
       action_save(mb_path, bookmarks, which_find(bookmarks))
     elseif action == "rename_by_fzf" then

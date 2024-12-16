@@ -67,7 +67,7 @@ keymap = [
 	# { on = "<C-r>", run = "select_all --state=none", desc = "Inverse selection of all files" },
 
 	# Find
-	{ on = "<C-f>", run = "plugin fzf", desc = "Jump to a directory or reveal a file using fzf" },
+	{ on = "<C-p>", run = "plugin fzf", desc = "Jump to a directory or reveal a file using fzf" },
 	{ on = ["z", "o"], run = "plugin zoxide", desc = "Jump to a directory using zoxide" },
 	# { on = "f", run = "search fd", desc = "Search files by name using fd" },
 	{ on = "F", run = "search rg", desc = "Search files by content using ripgrep" },

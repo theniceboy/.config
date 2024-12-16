@@ -36,6 +36,8 @@ keymap = [
 	{ on = "Q", run = "quit --no-cwd-file", desc = "Exit the process without writing cwd-file" },
 	{ on = "<C-z>", run = "suspend", desc = "Suspend the process" },
 
+	{ on = "R", run = "reload", desc = "Refresh the current directory" },
+
 	# Hopping
 	{ on = "u", run = "arrow -1", desc = "Move cursor up" },
 	{ on = "e", run = "arrow 1", desc = "Move cursor down" },

@@ -8,11 +8,17 @@ BTW, my scripts are in [this repo](https://github.com/theniceboy/scripts).
 
 # Brew packages
 ```
-brew install fzf the_silver_searcher ripgrep fd
-brew install automake wget gcc gdb bat ccat tree git-delta git-flow git rainbarf jsdoc3 cmake gnu-getopt gnu-sed node go
-brew install ccls tmux neovim jesseduffield/lazygit/lazygit yazi starship
-brew install awscli gh tldr
-brew install speedtest-cli ncdu neofetch onefetch bmon loc
+# Building
+brew install automake gcc gdb jsdoc3 cmake gnu-getopt gnu-sed node go
+
+# Utils
+brew install git git-delta git-flow rainbarf bat ccat wget tree fzf the_silver_searcher ripgrep fd
+
+# Apps
+brew install tmux neovim jesseduffield/lazygit/lazygit yazi gh awscli tldr speedtest-cli ncdu neofetch onefetch bmon loc
+
+# Yazi
+brew install poppler ffmpeg sevenzip jq starship imagemagick
 ```
 
 # Important stuff:

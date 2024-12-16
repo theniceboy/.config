@@ -1,5 +1,5 @@
 [plugin]
-deps = [{ use = "llanosrocas/yaziline", rev = "5886330" }, { use = "Rolv-Apneseth/starship", rev = "247f49d" }, { use = "yazi-rs/plugins:git", rev = "ec97f88" }, { use = "yazi-rs/plugins:smart-enter", rev = "7afba3a" }, { use = "h-hg/yamb", rev = "108347b" }]
+deps = [{ use = "llanosrocas/yaziline", rev = "5886330" }, { use = "Rolv-Apneseth/starship", rev = "247f49d" }, { use = "yazi-rs/plugins:git", rev = "ec97f88" }, { use = "yazi-rs/plugins:smart-enter", rev = "7afba3a" }, { use = "h-hg/yamb", rev = "108347b" }, { use = "KKV9/compress", rev = "60b24af" }]
 
 [flavor]
 deps = []

@@ -1,5 +1,32 @@
-[plugin]
-deps = [{ use = "llanosrocas/yaziline", rev = "5886330" }, { use = "Rolv-Apneseth/starship", rev = "247f49d" }, { use = "yazi-rs/plugins:git", rev = "ec97f88" }, { use = "yazi-rs/plugins:smart-enter", rev = "7afba3a" }, { use = "h-hg/yamb", rev = "108347b" }, { use = "KKV9/compress", rev = "60b24af" }]
+[[plugin.deps]]
+use = "llanosrocas/yaziline"
+rev = "e06c47f"
+hash = "7df84299e89ffefd4686d1e20a295c8a"
+
+[[plugin.deps]]
+use = "Rolv-Apneseth/starship"
+rev = "6c639b4"
+hash = "5614c46d5de76623c283d415bfac8025"
+
+[[plugin.deps]]
+use = "yazi-rs/plugins:git"
+rev = "5186af7"
+hash = "771f18427fb75fb19990ce602bb322f4"
+
+[[plugin.deps]]
+use = "yazi-rs/plugins:smart-enter"
+rev = "5186af7"
+hash = "aef2b1a805b80cce573bb766f1459d88"
+
+[[plugin.deps]]
+use = "h-hg/yamb"
+rev = "3f7c51f"
+hash = "e11b980e5635f0fbabd80931b1a1347e"
+
+[[plugin.deps]]
+use = "KKV9/compress"
+rev = "60b24af"
+hash = "ee025be766240cc98e671754ac836da3"
 
 [flavor]
 deps = []

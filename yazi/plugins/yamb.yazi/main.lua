@@ -139,7 +139,7 @@ local generate_key = function(bookmarks)
   end)
   local idx = 1
   for _, key in ipairs(keys) do
-    if key2rank[key] < key2rank[mb[idx]] then
+    if idx > #mb or key2rank[key] < key2rank[mb[idx]] then
       return key
     end
     idx = idx + 1

@@ -10,15 +10,15 @@ prepend_keymap = [
 	{ on = [
 		"'",
 		"a",
-	], run = "plugin yamb --args=save", desc = "Add bookmark" },
+	], run = "plugin yamb save", desc = "Add bookmark" },
 	{ on = [
 		"'",
 		"'",
-	], run = "plugin yamb --args=jump_by_fzf", desc = "Jump bookmark by fzf" },
+	], run = "plugin yamb jump_by_fzf", desc = "Jump bookmark by fzf" },
 	{ on = [
 		"'",
 		"r",
-	], run = "plugin yamb --args=delete_by_key", desc = "Delete bookmark by key" },
+	], run = "plugin yamb delete_by_key", desc = "Delete bookmark by key" },
 	{ on = [
 		"P",
 	], run = "spot", desc = "Open spotter" },
@@ -56,8 +56,8 @@ keymap = [
 	{ on = "<PageUp>", run = "arrow -100%", desc = "Move cursor up one page" },
 	{ on = "<PageDown>", run = "arrow 100%", desc = "Move cursor down one page" },
 
-	{ on = ["g", "g"], run = "arrow -99999999", desc = "Move cursor to the top" },
-	{ on = "G", run = "arrow 99999999", desc = "Move cursor to the bottom" },
+	{ on = ["g", "g"], run = "arrow top", desc = "Move cursor to the top" },
+	{ on = "G", run = "arrow bot", desc = "Move cursor to the bottom" },
 
 	# Navigation
 	{ on = "n", run = "leave", desc = "Go back to the parent directory" },

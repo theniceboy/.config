@@ -1,7 +1,7 @@
 # git.yazi
 
 > [!NOTE]
-> Yazi v0.3.3 or later is required for this plugin to work.
+> Yazi v25.2.7 or later is required for this plugin to work.
 
 Show the status of Git file changes as linemode in the file list.
 
@@ -36,9 +36,6 @@ run  = "git"
 ```
 
 ## Advanced
-
-> [!NOTE]
-> This section currently requires Yazi nightly that includes https://github.com/sxyazi/yazi/pull/1637
 
 You can customize the [Style](https://yazi-rs.github.io/docs/plugins/layout#style) of the status sign with:
 

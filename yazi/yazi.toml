@@ -85,12 +85,8 @@ image_bound      = [0, 0]
 suppress_preload = false
 
 [plugin]
-fetchers = [
-	# Mimetype
-	{ id = "mime", name = "*", run = "mime", if = "!mime", prio = "high" },
-	{ id = "git", name = "*", run = "git", prio = "normal" },
-	{ id = "git", name = "*/", run = "git", prio = "normal" },
-]
+fetchers = [{ id = "mime", name = "*", run = "mime", if = "!mime", prio = "high" }]
+prepend_fetchers = [{ id = "git", name = "*", run = "git" }, { id = "git", name = "*/", run = "git" }]
 preloaders = [
 	# Image
 	{ mime = "image/{avif,hei?,jxl,svg+xml}", run = "magick" },

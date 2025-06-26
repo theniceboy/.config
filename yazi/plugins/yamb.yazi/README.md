@@ -72,41 +72,41 @@ Add this to your `keymap.toml`:
 ```toml
 [[manager.prepend_keymap]]
 on = [ "u", "a" ]
-run = "plugin yamb --args=save"
+run = "plugin yamb save"
 desc = "Add bookmark"
 
 [[manager.prepend_keymap]]
 on = [ "u", "g" ]
-run = "plugin yamb --args=jump_by_key"
+run = "plugin yamb jump_by_key"
 desc = "Jump bookmark by key"
 
 [[manager.prepend_keymap]]
 on = [ "u", "G" ]
-run = "plugin yamb --args=jump_by_fzf"
+run = "plugin yamb jump_by_fzf"
 desc = "Jump bookmark by fzf"
 
 [[manager.prepend_keymap]]
 on = [ "u", "d" ]
-run = "plugin yamb --args=delete_by_key"
+run = "plugin yamb delete_by_key"
 desc = "Delete bookmark by key"
 
 [[manager.prepend_keymap]]
 on = [ "u", "D" ]
-run = "plugin yamb --args=delete_by_fzf"
+run = "plugin yamb delete_by_fzf"
 desc = "Delete bookmark by fzf"
 
 [[manager.prepend_keymap]]
 on = [ "u", "A" ]
-run = "plugin yamb --args=delete_all"
+run = "plugin yamb delete_all"
 desc = "Delete all bookmarks"
 
 [[manager.prepend_keymap]]
 on = [ "u", "r" ]
-run = "plugin yamb --args=rename_by_key"
+run = "plugin yamb rename_by_key"
 desc = "Rename bookmark by key"
 
 [[manager.prepend_keymap]]
 on = [ "u", "R" ]
-run = "plugin yamb --args=rename_by_fzf"
+run = "plugin yamb rename_by_fzf"
 desc = "Rename bookmark by fzf"
 ```

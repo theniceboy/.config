@@ -8,7 +8,7 @@
 use = ""
 
 
-[manager]
+[mgr]
 
 # Tab
 tab_width = 12

@@ -8,16 +8,16 @@ Read more about features and configuration [here](#features).
 
 ## Requirements
 
-- yazi version >= 25.2.11
+- yazi version >= [25.5.28](https://github.com/sxyazi/yazi/releases/tag/v25.5.28)
 - Font with symbol support. For example [Nerd Fonts](https://www.nerdfonts.com/).
 
 ## Installation
 
 ```sh
-ya pack -a llanosrocas/yaziline
+ya pkg add llanosrocas/yaziline
 ```
 
-Or manually copy `init.lua` to the `~/.config/yazi/plugins/yaziline.yazi/init.lua`
+Or manually copy `main.lua` to the `~/.config/yazi/plugins/yaziline.yazi/main.lua`
 
 ## Usage
 
@@ -32,6 +32,12 @@ Optionally, configure line:
 ```lua
 require("yaziline"):setup({
   color = "#98c379", -- main theme color
+  secondary_color = "#5A6078", -- secondary color
+  default_files_color = "darkgray", -- color of the file counter when it's inactive
+  selected_files_color = "white",
+  yanked_files_color = "green",
+  cut_files_color = "red",
+
   separator_style = "angly", -- "angly" | "curvy" | "liney" | "empty"
   separator_open = "",
   separator_close = "",
@@ -39,12 +45,28 @@ require("yaziline"):setup({
   separator_close_thin = "",
   separator_head = "",
   separator_tail = "",
+
   select_symbol = "",
   yank_symbol = "󰆐",
+
   filename_max_length = 24, -- truncate when filename > 24
   filename_truncate_length = 6, -- leave 6 chars on both sides
   filename_truncate_separator = "..." -- the separator of the truncated filename
 })
+```
+
+```
+ MODE  size  long_file...name.md  S 0 Y 0
+|  |   |   |  |           |         | |   |
+|  |   |   |  |           |         | |   └─── yank_symbol
+|  |   |   |  |           |         | └─────── select_symbol
+|  |   |   |  |           |         └───────── separator_close_thin
+|  |   |   |  |           └─────────────────── filename_truncate_separator
+|  |   |   |  └─────────────────────────────── separator_close
+|  |   |   └────────────────────────────────── secondary_color
+|  |   └────────────────────────────────────── separator_close
+|  └────────────────────────────────────────── color
+└───────────────────────────────────────────── separator_head
 ```
 
 ## Features
@@ -101,17 +123,15 @@ _You can find more symbols [here](https://www.nerdfonts.com/cheat-sheet)_
 
 ### Colors and font weight
 
-You can change font weight in your `yazi/flavors/flavor.toml`:
-
-```toml
-mode_normal = { bold = false }
-```
-
-And set custom color in the `init.lua`:
+By default yaziline uses color values from your `theme.toml` (or flavor) but you can set custom colors in the `init.lua`:
 
 ```lua
 require("yaziline"):setup({
-  color = "#98c379"
+  color = "#98c379",
+  default_files_color = "darkgray",
+  selected_files_color = "white",
+  yanked_files_color = "green",
+  cut_files_color = "red",
 })
 ```
 

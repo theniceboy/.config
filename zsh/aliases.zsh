@@ -36,3 +36,4 @@ alias t='tmux'
 alias lo='lsof -p $(fps) +w'
 alias py="python"
 alias cl="claude"
+alias co="codex --sandbox danger-full-access"

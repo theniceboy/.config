@@ -161,7 +161,9 @@ keymap = [
 	{ on = ["g", "f", "f"], run = "cd ~/.config" },
 	{ on = ["g", "f", "n"], run = "cd ~/.config/nvim" },
 	{ on = ["g", "f", "y"], run = "cd ~/.config/yazi" },
+	{ on = ["g", "f", "z"], run = "cd ~/.config/zsh" },
 	{ on = ["g", "f", "l"], run = "cd ~/.config/jesseduffield/lazygit" },
+	{ on = ["g", "F"], run = "cd ~/.sconfig" },
 	{ on = ["g", "<Space>"], run = "cd --interactive", desc = "Go to a directory interactively" },
 
 	# Tabs

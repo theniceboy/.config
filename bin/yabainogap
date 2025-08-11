@@ -1,0 +1,6 @@
+#!/bin/bash
+
+/opt/homebrew/bin/yabai -m config top_padding                  00
+/opt/homebrew/bin/yabai -m config bottom_padding               00
+/opt/homebrew/bin/yabai -m config left_padding                 00
+/opt/homebrew/bin/yabai -m config right_padding                00

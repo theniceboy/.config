@@ -1,0 +1,21 @@
+#!/bin/bash
+
+LAZY_DIR="$HOME/.local/share/nvim/lazy"
+
+if [[ ! -d "$LAZY_DIR" ]]; then
+    echo "Error: Directory $LAZY_DIR does not exist"
+    exit 1
+fi
+
+echo "Discarding git changes in all lazy.nvim plugins..."
+
+for plugin_dir in "$LAZY_DIR"/*; do
+    if [[ -d "$plugin_dir" && -d "$plugin_dir/.git" ]]; then
+        echo "Processing: $(basename "$plugin_dir")"
+        cd "$plugin_dir" || continue
+        git reset --hard HEAD 2>/dev/null
+        git clean -fd 2>/dev/null
+    fi
+done
+
+echo "Done! All plugin directories have been reset to their HEAD state."

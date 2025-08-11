@@ -1,0 +1,740 @@
+#!/usr/bin/env python3
+"""
+Dart File Structure Analyzer
+Analyzes a Dart file and extracts its structure including classes, methods, fields, imports, etc.
+"""
+
+import re
+import sys
+import json
+from pathlib import Path
+from typing import List, Dict, Any, Optional
+
+class DartStructureAnalyzer:
+    def __init__(self):
+        self.structure = {
+            'imports': [],
+            'exports': [],
+            'classes': [],
+            'functions': [],
+            'variables': [],
+            'enums': [],
+            'mixins': [],
+            'extensions': [],
+            'typedefs': []
+        }
+    
+    def analyze_file(self, file_path: str) -> Dict[str, Any]:
+        """Analyze a Dart file and return its structure"""
+        try:
+            with open(file_path, 'r', encoding='utf-8') as file:
+                content = file.read()
+        except Exception as e:
+            return {'error': f'Could not read file: {str(e)}'}
+        
+        # Remove comments and strings to avoid false matches
+        cleaned_content = self._remove_comments_and_strings(content)
+        lines = content.split('\n')
+        
+        self._extract_imports_exports(cleaned_content)
+        self._extract_classes(cleaned_content, lines)
+        self._extract_functions(cleaned_content, lines)
+        self._extract_variables(cleaned_content, lines)
+        self._extract_enums(cleaned_content, lines)
+        self._extract_mixins(cleaned_content, lines)
+        self._extract_extensions(cleaned_content, lines)
+        self._extract_typedefs(cleaned_content, lines)
+        
+        return self.structure
+    
+    def _remove_comments_and_strings(self, content: str) -> str:
+        """Remove comments and string literals to avoid false matches"""
+        result = []
+        i = 0
+        while i < len(content):
+            # Check for single-line comment
+            if i < len(content) - 1 and content[i:i+2] == '//':
+                # Skip to end of line
+                while i < len(content) and content[i] != '\n':
+                    i += 1
+                if i < len(content):
+                    result.append('\n')  # Keep the newline
+                    i += 1
+            # Check for multi-line comment
+            elif i < len(content) - 1 and content[i:i+2] == '/*':
+                i += 2
+                # Skip to end of comment
+                while i < len(content) - 1:
+                    if content[i:i+2] == '*/':
+                        i += 2
+                        break
+                    if content[i] == '\n':
+                        result.append('\n')  # Keep newlines in comments
+                    i += 1
+            # Check for string literals
+            elif content[i] in ['"', "'"]:
+                quote = content[i]
+                result.append(quote)
+                i += 1
+                # Skip to end of string
+                while i < len(content):
+                    if content[i] == quote:
+                        result.append(quote)
+                        i += 1
+                        break
+                    elif content[i] == '\\' and i + 1 < len(content):
+                        # Skip escaped character
+                        i += 2
+                    else:
+                        i += 1
+            else:
+                result.append(content[i])
+                i += 1
+        
+        return ''.join(result)
+    
+    def _extract_imports_exports(self, content: str):
+        """Extract import and export statements"""
+        import_pattern = r"import\s+['\"]([^'\"]+)['\"](?:\s+as\s+(\w+))?(?:\s+show\s+([^;]+))?(?:\s+hide\s+([^;]+))?;"
+        export_pattern = r"export\s+['\"]([^'\"]+)['\"](?:\s+show\s+([^;]+))?(?:\s+hide\s+([^;]+))?;"
+        
+        for match in re.finditer(import_pattern, content):
+            import_info = {
+                'path': match.group(1),
+                'alias': match.group(2),
+                'show': match.group(3).strip() if match.group(3) else None,
+                'hide': match.group(4).strip() if match.group(4) else None
+            }
+            self.structure['imports'].append(import_info)
+        
+        for match in re.finditer(export_pattern, content):
+            export_info = {
+                'path': match.group(1),
+                'show': match.group(2).strip() if match.group(2) else None,
+                'hide': match.group(3).strip() if match.group(3) else None
+            }
+            self.structure['exports'].append(export_info)
+    
+    def _extract_classes(self, content: str, lines: List[str]):
+        """Extract class definitions"""
+        class_pattern = r'(?:abstract\s+)?class\s+(\w+)(?:\s*<[^>]+>)?(?:\s+extends\s+(\w+(?:<[^>]+>)?))?(?:\s+with\s+([^{]+))?(?:\s+implements\s+([^{]+))?\s*{'
+        
+        for match in re.finditer(class_pattern, content):
+            line_num = self._get_line_number(content, match.start(), lines)
+            class_info = {
+                'name': match.group(1),
+                'line': line_num,
+                'extends': match.group(2).strip() if match.group(2) else None,
+                'mixins': [m.strip() for m in match.group(3).split(',')] if match.group(3) else [],
+                'implements': [i.strip() for i in match.group(4).split(',')] if match.group(4) else [],
+                'methods': [],
+                'fields': [],
+                'constructors': []
+            }
+            
+            # Extract class body - find the position right after the opening brace
+            brace_pos = match.end() - 1  # Position of opening brace
+            class_body = self._extract_class_body(content, brace_pos)
+            if class_body:
+                # The body starts after the opening brace AND any immediate whitespace
+                body_start_pos = brace_pos + 1
+                # Skip any whitespace/newlines immediately after the brace to get to actual content
+                while body_start_pos < len(content) and content[body_start_pos] in ['\n', ' ', '\t']:
+                    body_start_pos += 1
+                self._extract_class_members_absolute(content, class_body, class_info, lines, body_start_pos)
+            
+            self.structure['classes'].append(class_info)
+    
+    def _extract_class_body(self, content: str, start_pos: int) -> str:
+        """Extract the body of a class between braces"""
+        brace_count = 0
+        start = start_pos
+        
+        for i, char in enumerate(content[start_pos:], start_pos):
+            if char == '{':
+                brace_count += 1
+            elif char == '}':
+                brace_count -= 1
+                if brace_count == 0:
+                    return content[start + 1:i]
+        return ""
+    
+    def _extract_class_members_absolute(self, full_content: str, class_body: str, class_info: Dict, lines: List[str], body_start_pos: int):
+        """Extract methods, fields, and constructors from class body with absolute line numbers"""
+        
+        # Split class body into lines for better parsing
+        class_lines = class_body.split('\n')
+        processed_lines = set()
+        
+        # Extract constructors first
+        constructor_pattern = rf'{re.escape(class_info["name"])}\s*(?:\.\w+)?\s*\([^)]*\)\s*(?::\s*[^{{]+)?\s*{{'
+        for match in re.finditer(constructor_pattern, class_body):
+            absolute_pos = body_start_pos + match.start()
+            line_in_class = class_body[:match.start()].count('\n')
+            processed_lines.add(line_in_class)
+            constructor_info = {
+                'name': match.group(0).split('(')[0].strip(),
+                'line': self._get_line_number(full_content, absolute_pos, lines)
+            }
+            class_info['constructors'].append(constructor_info)
+        
+        # Extract getters and setters
+        getter_pattern = r'(?:static\s+)?(?:([\w<>?]+)\s+)?get\s+(\w+)(?:\s*=>\s*[^;]+;|\s*{)'
+        for match in re.finditer(getter_pattern, class_body):
+            absolute_pos = body_start_pos + match.start()
+            line_in_class = class_body[:match.start()].count('\n')
+            if line_in_class not in processed_lines:
+                processed_lines.add(line_in_class)
+                method_info = {
+                    'name': f"get {match.group(2)}",
+                    'return_type': match.group(1),
+                    'line': self._get_line_number(full_content, absolute_pos, lines)
+                }
+                class_info['methods'].append(method_info)
+        
+        setter_pattern = r'(?:static\s+)?set\s+(\w+)\([^)]*\)(?:\s*=>\s*[^;]+;|\s*{)'
+        for match in re.finditer(setter_pattern, class_body):
+            absolute_pos = body_start_pos + match.start()
+            line_in_class = class_body[:match.start()].count('\n')
+            if line_in_class not in processed_lines:
+                processed_lines.add(line_in_class)
+                method_info = {
+                    'name': f"set {match.group(1)}",
+                    'return_type': 'void',
+                    'line': self._get_line_number(full_content, absolute_pos, lines)
+                }
+                class_info['methods'].append(method_info)
+        
+        # Extract regular methods - must be method declarations, not calls
+        method_pattern = r'(?:^|\n)(\s*)(?:static\s+)?(?:@\w+\s+)*(?:([\w<>?]+)\s+)?(\w+)\s*\([^)]*\)\s*(?:async\s*)?(?:\s*=>\s*[^;]+;|\s*{)'
+        for match in re.finditer(method_pattern, class_body):
+            indent = match.group(1)
+            method_name = match.group(3)
+            return_type = match.group(2)
+            
+            # Skip constructors, getters, setters
+            if method_name == class_info['name'] or method_name in ['get', 'set']:
+                continue
+                
+            # Skip obvious control flow and literals
+            if method_name in ['if', 'for', 'while', 'switch', 'try', 'catch', 'finally', 'true', 'false', 'null', 'return']:
+                continue
+                
+            # Skip common method calls and expressions
+            if method_name in ['forEach', 'map', 'where', 'listen', 'then', 'add', 'remove', 'removeWhere', 'singleWhere', 'firstWhere', 'reduce', 'fold', 'any', 'every', 'contains', 'indexOf', 'lastIndexOf', 'join', 'split', 'handleException', 'sendData', 'await']:
+                continue
+            
+            # Methods should have reasonable indentation (2-6 spaces for class methods)
+            if len(indent) > 8:
+                continue
+            
+            # Check if this is preceded by 'await' or other indicators of method calls
+            line_start = class_body.rfind('\n', 0, match.start()) + 1
+            line_before_method = class_body[line_start:match.start()]
+            if re.search(r'\b(await|return|=|\(|\[)\s*$', line_before_method):
+                continue
+                
+            # Additional check: method declarations should typically have return types or be void
+            # If no return type is specified and it's deeply indented, it's likely a method call
+            if not return_type and len(indent) > 4:
+                continue
+                
+            absolute_pos = body_start_pos + match.start()
+            line_in_class = class_body[:match.start()].count('\n')
+            if line_in_class not in processed_lines:
+                processed_lines.add(line_in_class)
+                method_info = {
+                    'name': method_name,
+                    'return_type': return_type,
+                    'line': self._get_line_number(full_content, absolute_pos, lines)
+                }
+                class_info['methods'].append(method_info)
+        
+        # Extract fields (only at class level, not inside methods)
+        # Pattern 1: Explicit type - "final Type fieldName" or "Type fieldName" 
+        # Also handles comma-separated: "Type field1, field2, field3;"
+        explicit_type_pattern = r'(?:^|\n)\s*(?:static\s+)?(?:final\s+|const\s+|late\s+)?([\w<>?]+)\s+([^;]+);'
+        # Pattern 2: Inferred type - "final fieldName = <Type>{}" or "final fieldName = Constructor()"
+        inferred_type_pattern = r'(?:^|\n)\s*(?:static\s+)?(final|const|late)\s+(\w+)\s*=\s*(?:<([^>]+)>\s*\{\}|<([^>]+)>\s*\[\]|(\w+(?:<[^>]+>)?)\s*\()'
+        
+        # First, identify method signatures and bodies to exclude them from field detection
+        method_bodies = []
+        # Pattern to match method signatures including multi-line parameter lists
+        method_signature_pattern = r'(?:^|\n)\s*(?:static\s+)?(?:@\w+\s+)*(?:[\w<>?]+\s+)?(?:get\s+|set\s+)?\w+\s*\('
+        
+        for method_match in re.finditer(method_signature_pattern, class_body):
+            # Find the complete method signature (including parameters) and body
+            signature_start = method_match.start()
+            
+            # Find the opening parenthesis and match it with closing parenthesis
+            paren_pos = method_match.end() - 1  # Position of opening parenthesis
+            paren_count = 0
+            signature_end = paren_pos
+            
+            for i, char in enumerate(class_body[paren_pos:], paren_pos):
+                if char == '(':
+                    paren_count += 1
+                elif char == ')':
+                    paren_count -= 1
+                    if paren_count == 0:
+                        signature_end = i + 1
+                        break
+            
+            # Now find the method body (look for opening brace after the closing parenthesis)
+            body_start = -1
+            for i, char in enumerate(class_body[signature_end:], signature_end):
+                if char == '{':
+                    body_start = i
+                    break
+                elif char not in [' ', '\n', '\t'] and not char.isalpha():  # Skip 'async' keyword
+                    if char != 'a':  # Not starting 'async'
+                        break
+            
+            if body_start != -1:
+                # Find the end of method body
+                brace_count = 0
+                for i, char in enumerate(class_body[body_start:], body_start):
+                    if char == '{':
+                        brace_count += 1
+                    elif char == '}':
+                        brace_count -= 1
+                        if brace_count == 0:
+                            # Include the entire method signature and body
+                            method_bodies.append((signature_start, i + 1))
+                            break
+        
+        # Process explicit type fields first
+        for match in re.finditer(explicit_type_pattern, class_body):
+            field_names_part = match.group(2).strip()
+            field_type = match.group(1)
+            
+            # Skip if field_type is actually a modifier or control flow keyword
+            if field_type in ['final', 'const', 'late', 'static', 'var', 'dynamic', 'if', 'for', 'while', 'switch', 'try', 'catch', 'return']:
+                continue
+            
+            # Parse field names (handle comma-separated declarations)
+            # Split by comma and clean up each field name
+            field_declarations = []
+            if ',' in field_names_part:
+                # Multiple fields: "field1, field2, field3"
+                raw_fields = field_names_part.split(',')
+                for raw_field in raw_fields:
+                    # Clean up and extract just the field name (remove default values)
+                    clean_field = raw_field.split('=')[0].strip()
+                    if clean_field and re.match(r'^\w+$', clean_field):
+                        field_declarations.append(clean_field)
+            else:
+                # Single field: "fieldName" or "fieldName = defaultValue"
+                clean_field = field_names_part.split('=')[0].strip()
+                if clean_field and re.match(r'^\w+$', clean_field):
+                    field_declarations.append(clean_field)
+            
+            # Check if this field declaration is inside a method body
+            field_pos = match.start()
+            inside_method = False
+            for method_start, method_end in method_bodies:
+                if method_start <= field_pos <= method_end:
+                    inside_method = True
+                    break
+            
+            if not inside_method:
+                absolute_pos = body_start_pos + match.start()
+                line_in_class = class_body[:match.start()].count('\n')
+                # Check if we've already processed this specific field declaration
+                # (not just the line number, since comma-separated fields share the same line)
+                field_key = (line_in_class, field_type, tuple(sorted(field_declarations)))
+                if field_key not in processed_lines:
+                    # Additional check: must be at proper indentation for class field
+                    line_start = class_body.rfind('\n', 0, match.start()) + 1
+                    line_content = class_body[line_start:match.end()]
+                    indent = len(line_content) - len(line_content.lstrip())
+                    
+                    # Class fields should have minimal indentation (2-4 spaces typically)
+                    if indent <= 6:
+                        processed_lines.add(field_key)
+                        actual_line = self._get_line_number(full_content, absolute_pos, lines)
+                        
+                        # Add each field from the declaration
+                        for field_name in field_declarations:
+                            field_info = {
+                                'name': field_name,
+                                'type': field_type,
+                                'line': actual_line
+                            }
+                            class_info['fields'].append(field_info)
+        
+        # Process inferred type fields
+        for match in re.finditer(inferred_type_pattern, class_body):
+            modifier = match.group(1)  # final, const, late
+            field_name = match.group(2)
+            # Extract inferred type from different patterns
+            if match.group(3):  # <Type>{}
+                field_type = f"Map<{match.group(3)}>"
+            elif match.group(4):  # <Type>[]
+                field_type = f"List<{match.group(4)}>"
+            elif match.group(5):  # Constructor()
+                constructor = match.group(5)
+                field_type = constructor.split('<')[0]  # Remove generic part for constructor name
+            else:
+                field_type = "dynamic"
+            
+            # Check if this field declaration is inside a method body
+            field_pos = match.start()
+            inside_method = False
+            for method_start, method_end in method_bodies:
+                if method_start <= field_pos <= method_end:
+                    inside_method = True
+                    break
+            
+            if not inside_method:
+                absolute_pos = body_start_pos + match.start()
+                line_in_class = class_body[:match.start()].count('\n')
+                if line_in_class not in processed_lines:
+                    # Additional check: must be at proper indentation for class field
+                    line_start = class_body.rfind('\n', 0, match.start()) + 1
+                    line_content = class_body[line_start:match.end()]
+                    indent = len(line_content) - len(line_content.lstrip())
+                    
+                    # Class fields should have minimal indentation (2-4 spaces typically)
+                    if indent <= 6:
+                        processed_lines.add(line_in_class)
+                        field_info = {
+                            'name': field_name,
+                            'type': field_type,
+                            'line': self._get_line_number(full_content, absolute_pos, lines)
+                        }
+                        class_info['fields'].append(field_info)
+    
+    def _extract_functions(self, content: str, lines: List[str]):
+        """Extract top-level function definitions"""
+        function_pattern = r'(?:^|\n)(?:@\w+\s+)*(?:([\w<>]+)\s+)?(\w+)\s*\([^)]*\)\s*(?:async\s*)?{'
+        
+        for match in re.finditer(function_pattern, content):
+            # Skip if it's inside a class (simple heuristic)
+            before_match = content[:match.start()]
+            if self._is_inside_class(before_match):
+                continue
+                
+            line_num = self._get_line_number(content, match.start(), lines)
+            function_info = {
+                'name': match.group(2),
+                'return_type': match.group(1),
+                'line': line_num
+            }
+            self.structure['functions'].append(function_info)
+    
+    def _extract_variables(self, content: str, lines: List[str]):
+        """Extract top-level variable declarations"""
+        var_pattern = r'(?:^|\n)(?:const\s+|final\s+|var\s+|late\s+)?([\w<>?]+)\s+(\w+)(?:\s*=\s*[^;]+)?;'
+        
+        for match in re.finditer(var_pattern, content):
+            before_match = content[:match.start()]
+            if self._is_inside_class(before_match):
+                continue
+                
+            line_num = self._get_line_number(content, match.start(), lines)
+            var_info = {
+                'name': match.group(2),
+                'type': match.group(1),
+                'line': line_num
+            }
+            self.structure['variables'].append(var_info)
+    
+    def _extract_enums(self, content: str, lines: List[str]):
+        """Extract enum definitions"""
+        enum_pattern = r'enum\s+(\w+)\s*{'
+        
+        for match in re.finditer(enum_pattern, content):
+            line_num = self._get_line_number(content, match.start(), lines)
+            enum_info = {
+                'name': match.group(1),
+                'line': line_num,
+                'values': []
+            }
+            
+            # Extract enum values - handle both single-line and multi-line enums
+            # First try to find the enum body between braces
+            brace_start = match.end() - 1  # Position of opening brace
+            brace_end = -1
+            brace_count = 0
+            
+            for i, char in enumerate(content[brace_start:], brace_start):
+                if char == '{':
+                    brace_count += 1
+                elif char == '}':
+                    brace_count -= 1
+                    if brace_count == 0:
+                        brace_end = i
+                        break
+            
+            if brace_end > brace_start:
+                enum_body = content[brace_start + 1:brace_end]
+                
+                # Remove comments and clean up the enum body
+                cleaned_enum_body = re.sub(r'//.*$', '', enum_body, flags=re.MULTILINE)
+                cleaned_enum_body = re.sub(r'/\*.*?\*/', '', cleaned_enum_body, flags=re.DOTALL)
+                
+                # Extract enum values - split by comma and clean up
+                values_text = cleaned_enum_body.strip()
+                if values_text:
+                    # Split by comma and clean up each value
+                    raw_values = re.split(r'[,\s]+', values_text)
+                    for value in raw_values:
+                        value = value.strip()
+                        # Only include valid identifiers
+                        if value and re.match(r'^\w+$', value):
+                            if value not in ['enum', 'const', 'final', 'static']:
+                                enum_info['values'].append(value)
+            
+            self.structure['enums'].append(enum_info)
+    
+    def _extract_mixins(self, content: str, lines: List[str]):
+        """Extract mixin definitions"""
+        mixin_pattern = r'mixin\s+(\w+)(?:\s+on\s+([^{]+))?\s*{'
+        
+        for match in re.finditer(mixin_pattern, content):
+            line_num = self._get_line_number(content, match.start(), lines)
+            mixin_info = {
+                'name': match.group(1),
+                'line': line_num,
+                'on': match.group(2).strip() if match.group(2) else None
+            }
+            self.structure['mixins'].append(mixin_info)
+    
+    def _extract_extensions(self, content: str, lines: List[str]):
+        """Extract extension definitions"""
+        extension_pattern = r'extension\s+(?:(\w+)\s+)?on\s+([\w<>]+)\s*{'
+        
+        for match in re.finditer(extension_pattern, content):
+            line_num = self._get_line_number(content, match.start(), lines)
+            extension_info = {
+                'name': match.group(1) if match.group(1) else 'Anonymous',
+                'on': match.group(2),
+                'line': line_num
+            }
+            self.structure['extensions'].append(extension_info)
+    
+    def _extract_typedefs(self, content: str, lines: List[str]):
+        """Extract typedef definitions"""
+        typedef_pattern = r'typedef\s+(\w+)(?:\s*<[^>]+>)?\s*=\s*([^;]+);'
+        
+        for match in re.finditer(typedef_pattern, content):
+            line_num = self._get_line_number(content, match.start(), lines)
+            typedef_info = {
+                'name': match.group(1),
+                'definition': match.group(2).strip(),
+                'line': line_num
+            }
+            self.structure['typedefs'].append(typedef_info)
+    
+    def _is_inside_class(self, content_before: str) -> bool:
+        """Check if we're inside a class definition"""
+        open_braces = content_before.count('{')
+        close_braces = content_before.count('}')
+        class_count = len(re.findall(r'\bclass\s+\w+', content_before))
+        return open_braces > close_braces and class_count > 0
+    
+    def _get_line_number(self, content: str, position: int, lines: List[str]) -> int:
+        """Get line number for a given position in content"""
+        if position == 0:
+            return 1
+        return content[:position].count('\n') + 1
+
+def print_linear_structure(structure: Dict[str, Any]):
+    """Print structure in linear format with indentation"""
+    
+    print("Format: [line] (type) name - lines are absolute file positions, indented items are class members")
+    print()
+    
+    # Collect all top-level items and sort by line number
+    all_items = []
+    
+    # Add imports
+    for imp in structure['imports']:
+        all_items.append({
+            'line': imp.get('line', 0),
+            'type': 'import',
+            'data': imp
+        })
+    
+    # Add exports  
+    for exp in structure['exports']:
+        all_items.append({
+            'line': exp.get('line', 0),
+            'type': 'export', 
+            'data': exp
+        })
+    
+    # Add classes
+    for cls in structure['classes']:
+        all_items.append({
+            'line': cls['line'],
+            'type': 'class',
+            'data': cls
+        })
+    
+    # Add enums
+    for enum in structure['enums']:
+        all_items.append({
+            'line': enum['line'],
+            'type': 'enum',
+            'data': enum
+        })
+    
+    # Add mixins
+    for mixin in structure['mixins']:
+        all_items.append({
+            'line': mixin['line'],
+            'type': 'mixin',
+            'data': mixin
+        })
+    
+    # Add extensions
+    for ext in structure['extensions']:
+        all_items.append({
+            'line': ext['line'],
+            'type': 'extension',
+            'data': ext
+        })
+    
+    # Add functions
+    for func in structure['functions']:
+        all_items.append({
+            'line': func['line'],
+            'type': 'function',
+            'data': func
+        })
+    
+    # Add variables
+    for var in structure['variables']:
+        all_items.append({
+            'line': var['line'],
+            'type': 'variable',
+            'data': var
+        })
+    
+    # Add typedefs
+    for typedef in structure['typedefs']:
+        all_items.append({
+            'line': typedef['line'],
+            'type': 'typedef',
+            'data': typedef
+        })
+    
+    # Sort all items by line number
+    all_items.sort(key=lambda x: x['line'])
+    
+    # Print sorted items
+    for item in all_items:
+        if item['type'] == 'import':
+            print(f"[{item['line']}] (import) {item['data']['path']}")
+        elif item['type'] == 'export':
+            print(f"[{item['line']}] (export) {item['data']['path']}")
+        elif item['type'] == 'class':
+            cls = item['data']
+            print(f"[{cls['line']}] (class) {cls['name']}")
+            if cls['extends']:
+                print(f"    extends {cls['extends']}")
+            if cls['mixins']:
+                print(f"    mixins: {', '.join(cls['mixins'])}")
+            if cls['implements']:
+                print(f"    implements: {', '.join(cls['implements'])}")
+            
+            # Collect all class members and sort by line number
+            members = []
+            
+            # Add constructors
+            for ctor in cls['constructors']:
+                members.append({
+                    'line': ctor['line'],
+                    'type': 'constructor',
+                    'name': ctor['name'],
+                    'return_type': None
+                })
+            
+            # Add fields
+            for field in cls['fields']:
+                members.append({
+                    'line': field['line'],
+                    'type': 'field',
+                    'name': field['name'],
+                    'return_type': field['type']
+                })
+            
+            # Add methods
+            for method in cls['methods']:
+                members.append({
+                    'line': method['line'],
+                    'type': 'method',
+                    'name': method['name'],
+                    'return_type': method['return_type']
+                })
+            
+            # Sort all members by line number
+            members.sort(key=lambda x: x['line'])
+            
+            # Print sorted members
+            for member in members:
+                if member['type'] == 'constructor':
+                    print(f"    [{member['line']}] (constructor) {member['name']}")
+                elif member['type'] == 'field':
+                    type_info = f" : {member['return_type']}" if member['return_type'] else ""
+                    print(f"    [{member['line']}] (field) {member['name']}{type_info}")
+                elif member['type'] == 'method':
+                    return_type = f"{member['return_type']} " if member['return_type'] else ""
+                    print(f"    [{member['line']}] (method) {return_type}{member['name']}")
+        
+        elif item['type'] == 'enum':
+            enum = item['data']
+            print(f"[{enum['line']}] (enum) {enum['name']}")
+            for value in enum['values']:
+                print(f"    (value) {value}")
+        
+        elif item['type'] == 'mixin':
+            mixin = item['data']
+            on_clause = f" on {mixin['on']}" if mixin['on'] else ""
+            print(f"[{mixin['line']}] (mixin) {mixin['name']}{on_clause}")
+        
+        elif item['type'] == 'extension':
+            ext = item['data']
+            print(f"[{ext['line']}] (extension) {ext['name']} on {ext['on']}")
+        
+        elif item['type'] == 'function':
+            func = item['data']
+            return_type = f"{func['return_type']} " if func['return_type'] else ""
+            print(f"[{func['line']}] (function) {return_type}{func['name']}")
+        
+        elif item['type'] == 'variable':
+            var = item['data']
+            type_info = f" : {var['type']}" if var['type'] else ""
+            print(f"[{var['line']}] (variable) {var['name']}{type_info}")
+        
+        elif item['type'] == 'typedef':
+            typedef = item['data']
+            print(f"[{typedef['line']}] (typedef) {typedef['name']} = {typedef['definition']}")
+
+def main():
+    if len(sys.argv) != 2:
+        print("Usage: python dart_structure_analyzer.py <dart_file>")
+        sys.exit(1)
+    
+    file_path = sys.argv[1]
+    
+    if not Path(file_path).exists():
+        print(f"Error: File '{file_path}' does not exist")
+        sys.exit(1)
+    
+    if not file_path.endswith('.dart'):
+        print(f"Warning: '{file_path}' does not have a .dart extension")
+    
+    analyzer = DartStructureAnalyzer()
+    structure = analyzer.analyze_file(file_path)
+    
+    if 'error' in structure:
+        print(f"Error: {structure['error']}")
+        sys.exit(1)
+    
+    print_linear_structure(structure)
+
+if __name__ == "__main__":
+    main()

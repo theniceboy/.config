@@ -102,13 +102,24 @@ class ParallelTaskRunner:
         while not self.results.empty():
             all_results.append(self.results.get())
         
-        failed_count = sum(1 for result in all_results if not result['success'])
+        failed_tasks = [result for result in all_results if not result['success']]
         
-        if failed_count == 0:
+        if not failed_tasks:
             print(f"{Colors.GREEN}All upgrade tasks completed successfully!{Colors.RESET}")
             return True
         else:
-            print(f"{Colors.RED}Some tasks failed. Check output above.{Colors.RESET}")
+            print(f"{Colors.RED}FAILED TASKS:{Colors.RESET}")
+            for task in failed_tasks:
+                print(f"\n{Colors.RED}• {task['name']}{Colors.RESET}")
+                if task['output']:
+                    # Print first 10 lines of error output
+                    output_lines = task['output'].strip().split('\n')
+                    error_lines = output_lines[:10]
+                    for line in error_lines:
+                        print(f"  {line}")
+                    if len(output_lines) > 10:
+                        print(f"  ... ({len(output_lines) - 10} more lines)")
+            print(f"\n{Colors.RED}Total failed: {len(failed_tasks)} out of {len(all_results)} tasks{Colors.RESET}")
             return False
 
 def main():

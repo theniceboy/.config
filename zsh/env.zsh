@@ -9,6 +9,7 @@ export PATH=$PATH:$HOME/.gem/ruby/2.6.0
 export PATH=$PATH:/opt/homebrew/Cellar/ruby/3.3.0/lib/ruby/gems/3.3.0
 export PATH=$PATH:/Users/david/.local/share/gem/ruby/3.3.0
 export PATH=$PATH:/opt/homebrew/lib/ruby/gems/3.3.0
+export PATH=$PATH:/opt/homebrew/lib/ruby/gems/3.4.0/bin
 export PATH=$PATH:/usr/local/bin
 export PATH=$PATH:$HOME/go/bin
 export PATH=$PATH:/home/linuxbrew/.linuxbrew/bin

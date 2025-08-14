@@ -54,3 +54,8 @@ jesseduffield/lazynpm/state.yml
 
 ranger/__pycache__/commands.cpython-39.opt-1.pyc
 yazi/bookmark
+
+# Claude Code configuration
+!/claude/
+/claude/*
+!/claude/settings.json

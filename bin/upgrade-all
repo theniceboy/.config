@@ -125,8 +125,7 @@ class ParallelTaskRunner:
 def main():
     runner = ParallelTaskRunner()
     
-    runner.add_task("Claude Code Update", "npm install -g @anthropic-ai/claude-code")
-    runner.add_task("CCUSAGE Update", "npm install -g ccusage")
+    runner.add_task("Claude Code Update", "npm install -g -f @anthropic-ai/claude-code ccusage ccstatusline")
     runner.add_task("Homebrew Update", "brew update && brew upgrade --greedy")
     runner.add_task("Config Git Pull", "cd ~/.config && git pull")
     runner.add_task("Neovim Config Git Pull", "cd ~/.config/nvim && git pull")

@@ -1,7 +1,8 @@
 {
-  "model": "opusplan",
-  "statusLine": {
-    "type": "command",
-    "command": "printf '%s | %s | %s' \"$(ccusage statusline | tr -d '\\n')\" \"$(pwd | sed \"s|$HOME|~|\" | sed 's|.*/\\([^/]*/[^/]*\\)$|\\1|')\" \"$(git status --porcelain 2>/dev/null | awk 'BEGIN{staged=0; modified=0; untracked=0} /^M/{staged++} /^.M/{modified++} /^\\?\\?/{untracked++} END{if(staged+modified+untracked>0) printf \"git: %s%s%s\", (staged>0?staged\"s\":\"\"),(modified>0?modified\"m\":\"\"),(untracked>0?untracked\"u\":\"\"); else printf \"git: clean\"}' || printf 'not a git repo')\""
-  }
+	"model": "opusplan",
+	"statusLine": {
+		"type": "command",
+		"command": "bash ~/.config/claude/scripts/statusline.sh",
+		"padding": 0
+	}
 }

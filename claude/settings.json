@@ -1,8 +1,8 @@
 {
-	"model": "opusplan",
-	"statusLine": {
-		"type": "command",
-		"command": "bash ~/.config/claude/scripts/statusline.sh",
-		"padding": 0
-	}
+  "model": "opusplan",
+  "statusLine": {
+    "type": "command",
+    "command": "bash ~/.config/claude/scripts/statusline.sh",
+    "padding": 0
+  }
 }

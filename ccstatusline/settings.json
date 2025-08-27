@@ -1,0 +1,56 @@
+{
+  "version": 3,
+  "lines": [
+    [
+      {
+        "id": "9fc4ae79-f172-4d4b-b7f8-c2c3e923e7aa",
+        "type": "custom-command",
+        "commandPath": "pwd | xargs basename",
+        "preserveColors": true,
+        "timeout": 5000
+      },
+      {
+        "id": "42c8ee58-8b00-4d3f-8d14-b77569cb85e2",
+        "type": "separator"
+      },
+      {
+        "id": "4f12f8ba-4728-4590-ac5d-8c2b96ec91e8",
+        "type": "git-branch"
+      },
+      {
+        "id": "6b5de7fa-7369-46dc-abf0-e00ef3f29b84",
+        "type": "separator"
+      },
+      {
+        "id": "fdb13982-03d6-4511-a241-aac58b846dab",
+        "type": "git-changes"
+      },
+      {
+        "id": "3e43a92c-ab16-4bb1-b54b-a08c788648a8",
+        "type": "separator"
+      },
+      {
+        "id": "b77b87b9-679f-4437-af95-0907025e9c2c",
+        "type": "version"
+      }
+    ],
+    [],
+    []
+  ],
+  "flexMode": "full",
+  "compactThreshold": 60,
+  "colorLevel": 2,
+  "inheritSeparatorColors": false,
+  "globalBold": false,
+  "powerline": {
+    "enabled": false,
+    "separators": [
+      ""
+    ],
+    "separatorInvertBackground": [
+      false
+    ],
+    "startCaps": [],
+    "endCaps": []
+  }
+}

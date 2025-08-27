@@ -130,6 +130,7 @@ def main():
     runner.add_task("Config Git Pull", "cd ~/.config && git pull")
     runner.add_task("Neovim Config Git Pull", "cd ~/.config/nvim && git pull")
     runner.add_task("SConfig Git Pull", "cd ~/.sconfig && git pull")
+    runner.add_task("Node Apps Update", "npm install -g -f instant-markdown-d")
     
     success = runner.run_all()
     sys.exit(0 if success else 1)

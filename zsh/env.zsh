@@ -41,3 +41,4 @@ export EDITOR=nvim
 export ZSH_AUTOSUGGEST_USE_ASYNC=1
 export ZSH_AUTOSUGGEST_MANUAL_REBIND=1
 export PATH="/usr/local/opt/grep/libexec/gnubin:$PATH"
+export HOMEBREW_DOWNLOAD_CONCURRENCY=auto

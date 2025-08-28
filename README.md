@@ -88,5 +88,29 @@ yay -S wqy-bitmapfont wqy-microhei wqy-microhei-lite wqy-zenhei adobe-source-han
 ## gtk-theme
 I use `adapta-gtk-theme` and `arc-icon-theme`.
 
+## Claude Code Voice Configuration
+
+This config includes a directory-based voice system for Claude Code that uses macOS text-to-speech.
+
+### Voice Commands
+- `/voice-on` - Enable text-to-speech for current directory
+- `/voice-off` - Disable text-to-speech for current directory
+
+### Selecting and Downloading High Quality System Voices
+
+For the best text-to-speech experience, download high-quality system voices:
+
+1. **Open System Preferences** → **Accessibility** → **Spoken Content**
+2. **Click "System Voice"** dropdown → **Customize...**
+3. **Download premium voices** (these are much higher quality than default):
+   - **English**: Alex (Enhanced), Samantha (Enhanced), Victoria (Enhanced)
+   - **Other languages**: Download enhanced versions as needed
+4. **Select your preferred voice** in the System Voice dropdown
+
+**Note**: Enhanced voices are 100-200MB each but provide significantly better speech quality than compact voices.
+
+### Voice Database
+Voice settings are stored per-directory in `~/.claude/voice-db.json` and automatically created by the scripts.
+
 ## Arch Packages I Installed:
 See [my-packages.txt](https://github.com/theniceboy/.config/blob/master/my-packages.txt)

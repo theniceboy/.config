@@ -4,5 +4,18 @@
     "type": "command",
     "command": "bash ~/.config/claude/scripts/statusline.sh",
     "padding": 0
+  },
+  "hooks": {
+    "Stop": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "current_dir=$(pwd); voice_db=\"$HOME/.claude/voice-db.json\"; if [ -f \"$voice_db\" ] && [ \"$(jq -r --arg dir \"$current_dir\" '.[$dir] // false' \"$voice_db\")\" = \"true\" ]; then transcript_path=$(cat | jq -r '.transcript_path'); tail -1 \"$transcript_path\" | jq -r '.message.content[0].text // empty' | say & fi"
+          }
+        ]
+      }
+    ]
   }
 }

@@ -28,11 +28,18 @@ If you need to install Homebrew manually:
 
 ### Claude Code Voice Configuration
 
-This config includes a directory-based voice system for Claude Code that uses macOS text-to-speech.
+This config includes a global voice system for Claude Code that uses macOS text-to-speech.
 
 #### Voice Commands
-- `/voice-on` - Enable text-to-speech for current directory
-- `/voice-off` - Disable text-to-speech for current directory
+- `/voice-on` - Enable text-to-speech globally
+- `/voice-off` - Disable text-to-speech globally
+
+#### Raycast Integration
+For quick voice control, use the included Raycast scripts:
+- **"Toggle Claude Voice"** - Toggle voice on/off from anywhere
+- **"Stop Voice (TTS)"** - Immediately stop any playing speech
+
+To add to Raycast: Add the `raycast-scripts/` directory to your Raycast script directories.
 
 #### Selecting and Downloading High Quality System Voices
 
@@ -46,8 +53,8 @@ For the best text-to-speech experience, download high-quality system voices:
 
 **Recommended**: Siri voices provide the most natural speech quality but require downloading additional voice data.
 
-#### Voice Database
-Voice settings are stored per-directory in `~/.claude/voice-db.json` and automatically created by the scripts.
+#### Voice Settings
+Voice is controlled by a global flag file at `~/.claude/voice-enabled`. When this file exists, Claude Code will speak all responses.
 
 ### Other Applications
 - **tmux**: Terminal multiplexer with custom configuration

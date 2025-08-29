@@ -65,3 +65,6 @@ yazi/bookmark
 
 # Deploy script
 !/deploy.sh
+
+# Raycast scripts directory
+!/raycast-scripts/

@@ -30,11 +30,18 @@
 
 ### Claude Code 语音配置
 
-此配置包含一个基于目录的 Claude Code 语音系统，使用 macOS 文本转语音功能。
+此配置包含一个全局的 Claude Code 语音系统，使用 macOS 文本转语音功能。
 
 #### 语音命令
-- `/voice-on` - 为当前目录启用文本转语音
-- `/voice-off` - 为当前目录禁用文本转语音
+- `/voice-on` - 全局启用文本转语音
+- `/voice-off` - 全局禁用文本转语音
+
+#### Raycast 集成
+为了快速语音控制，使用包含的 Raycast 脚本：
+- **"Toggle Claude Voice"** - 从任何地方切换语音开/关
+- **"Stop Voice (TTS)"** - 立即停止任何正在播放的语音
+
+添加到 Raycast：将 `raycast-scripts/` 目录添加到您的 Raycast 脚本目录。
 
 #### 选择和下载高质量系统语音
 
@@ -48,8 +55,8 @@
 
 **推荐**: Siri 语音提供最自然的语音质量，但需要下载额外的语音数据。
 
-#### 语音数据库
-语音设置按目录存储在 `~/.claude/voice-db.json` 中，由脚本自动创建。
+#### 语音设置
+语音由全局标志文件 `~/.claude/voice-enabled` 控制。当此文件存在时，Claude Code 将朗读所有响应。
 
 ### 其他应用程序
 - **tmux**: 带有自定义配置的终端复用器

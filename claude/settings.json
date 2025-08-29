@@ -12,7 +12,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "current_dir=$(pwd); voice_db=\"$HOME/.claude/voice-db.json\"; if [ -f \"$voice_db\" ] && [ \"$(jq -r --arg dir \"$current_dir\" '.[$dir] // false' \"$voice_db\")\" = \"true\" ]; then transcript_path=$(cat | jq -r '.transcript_path'); nohup bash -c 'tail -1 \"'$transcript_path'\" | jq -r \".message.content[0].text // empty\" | say' >/dev/null 2>&1 & fi"
+            "command": "voice_flag=\"$HOME/.claude/voice-enabled\"; if [ -f \"$voice_flag\" ]; then transcript_path=$(cat | jq -r '.transcript_path'); pkill -f 'say' 2>/dev/null; nohup bash -c 'tail -1 \"'$transcript_path'\" | jq -r \".message.content[0].text // empty\" | say' >/dev/null 2>&1 & fi"
           }
         ]
       }

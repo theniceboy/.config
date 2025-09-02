@@ -62,6 +62,7 @@ yazi/bookmark
 !/claude/system-prompt.txt
 !/claude/scripts/
 !/claude/commands/
+!/claude/agents/
 
 # Deploy script
 !/deploy.sh

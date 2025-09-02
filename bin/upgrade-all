@@ -122,8 +122,75 @@ class ParallelTaskRunner:
             print(f"\n{Colors.RED}Total failed: {len(failed_tasks)} out of {len(all_results)} tasks{Colors.RESET}")
             return False
 
+def install_brew_packages():
+    """Install missing brew packages."""
+    print("📦 Checking brew packages...")
+    
+    # Get list of installed packages
+    try:
+        result = subprocess.run(['brew', 'list', '--formula', '-1'], 
+                              capture_output=True, text=True, check=True)
+        installed_packages = result.stdout.strip()
+    except subprocess.CalledProcessError:
+        print("❌ Failed to get brew package list")
+        return False
+    
+    packages = [
+        # System utilities
+        "htop", "dust", "ncdu", "fswatch", "pipx", "uv",
+        # macOS GNU utilities
+        "coreutils", "gnu-tar", "gnu-getopt", "gnu-sed",
+        # Development tools
+        "node", "go", "gcc", "gdb", "automake", "cmake", "jsdoc3", "oven-sh/bun/bun",
+        # Text processing and search
+        "ripgrep", "the_silver_searcher", "fd", "fzf", "bat", "ccat", "tree", "jq",
+        # File management
+        "yazi", "sevenzip",
+        # Git and version control
+        "git", "git-delta", "git-flow", "jesseduffield/lazygit/lazygit", "gh",
+        # Media and graphics
+        "ffmpeg", "imagemagick", "poppler", "yt-dlp",
+        # Network and web
+        "wget", "speedtest-cli",
+        # Terminal and shell
+        "tmux", "neovim", "starship", "rainbarf", "neofetch", "onefetch", "tldr", "bmon", "loc",
+        # Applications
+        "awscli", "azure-cli", "terraform"
+    ]
+    
+    missing_packages = []
+    installed_list = installed_packages.split('\n')
+    
+    for package in packages:
+        # Handle tap packages (contains /)
+        if "/" in package:
+            package_name = package.split("/")[-1]  # Extract package name after last /
+            if package_name not in installed_list:
+                missing_packages.append(package)
+        else:
+            if package not in installed_list:
+                missing_packages.append(package)
+    
+    if missing_packages:
+        print(f"Installing {len(missing_packages)} missing packages...")
+        for package in missing_packages:
+            try:
+                subprocess.run(['brew', 'install', package], check=True)
+                print(f"✅ Installed {package}")
+            except subprocess.CalledProcessError:
+                print(f"❌ Failed to install {package}")
+        return True
+    else:
+        print("✅ All packages already installed")
+        return True
+
 def main():
     runner = ParallelTaskRunner()
+    
+    # Install missing brew packages first
+    if not install_brew_packages():
+        print("❌ Brew package installation failed")
+        sys.exit(1)
     
     runner.add_task("Claude Code Update", "npm install -g -f @anthropic-ai/claude-code ccusage ccstatusline")
     runner.add_task("Homebrew Update", "brew update && brew upgrade --greedy")

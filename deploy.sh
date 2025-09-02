@@ -32,104 +32,17 @@ fi
 
 echo "✅ Homebrew found"
 
-# Install brew packages
-echo "📦 Checking brew packages..."
-
-# Get list of installed packages
-installed_packages=$(brew list --formula -1)
-
-# Function to install package if not already installed
-install_if_missing() {
-    local package="$1"
-    local display_name="${2:-$package}"
-    
-    # Handle tap packages (contains /)
-    if [[ "$package" == *"/"* ]]; then
-        local package_name="${package##*/}"  # Extract package name after last /
-        if ! echo "$installed_packages" | grep -q "^${package_name}$"; then
-            echo "  📦 Installing $display_name..."
-            brew install "$package"
-        fi
-    else
-        if ! echo "$installed_packages" | grep -q "^${package}$"; then
-            echo "  📦 Installing $display_name..."
-            brew install "$package"
-        fi
-    fi
-}
-
-# System utilities
-install_if_missing "htop" # Interactive process viewer
-install_if_missing "dust" # Disk usage analyzer
-install_if_missing "ncdu" # Disk usage analyzer with ncurses
-install_if_missing "fswatch" # File system monitoring
-install_if_missing "pipx" # Install Python apps in isolation
-
-# macOS GNU utilities
-if [[ "$OSTYPE" == "darwin"* ]]; then
-    install_if_missing "coreutils" # GNU core utilities (ls, cp, mv, etc.)
-    install_if_missing "gnu-tar" # GNU tar archiver
-    install_if_missing "gnu-getopt" # GNU command line option parsing
-    install_if_missing "gnu-sed" # GNU stream editor
+# Run upgrade-all to install/update packages
+echo "📦 Running upgrade-all to install/update packages..."
+if command -v upgrade-all &> /dev/null; then
+    upgrade-all
+elif [ -x "$HOME/.config/bin/upgrade-all" ]; then
+    python3 "$HOME/.config/bin/upgrade-all"
+else
+    echo "❌ upgrade-all script not found"
+    echo "   Expected at: $HOME/.config/bin/upgrade-all"
+    exit 1
 fi
-
-# Development tools
-install_if_missing "node" # Node.js JavaScript runtime
-install_if_missing "go" # Go programming language
-install_if_missing "gcc" # GNU Compiler Collection
-install_if_missing "gdb" # GNU debugger
-install_if_missing "automake" # Build automation tool
-install_if_missing "cmake" # Cross-platform build system
-install_if_missing "jsdoc3" # JavaScript documentation generator
-
-# Text processing and search
-install_if_missing "ripgrep" # Fast text search (rg)
-install_if_missing "the_silver_searcher" # Fast text search (ag)
-install_if_missing "fd" # Fast find alternative
-install_if_missing "fzf" # Fuzzy finder
-install_if_missing "bat" # Better cat with syntax highlighting
-install_if_missing "ccat" # Colorized cat
-install_if_missing "tree" # Display directory trees
-install_if_missing "jq" # JSON processor
-
-# File management
-install_if_missing "yazi" # Terminal file manager
-install_if_missing "sevenzip" # File archiver
-
-# Git and version control
-install_if_missing "git" # Version control system
-install_if_missing "git-delta" # Better git diff viewer
-install_if_missing "git-flow" # Git branching model extensions
-install_if_missing "jesseduffield/lazygit/lazygit" "lazygit" # TUI for git
-install_if_missing "gh" # GitHub CLI
-
-# Media and graphics
-install_if_missing "ffmpeg" # Media processing toolkit
-install_if_missing "imagemagick" # Image manipulation toolkit
-install_if_missing "poppler" # PDF rendering library
-install_if_missing "yt-dlp" # YouTube downloader
-
-# Network and web
-install_if_missing "wget" # Web file downloader
-install_if_missing "speedtest-cli" # Internet speed test
-
-# Terminal and shell
-install_if_missing "tmux" # Terminal multiplexer
-install_if_missing "neovim" # Modern Vim text editor
-install_if_missing "starship" # Cross-shell prompt
-install_if_missing "rainbarf" # CPU/RAM/battery stats for tmux
-install_if_missing "neofetch" # System information display
-install_if_missing "onefetch" # Git repository information
-install_if_missing "tldr" # Simplified man pages
-install_if_missing "bmon" # Bandwidth monitor
-install_if_missing "loc" # Lines of code counter
-
-# Applications
-install_if_missing "awscli" # AWS command line interface
-install_if_missing "azure-cli" # Azure command line interface
-install_if_missing "terraform" # Infrastructure as code
-
-echo "✅ All packages processed"
 
 # Ensure zsh configuration is sourced
 echo "🔗 Setting up zsh configuration..."

@@ -192,7 +192,7 @@ def main():
         print("❌ Brew package installation failed")
         sys.exit(1)
     
-    runner.add_task("Claude Code Update", "npm install -g -f @anthropic-ai/claude-code ccusage ccstatusline")
+    runner.add_task("Claude Code Update", "npm install -g -f @anthropic-ai/claude-code ccusage ccstatusline @openai/codex@latest")
     runner.add_task("Homebrew Update", "brew update && brew upgrade --greedy")
     runner.add_task("Config Git Pull", "cd ~/.config && git pull")
     runner.add_task("Neovim Config Git Pull", "cd ~/.config/nvim && git pull")

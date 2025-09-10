@@ -3,12 +3,27 @@
   "lines": [
     [
       {
+        "id": "95e108c1-bf22-4a23-94c8-be096ccaf8c8",
+        "type": "model"
+      },
+      {
+        "id": "222b40b7-1291-4090-a0ae-bc43637241b3",
+        "type": "custom-command",
+        "commandPath": "uv run ~/.config/claude/scripts/context-status.py"
+      },
+      {
+        "id": "64a1187d-65c6-4490-9f30-fa618da8b8ce",
+        "type": "output-style"
+      }
+    ],
+    [
+      {
         "id": "9fc4ae79-f172-4d4b-b7f8-c2c3e923e7aa",
         "type": "current-working-dir",
+        "color": "white",
         "commandPath": "pwd | xargs basename",
         "preserveColors": true,
-        "timeout": 5000,
-        "color": "white"
+        "timeout": 5000
       },
       {
         "id": "4f12f8ba-4728-4590-ac5d-8c2b96ec91e8",
@@ -23,12 +38,33 @@
         "type": "version"
       }
     ],
-    [],
-    []
+    [
+      {
+        "id": "032c2103-52cd-42fd-9e03-325ee4dfc6c7",
+        "type": "session-cost"
+      },
+      {
+        "id": "e7177c91-ecb8-422d-9496-b380d05d6e6b",
+        "type": "session-clock"
+      },
+      {
+        "id": "5aef38b5-a24f-40a7-b201-afd3a5870f2d",
+        "type": "custom-command",
+        "commandPath": "echo \"$(ccusage daily --json | jq -r 'if type == \\\"array\\\" then .[-1] else . end | if .totalCostUSD then \\\"$\\\" + (.totalCostUSD | tostring) else \\\"$0.00\\\" end') 📅\"",
+        "timeout": 10000
+      },
+      {
+        "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+        "type": "custom-command",
+        "commandPath": "ccusage blocks --active --json | jq -r '.blocks[0] | \"$\" + (.costUSD | . * 100 | round / 100 | tostring) + \" block (\" + (.projection.remainingMinutes / 60 | floor | tostring) + \"h \" + (.projection.remainingMinutes % 60 | tostring) + \"m left)\"'",
+        "timeout": 10000
+      }
+    ]
   ],
   "flexMode": "full",
   "compactThreshold": 60,
   "colorLevel": 2,
+  "defaultPadding": " ",
   "inheritSeparatorColors": false,
   "globalBold": false,
   "powerline": {
@@ -41,8 +77,7 @@
     ],
     "startCaps": [],
     "endCaps": [],
-    "autoAlign": false,
-    "theme": "nord-aurora"
-  },
-  "defaultPadding": " "
+    "theme": "nord-aurora",
+    "autoAlign": false
+  }
 }

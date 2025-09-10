@@ -1,11 +1,6 @@
 {
-  "model": "opusplan",
   "includeCoAuthoredBy": false,
-  "statusLine": {
-    "type": "command",
-    "command": "bash ~/.config/claude/scripts/statusline.sh",
-    "padding": 0
-  },
+  "model": "opusplan",
   "hooks": {
     "Stop": [
       {
@@ -18,5 +13,10 @@
         ]
       }
     ]
+  "statusLine": {
+    "type": "command",
+    "command": "bunx -y ccstatusline@latest",
+    "padding": 0
+  },
   }
 }

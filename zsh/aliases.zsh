@@ -36,4 +36,4 @@ alias t='tmux'
 alias lo='lsof -p $(fps) +w'
 alias py="python"
 alias cl='claude --dangerously-skip-permissions --append-system-prompt "$(cat ~/.config/claude/system-prompt.txt)"'
-alias co="codex --sandbox danger-full-access"
+alias co="codex --sandbox danger-full-access -m gpt-5 -c model_reasoning_effort=\"high\""

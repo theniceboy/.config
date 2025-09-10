@@ -71,3 +71,9 @@ yazi/bookmark
 !/raycast-scripts/
 !/ccstatusline/
 !/docs/
+
+# Codex configuration
+!/codex/
+/codex/*
+!/codex/config.toml
+!/codex/AGENTS.md

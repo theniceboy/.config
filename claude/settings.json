@@ -8,15 +8,18 @@
         "hooks": [
           {
             "type": "command",
-            "command": "voice_flag=\"$HOME/.claude/voice-enabled\"; if [ -f \"$voice_flag\" ]; then transcript_path=$(cat | jq -r '.transcript_path'); pkill -f 'say' 2>/dev/null; nohup bash -c 'tail -1 \"'$transcript_path'\" | jq -r \".message.content[0].text // empty\" | say' >/dev/null 2>&1 & fi"
+            "command": "voice_flag=\"$HOME/.claude/voice-enabled\"; ring_flag=\"$HOME/.claude/ring-enabled\"; if [ -f \"$ring_flag\" ]; then pkill -f 'say' 2>/dev/null; nohup bash -c 'say \"Claude Code Done\"' >/dev/null 2>&1 & elif [ -f \"$voice_flag\" ]; then transcript_path=$(cat | jq -r '.transcript_path'); pkill -f 'say' 2>/dev/null; nohup bash -c 'tail -1 \"'$transcript_path'\" | jq -r \".message.content[0].text // empty\" | say' >/dev/null 2>&1 & fi"
           }
         ]
       }
     ]
+  },
   "statusLine": {
     "type": "command",
     "command": "bunx -y ccstatusline@latest",
     "padding": 0
   },
+  "env": {
+    "DISABLE_AUTOUPDATER": "1"
   }
 }

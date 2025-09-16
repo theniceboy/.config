@@ -24,6 +24,9 @@ If you need to install Homebrew manually:
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 ```
 
+### Iterm2 config
+Title should be set to session name only. Do not allow other applications to change the title.
+
 ## Apps
 
 ### Claude Code Voice Configuration
@@ -57,7 +60,7 @@ For the best text-to-speech experience, download high-quality system voices:
 Voice is controlled by a global flag file at `~/.claude/voice-enabled`. When this file exists, Claude Code will speak all responses.
 
 ### Other Applications
-- **tmux**: Terminal multiplexer with custom configuration
+- **tmux**: Terminal multiplexer with custom configuration (set `TMUX_RAINBARF=0` before launching tmux to hide the rainbarf status segment)
 - **neovim**: Modern text editor
 - **yazi**: Terminal file manager
 - **lazygit**: TUI for git operations

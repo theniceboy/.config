@@ -214,7 +214,7 @@ def install_brew_packages():
     
     packages = [
         # System utilities
-        "htop", "dust", "ncdu", "fswatch", "pipx", "uv",
+        "htop", "dust", "ncdu", "fswatch", "pipx", "uv", "terminal-notifier",
         # macOS GNU utilities
         "coreutils", "gnu-tar", "gnu-getopt", "gnu-sed",
         # Development tools
@@ -370,6 +370,7 @@ def schedule_npm_updates(runner):
         "ccstatusline",
         "@openai/codex",
         "instant-markdown-d",
+        "mcp-proxy",
     ]
 
     runner.add_task("Node Apps Update", action=create_npm_update_action(packages))
@@ -387,6 +388,10 @@ def main():
     runner.add_task("Config Git Pull", "cd ~/.config && git pull")
     runner.add_task("Neovim Config Git Pull", "cd ~/.config/nvim && git pull")
     runner.add_task("SConfig Git Pull", "cd ~/.sconfig && git pull")
+    runner.add_task(
+        "Agent Tracker Build",
+        "cd ~/.config/agent-tracker && ./install.sh && ./scripts/install_brew_service.sh"
+    )
 
     success = runner.run_all()
     sys.exit(0 if success else 1)

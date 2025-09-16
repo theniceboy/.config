@@ -1,7 +1,9 @@
 model_reasoning_effort = "high"   # minimal|low|medium|high|none
 model_verbosity        = "medium" # low|medium|high
 
-[mcp_servers.ib]
-command            = "mcp-proxy"
-args               = ["--transport", "streamablehttp", "http://127.0.0.1:5938"]
-startup_timeout_ms = 20000
+model                  = "gpt-5-codex"
+tui                    = { theme = { name = "dark-zen-garden" }, spinner = { name = "brailleDotsClassic" }, alternate_screen = true }
+
+
+[mcp_servers.tracker]
+command = "/Users/david/.config/agent-tracker/bin/tracker-mcp"

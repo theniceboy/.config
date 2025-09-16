@@ -77,3 +77,12 @@ yazi/bookmark
 /codex/*
 !/codex/config.toml
 !/codex/AGENTS.md
+
+# Agent tracker binaries
+!/agent-tracker/
+agent-tracker/bin/tracker-client
+agent-tracker/bin/tracker-mcp
+agent-tracker/bin/tracker-server
+agent-tracker/run/server.pid
+tmux/cache
+agent-tracker/.DS_Store

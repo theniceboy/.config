@@ -1,6 +1,6 @@
 #!/bin/bash
 
-set -e
+set -euo pipefail
 
 echo "🚀 Starting deployment script..."
 
@@ -61,26 +61,34 @@ create_symlink() {
     local target="$1"
     local link_name="$2"
     local display_name="$3"
-    
+
     echo "🔗 Setting up $display_name symlink..."
-    
-    if [ ! -L "$link_name" ]; then
-        if [ -e "$link_name" ]; then
-            echo "⚠️  Backing up existing $link_name to ${link_name}.backup"
-            mv "$link_name" "${link_name}.backup"
+
+    if [ -L "$link_name" ]; then
+        local current
+        current=$(readlink "$link_name")
+        if [ "$current" = "$target" ]; then
+            echo "✅ $display_name symlink already exists and is correct"
+            return 0
         fi
-        ln -s "$target" "$link_name"
-        echo "✅ Symlink created: $link_name -> $target"
-    elif [ "$(readlink "$link_name")" = "$target" ]; then
-        echo "✅ $display_name symlink already exists and is correct"
-    else
-        echo "⚠️  $link_name exists but points to $(readlink "$link_name")"
-        echo "   Expected: $target"
+        echo "⚠️  $link_name points to $current; updating to $target"
+        rm "$link_name"
+    elif [ -e "$link_name" ]; then
+        local backup="${link_name}.backup"
+        if [ -e "$backup" ]; then
+            backup="${backup}.$(date +%Y%m%d%H%M%S)"
+        fi
+        echo "⚠️  Backing up existing $link_name to $backup"
+        mv "$link_name" "$backup"
     fi
+
+    ln -s "$target" "$link_name"
+    echo "✅ Symlink ensured: $link_name -> $target"
 }
 
 # Create configuration symlinks
 create_symlink "$HOME/.config/.tmux.conf" "$HOME/.tmux.conf" "Tmux"
 create_symlink "$HOME/.config/claude" "$HOME/.claude" "Claude"
+create_symlink "$HOME/.config/codex" "$HOME/.codex" "Codex"
 
 echo "🎉 Deployment complete!"

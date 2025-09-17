@@ -54,6 +54,7 @@ class AgentTrackerServer < Formula
     run [opt_bin/"tracker-server"]
     keep_alive true
     working_dir var/"agent-tracker"
+    environment_variables PATH: "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
     log_path var/"log/agent-tracker-server.log"
     error_log_path var/"log/agent-tracker-server.log"
   end

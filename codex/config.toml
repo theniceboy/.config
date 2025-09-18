@@ -2,7 +2,7 @@ model_reasoning_effort = "high"   # minimal|low|medium|high|none
 model_verbosity        = "medium" # low|medium|high
 
 model                  = "gpt-5-codex"
-tui                    = { theme = { name = "dark-zen-garden" }, spinner = { name = "brailleDotsClassic" }, alternate_screen = true }
+tui                    = { theme = { name = "dark-zen-garden" }, spinner = { name = "brailleDotsClassic" }, alternate_screen = true, notifications = true }
 
 
 [mcp_servers.tracker]

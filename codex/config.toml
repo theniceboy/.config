@@ -5,5 +5,5 @@ model                  = "gpt-5-codex"
 tui                    = { theme = { name = "dark-zen-garden" }, spinner = { name = "brailleDotsClassic" }, alternate_screen = true, notifications = true }
 
 
-[mcp_servers.tracker]
-command = "/Users/david/.config/agent-tracker/bin/tracker-mcp"
+# [mcp_servers.tracker]
+# command = "/Users/david/.config/agent-tracker/bin/tracker-mcp"

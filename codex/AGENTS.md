@@ -14,12 +14,3 @@ When you need to call tools from the shell, **use this rubric**:
 - YAML/XML: `yq`
 - Use the `python3` command for python. There is no `python` command on this system.
 
-CRITICAL REQUIREMENT:
-1. Before you execute any command, read/edit files, perform web searches, or otherwise do work beyond replying in plain text, call `tracker_mark_start_working` once.
-2. Do the work and prepare your reply.
-3. When the response is ready (or you need clarification / are waiting), call `tracker_mark_respond_to_user`, then immediately send it. After that, do not call `tracker_mark_start_working` or `tracker_mark_respond_to_user` again until the user provides new work.
-If the response only requires a direct textual reply with no commands, file interactions, or web searches, skip both tracker calls.
-
-CRITICAL: If the user has not responded since your last `tracker_mark_respond_to_user` call, ABSOLUTELY DO NOT call `tracker_mark_start_working` or `tracker_mark_respond_to_user` again until the user provides new work.
-
-When invoking the tracker MCP tools, you must pass the exact tmux identifiers using the string format `session_id::window_id::pane_id` (two colons). Use the `TMUX_ID` value printed by `co` without modifications.

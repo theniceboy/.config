@@ -97,7 +97,7 @@ func main() {
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input startInput) (*mcp.CallToolResult, any, error) {
 		tmuxID := strings.TrimSpace(input.TmuxID)
 		if tmuxID == "" {
-			return nil, nil, fmt.Errorf("tmux_id is required")
+			return nil, nil, fmt.Errorf("tmux_id is required; pass session_id::window_id::pane_id (for example, $3::@12::%30)")
 		}
 		target, err := determineContext(tmuxID)
 		if err != nil {
@@ -132,7 +132,7 @@ func main() {
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input finishInput) (*mcp.CallToolResult, any, error) {
 		tmuxID := strings.TrimSpace(input.TmuxID)
 		if tmuxID == "" {
-			return nil, nil, fmt.Errorf("tmux_id is required")
+			return nil, nil, fmt.Errorf("tmux_id is required; pass session_id::window_id::pane_id (for example, $3::@12::%30)")
 		}
 		target, err := determineContext(tmuxID)
 		if err != nil {

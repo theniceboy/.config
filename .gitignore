@@ -77,6 +77,7 @@ yazi/bookmark
 /codex/*
 !/codex/config.toml
 !/codex/AGENTS.md
+!/codex/notify.py
 
 # Agent tracker binaries
 !/agent-tracker/

@@ -1,19 +1,20 @@
 package main
 
 import (
-	"context"
-	"encoding/json"
-	"errors"
-	"fmt"
-	"log"
-	"net"
-	"os"
-	"path/filepath"
-	"strings"
-	"time"
+    "context"
+    "encoding/json"
+    "errors"
+    "fmt"
+    "log"
+    "net"
+    "os"
+    "os/exec"
+    "path/filepath"
+    "strings"
+    "time"
 
-	"github.com/david/agent-tracker/internal/ipc"
-	"github.com/modelcontextprotocol/go-sdk/mcp"
+    "github.com/david/agent-tracker/internal/ipc"
+    "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 const (
@@ -76,90 +77,50 @@ func (c *trackerClient) sendCommand(ctx context.Context, env ipc.Envelope) error
 }
 
 type startInput struct {
-	Summary string `json:"summary"`
-	TmuxID  string `json:"tmux_id"`
-}
-
-type finishInput struct {
-	Summary string `json:"summary"`
-	TmuxID  string `json:"tmux_id"`
+    Summary string `json:"summary"`
+    TmuxID  string `json:"tmux_id"`
 }
 
 func main() {
-	log.SetFlags(0)
-	client := newTrackerClient()
+    log.SetFlags(0)
+    client := newTrackerClient()
 
-	server := mcp.NewServer(&mcp.Implementation{Name: implementationName, Version: implementationVersion}, nil)
+    server := mcp.NewServer(&mcp.Implementation{Name: implementationName, Version: implementationVersion}, nil)
 
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "tracker_mark_start_working",
-		Description: "Record that work has started for the currently focused tmux session/window.",
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, input startInput) (*mcp.CallToolResult, any, error) {
-		tmuxID := strings.TrimSpace(input.TmuxID)
-		if tmuxID == "" {
-			return nil, nil, fmt.Errorf("tmux_id is required; pass session_id::window_id::pane_id (for example, $3::@12::%30)")
-		}
-		target, err := determineContext(tmuxID)
-		if err != nil {
-			return nil, nil, err
-		}
-		summary := strings.TrimSpace(input.Summary)
-		if summary == "" {
-			return nil, nil, fmt.Errorf("summary is required")
-		}
-		env := ipc.Envelope{
-			Command:   "start_task",
-			Session:   target.SessionID,
-			SessionID: target.SessionID,
-			Window:    target.WindowID,
-			WindowID:  target.WindowID,
-			Pane:      target.PaneID,
-			Summary:   summary,
-		}
-		if err := client.sendCommand(ctx, env); err != nil {
-			return nil, nil, err
-		}
-		return &mcp.CallToolResult{
-			Content: []mcp.Content{
-				&mcp.TextContent{Text: "Status recorded. Do the work, then call `tracker_mark_respond_to_user` exactly once, right before you send the user their reply."},
-			},
-		}, nil, nil
-	})
-
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "tracker_mark_respond_to_user",
-		Description: "Record that work has completed for the currently focused tmux session/window.",
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, input finishInput) (*mcp.CallToolResult, any, error) {
-		tmuxID := strings.TrimSpace(input.TmuxID)
-		if tmuxID == "" {
-			return nil, nil, fmt.Errorf("tmux_id is required; pass session_id::window_id::pane_id (for example, $3::@12::%30)")
-		}
-		target, err := determineContext(tmuxID)
-		if err != nil {
-			return nil, nil, err
-		}
-		summary := strings.TrimSpace(input.Summary)
-		env := ipc.Envelope{
-			Command:   "finish_task",
-			Session:   target.SessionID,
-			SessionID: target.SessionID,
-			Window:    target.WindowID,
-			WindowID:  target.WindowID,
-			Pane:      target.PaneID,
-			Summary:   summary,
-		}
-		if summary != "" {
-			env.Message = summary
-		}
-		if err := client.sendCommand(ctx, env); err != nil {
-			return nil, nil, err
-		}
-		return &mcp.CallToolResult{
-			Content: []mcp.Content{
-				&mcp.TextContent{Text: "Send your reply now. You MUST NOT not call `tracker_mark_start_working` from now on until the user sends you a message."},
-			},
-		}, nil, nil
-	})
+    mcp.AddTool(server, &mcp.Tool{
+        Name:        "tracker_mark_start_working",
+        Description: "Record that work has started for the specified tmux session/window/pane.",
+    }, func(ctx context.Context, _ *mcp.CallToolRequest, input startInput) (*mcp.CallToolResult, any, error) {
+        tmuxID := strings.TrimSpace(input.TmuxID)
+        if tmuxID == "" {
+            return nil, nil, fmt.Errorf("tmux_id is required; pass session_id::window_id::pane_id (for example, $3::@12::%30)")
+        }
+        target, err := determineContext(tmuxID)
+        if err != nil {
+            return nil, nil, err
+        }
+        summary := strings.TrimSpace(input.Summary)
+        if summary == "" {
+            return nil, nil, fmt.Errorf("summary is required")
+        }
+        env := ipc.Envelope{
+            Command:   "start_task",
+            Session:   target.SessionID,
+            SessionID: target.SessionID,
+            Window:    target.WindowID,
+            WindowID:  target.WindowID,
+            Pane:      target.PaneID,
+            Summary:   summary,
+        }
+        if err := client.sendCommand(ctx, env); err != nil {
+            return nil, nil, err
+        }
+        return &mcp.CallToolResult{
+            Content: []mcp.Content{
+                &mcp.TextContent{Text: "Status recorded."},
+            },
+        }, nil, nil
+    })
 
 	if err := server.Run(context.Background(), &mcp.StdioTransport{}); err != nil {
 		log.Fatal(err)
@@ -173,22 +134,55 @@ type tmuxContext struct {
 }
 
 func determineContext(tmuxID string) (tmuxContext, error) {
-	parts := strings.Split(strings.TrimSpace(tmuxID), "::")
-	if len(parts) != 3 {
-		return tmuxContext{}, fmt.Errorf("tmux_id must be session_id::window_id::pane_id")
-	}
-	sessionID := strings.TrimSpace(parts[0])
-	windowID := strings.TrimSpace(parts[1])
-	paneID := strings.TrimSpace(parts[2])
-	if sessionID == "" || windowID == "" || paneID == "" {
-		return tmuxContext{}, fmt.Errorf("tmux_id must include non-empty session, window, and pane identifiers")
-	}
-	return tmuxContext{SessionID: sessionID, WindowID: windowID, PaneID: paneID}, nil
+    parts := strings.Split(strings.TrimSpace(tmuxID), "::")
+    if len(parts) != 3 {
+        return tmuxContext{}, fmt.Errorf("tmux_id must be session_id::window_id::pane_id")
+    }
+    sessionID := strings.TrimSpace(parts[0])
+    windowID := strings.TrimSpace(parts[1])
+    paneID := strings.TrimSpace(parts[2])
+    if sessionID == "" || windowID == "" || paneID == "" {
+        return tmuxContext{}, fmt.Errorf("tmux_id must include non-empty session, window, and pane identifiers")
+    }
+    return tmuxContext{SessionID: sessionID, WindowID: windowID, PaneID: paneID}, nil
 }
 
 func socketPath() string {
-	if dir := os.Getenv("XDG_RUNTIME_DIR"); dir != "" {
-		return filepath.Join(dir, "agent-tracker.sock")
-	}
-	return filepath.Join(os.TempDir(), "agent-tracker.sock")
+    if dir := os.Getenv("XDG_RUNTIME_DIR"); dir != "" {
+        return filepath.Join(dir, "agent-tracker.sock")
+    }
+    return filepath.Join(os.TempDir(), "agent-tracker.sock")
+}
+
+// autodetectContext tries to resolve the current tmux session/window/pane.
+// It first uses TMUX_PANE if set, then falls back to the parent process TTY.
+func autodetectContext() (tmuxContext, error) {
+    pane := strings.TrimSpace(os.Getenv("TMUX_PANE"))
+    if pane != "" {
+        out, err := exec.Command("tmux", "display-message", "-p", "-t", pane, "#{session_id}:::#{window_id}:::#{pane_id}").CombinedOutput()
+        if err == nil {
+            parts := strings.Split(strings.TrimSpace(string(out)), ":::")
+            if len(parts) == 3 {
+                return tmuxContext{SessionID: strings.TrimSpace(parts[0]), WindowID: strings.TrimSpace(parts[1]), PaneID: strings.TrimSpace(parts[2])}, nil
+            }
+        }
+    }
+
+    // Fallback: use parent process TTY
+    ppid := os.Getppid()
+    ttyOut, err := exec.Command("ps", "-o", "tty=", "-p", fmt.Sprint(ppid)).CombinedOutput()
+    if err == nil {
+        tty := strings.TrimSpace(string(ttyOut))
+        if tty != "" && tty != "?" {
+            out, err := exec.Command("tmux", "display-message", "-p", "-c", "/dev/"+tty, "#{session_id}:::#{window_id}:::#{pane_id}").CombinedOutput()
+            if err == nil {
+                parts := strings.Split(strings.TrimSpace(string(out)), ":::")
+                if len(parts) == 3 {
+                    return tmuxContext{SessionID: strings.TrimSpace(parts[0]), WindowID: strings.TrimSpace(parts[1]), PaneID: strings.TrimSpace(parts[2])}, nil
+                }
+            }
+        }
+    }
+
+    return tmuxContext{}, fmt.Errorf("unable to determine tmux context from environment")
 }

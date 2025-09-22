@@ -14,3 +14,7 @@ When you need to call tools from the shell, **use this rubric**:
 - YAML/XML: `yq`
 - Use the `python3` command for python. There is no `python` command on this system.
 
+TRACKER INTEGRATION
+- Before starting substantive work, call the MCP tool `tracker_mark_start_working` exactly once with:
+  - `summary`: short description of planned work
+  - `tmux_id`: the provided TMUX_ID in the form `session_id::window_id::pane_id`

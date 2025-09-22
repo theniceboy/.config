@@ -511,23 +511,33 @@ func runUI(args []string) error {
 				return nil
 			}
 			switch tev := ev.(type) {
-			case *tcell.EventKey:
-				if tev.Key() == tcell.KeyEnter {
-					if len(tasks) > 0 && selected < len(tasks) {
-						task := tasks[selected]
-						if err := sendCommand("focus_task", func(env *ipc.Envelope) {
-							env.SessionID = task.SessionID
-							env.WindowID = task.WindowID
-							env.Pane = task.Pane
-						}); err != nil {
-							return err
-						}
-					}
-					if err := sendCommand("hide"); err != nil {
-						return err
-					}
-					return nil
-				}
+            case *tcell.EventKey:
+                if tev.Key() == tcell.KeyEnter {
+                    if len(tasks) > 0 && selected < len(tasks) {
+                        task := tasks[selected]
+                        // Mark completed tasks as viewed (acknowledged) before focusing
+                        if task.Status == statusCompleted && !task.Acknowledged {
+                            if err := sendCommand("acknowledge", func(env *ipc.Envelope) {
+                                env.SessionID = task.SessionID
+                                env.WindowID = task.WindowID
+                                env.Pane = task.Pane
+                            }); err != nil {
+                                return err
+                            }
+                        }
+                        if err := sendCommand("focus_task", func(env *ipc.Envelope) {
+                            env.SessionID = task.SessionID
+                            env.WindowID = task.WindowID
+                            env.Pane = task.Pane
+                        }); err != nil {
+                            return err
+                        }
+                    }
+                    if err := sendCommand("hide"); err != nil {
+                        return err
+                    }
+                    return nil
+                }
 				if tev.Key() == tcell.KeyCtrlC {
 					return sendCommand("hide")
 				}

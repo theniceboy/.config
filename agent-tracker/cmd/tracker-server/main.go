@@ -208,19 +208,19 @@ func (s *server) handleCommand(env ipc.Envelope) error {
 		s.broadcastStateAsync()
 		s.statusRefreshAsync()
 		return nil
-	case "finish_task":
-		target, err := requireSessionWindow(env)
-		if err != nil {
-			return err
-		}
-		note := firstNonEmpty(env.Summary, env.Message)
-		if err := s.finishTask(target, note); err != nil {
-			return err
-		}
-		s.notifyResponded(target)
-		s.broadcastStateAsync()
-		s.statusRefreshAsync()
-		return nil
+    case "finish_task":
+        target, err := requireSessionWindow(env)
+        if err != nil {
+            return err
+        }
+        note := firstNonEmpty(env.Summary, env.Message)
+        if err := s.finishTask(target, note); err != nil {
+            return err
+        }
+        // s.notifyResponded(target)
+        s.broadcastStateAsync()
+        s.statusRefreshAsync()
+        return nil
 	case "acknowledge":
 		target, err := requireSessionWindow(env)
 		if err != nil {

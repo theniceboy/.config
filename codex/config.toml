@@ -20,5 +20,6 @@ notify                 = ["/usr/bin/python3", "/Users/david/.config/codex/notify
 # cwd = "/Users/david/Github/project-wiki-mcp"
 # startup_timeout_ms = 20000
 
-# [mcp_servers.tracker]
-# command = "/Users/david/.config/agent-tracker/bin/tracker-mcp"
+[mcp_servers.tracker]
+command            = "/Users/david/.config/agent-tracker/bin/tracker-mcp"
+startup_timeout_ms = 20000

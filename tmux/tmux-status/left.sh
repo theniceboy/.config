@@ -28,6 +28,23 @@ separator=""
 left_cap="█"
 max_width=18
 
+# width-based label policy: when narrow (<80 cols by default),
+# show title for active session and only the numeric index for inactive ones.
+left_narrow_width=${TMUX_LEFT_NARROW_WIDTH:-80}
+term_width=$(tmux display-message -p '#{client_width}' 2>/dev/null || true)
+if [[ -z "${term_width:-}" || "$term_width" == "0" ]]; then
+  term_width=$(tmux display-message -p '#{window_width}' 2>/dev/null || true)
+fi
+if [[ -z "${term_width:-}" || "$term_width" == "0" ]]; then
+  term_width=${COLUMNS:-}
+fi
+is_narrow=0
+if [[ -n "${term_width:-}" && "$term_width" =~ ^[0-9]+$ ]]; then
+  if (( term_width < left_narrow_width )); then
+    is_narrow=1
+  fi
+fi
+
 normalize_session_id() {
   local value="$1"
   value="${value#\$}"
@@ -40,6 +57,15 @@ trim_label() {
     printf '%s' "${BASH_REMATCH[1]}"
   else
     printf '%s' "$value"
+  fi
+}
+
+extract_index() {
+  local value="$1"
+  if [[ "$value" =~ ^([0-9]+)-.*$ ]]; then
+    printf '%s' "${BASH_REMATCH[1]}"
+  else
+    printf ''
   fi
 }
 
@@ -176,12 +202,27 @@ while IFS= read -r entry; do
   segment_bg="$inactive_bg"
   segment_fg="$inactive_fg"
   trimmed_name=$(trim_label "$name")
+  is_current=0
   if [[ "$session_id" == "$current_session_id" || "$session_id_norm" == "$current_session_id_norm" || "$trimmed_name" == "$current_session_trimmed" ]]; then
+    is_current=1
     segment_bg="$active_bg"
     segment_fg="$active_fg"
   fi
 
-  label="$trimmed_name"
+  if (( is_narrow == 1 )); then
+    if (( is_current == 1 )); then
+      label="$trimmed_name"  # active: show TITLE (trim N-)
+    else
+      idx=$(extract_index "$name")
+      if [[ -n "$idx" ]]; then
+        label="$idx"
+      else
+        label="$trimmed_name"
+      fi
+    fi
+  else
+    label="$trimmed_name"      # wide: current behavior (TITLE everywhere)
+  fi
   if (( ${#label} > max_width )); then
     label="${label:0:max_width-1}…"
   fi

@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -35,6 +36,7 @@ def main() -> int:
     # Prefer TMUX_PANE from env; fall back to parent process TTY.
     tmux_path = shutil.which("tmux") or "/opt/homebrew/bin/tmux"
     tmux_ids = None
+    title_names = None  # (session_name, window_name)
     if os.path.exists(tmux_path):
         pane = os.environ.get("TMUX_PANE", "").strip()
         try:
@@ -53,6 +55,24 @@ def main() -> int:
                 parts = out.split(":::")
                 if len(parts) == 3:
                     tmux_ids = tuple(parts)
+                # Also fetch human-readable names for the banner title
+                try:
+                    name_out = subprocess.check_output(
+                        [
+                            tmux_path,
+                            "display-message",
+                            "-p",
+                            "-t",
+                            pane,
+                            "#{session_name}:::#{window_name}",
+                        ],
+                        text=True,
+                    ).strip()
+                    name_parts = name_out.split(":::")
+                    if len(name_parts) == 2:
+                        title_names = (name_parts[0].strip(), name_parts[1].strip())
+                except Exception:
+                    pass
         except Exception:
             tmux_ids = None
 
@@ -81,8 +101,46 @@ def main() -> int:
                     parts = out.split(":::")
                     if len(parts) == 3:
                         tmux_ids = tuple(parts)
+                    try:
+                        name_out = subprocess.check_output(
+                            [
+                                tmux_path,
+                                "display-message",
+                                "-p",
+                                "-c",
+                                f"/dev/{tty}",
+                                "#{session_name}:::#{window_name}",
+                            ],
+                            text=True,
+                        ).strip()
+                        name_parts = name_out.split(":::")
+                        if len(name_parts) == 2:
+                            title_names = (name_parts[0].strip(), name_parts[1].strip())
+                    except Exception:
+                        pass
             except Exception:
                 tmux_ids = None
+
+    # Prefer title = "<session_name> - <window_name>" if available
+    if title_names is not None:
+        sn, wn = title_names
+        sn = re.sub(r'^\d+\s*-\s*', '', sn).strip()
+        combined = " - ".join([p for p in (sn, wn) if p])
+        if combined:
+            title = combined
+
+    # Persist latest target so tmux hotkey can jump to it later
+    if tmux_ids is not None:
+        try:
+            run_dir = os.path.join(os.path.expanduser("~"), ".config", "agent-tracker", "run")
+            os.makedirs(run_dir, exist_ok=True)
+            tmp_path = os.path.join(run_dir, ".latest_notified.tmp")
+            final_path = os.path.join(run_dir, "latest_notified.txt")
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                f.write("%s:::%s:::%s\n" % tmux_ids)
+            os.replace(tmp_path, final_path)
+        except Exception:
+            pass
 
     args = [
         "terminal-notifier",
@@ -92,6 +150,8 @@ def main() -> int:
         subtitle,
         "-message",
         message,
+        "-sound",
+        "Blow",
         "-group",
         "codex",
         "-ignoreDnD",

@@ -199,6 +199,10 @@ class ParallelTaskRunner:
             print(f"\n{Colors.RED}Total failed: {len(failed_tasks)} out of {len(all_results)} tasks{Colors.RESET}")
             return False
 
+NPM_PACKAGE_LOCKS = {
+    # "@openai/codex": "0.40.0",
+}
+
 def install_brew_packages():
     """Install missing brew packages."""
     print("📦 Checking brew packages...")
@@ -261,8 +265,9 @@ def install_brew_packages():
         print("✅ All packages already installed")
         return True
 
-def get_npm_updates(packages):
+def get_npm_updates(packages, locks=None):
     packages = list(dict.fromkeys(packages))
+    locks = locks or {}
 
     list_result = subprocess.run(
         ['npm', 'list', '-g', '--json', '--depth=0'],
@@ -284,36 +289,51 @@ def get_npm_updates(packages):
         except json.JSONDecodeError:
             pass
 
-    outdated_cmd = ['npm', 'outdated', '-g', '--json'] + packages
-    outdated_result = subprocess.run(
-        outdated_cmd,
-        capture_output=True,
-        text=True
-    )
-
-    if outdated_result.returncode not in (0, 1):
-        raise subprocess.CalledProcessError(
-            outdated_result.returncode,
+    # Only check "outdated" for packages that are not locked.
+    unlocked_packages = [p for p in packages if p not in locks]
+    outdated_info = {}
+    if unlocked_packages:
+        outdated_cmd = ['npm', 'outdated', '-g', '--json'] + unlocked_packages
+        outdated_result = subprocess.run(
             outdated_cmd,
-            output=outdated_result.stdout,
-            stderr=outdated_result.stderr
+            capture_output=True,
+            text=True
         )
 
-    outdated_info = {}
-    stdout = outdated_result.stdout.strip()
-    if stdout and stdout != 'null':
-        try:
-            data = json.loads(stdout)
-            if isinstance(data, dict):
-                outdated_info = data
-        except json.JSONDecodeError:
-            pass
+        if outdated_result.returncode not in (0, 1):
+            raise subprocess.CalledProcessError(
+                outdated_result.returncode,
+                outdated_cmd,
+                output=outdated_result.stdout,
+                stderr=outdated_result.stderr
+            )
+
+        stdout = outdated_result.stdout.strip()
+        if stdout and stdout != 'null':
+            try:
+                data = json.loads(stdout)
+                if isinstance(data, dict):
+                    outdated_info = data
+            except json.JSONDecodeError:
+                pass
 
     to_install = []
     updates = []
     installs = []
 
     for package in packages:
+        lock_version = locks.get(package)
+        if lock_version:
+            installed = installed_versions.get(package)
+            if installed != lock_version:
+                to_install.append(f"{package}@{lock_version}")
+                if installed:
+                    updates.append(f"{package}@{lock_version}")
+                else:
+                    installs.append(f"{package}@{lock_version}")
+            # Skip normal outdated handling when locked
+            continue
+
         if package in outdated_info:
             to_install.append(package)
             updates.append(package)
@@ -327,11 +347,12 @@ def get_npm_updates(packages):
 def format_package_for_install(package):
     return package if '@' in package[1:] else f"{package}@latest"
 
-def create_npm_update_action(packages):
+def create_npm_update_action(packages, locks=None):
     packages = list(packages)
+    locks = locks or {}
 
     def action():
-        to_install, updates, installs = get_npm_updates(packages)
+        to_install, updates, installs = get_npm_updates(packages, locks=locks)
         if not to_install:
             return True, "(up to date)", ""
 
@@ -367,13 +388,14 @@ def schedule_npm_updates(runner):
     packages = [
         "@anthropic-ai/claude-code",
         "ccusage",
+        "@ccusage/codex",
         "ccstatusline",
         "@openai/codex",
         "instant-markdown-d",
         "mcp-proxy",
     ]
 
-    runner.add_task("Node Apps Update", action=create_npm_update_action(packages))
+    runner.add_task("Node Apps Update", action=create_npm_update_action(packages, locks=NPM_PACKAGE_LOCKS))
 
 def main():
     runner = ParallelTaskRunner()

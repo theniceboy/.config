@@ -1,0 +1,119 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat >&2 <<'USAGE'
+ask — An agent that can read files, see images, search the internet, and answer questions.
+
+Usage:
+  ask --prompt-file FILE [-i IMAGE]
+
+Options:
+  --prompt-file FILE   Path to file containing the prompt (required).
+  -i IMAGE             Attach an image file to the prompt.
+  -h, --help           Show this help and exit.
+
+Behavior:
+  - Isolates from ~/.codex by using a temp CODEX_HOME (unless CODEX_HOME is set).
+  - Copies only ~/.codex/auth.json into that temp home (no AGENTS.md).
+  - Prints the agent's last message to stdout.
+
+Exit codes:
+  0 success; 1 codex error; 2 usage error; 127 codex not found.
+
+Examples:
+  ask --prompt-file prompt.txt
+  ask --prompt-file prompt.txt -i image.png
+USAGE
+}
+
+image=""
+prompt_file=""
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -h|--help)
+      usage; exit 0 ;;
+    --prompt-file)
+      if [ $# -lt 2 ]; then echo "Option --prompt-file requires a path" >&2; exit 2; fi
+      prompt_file="$2"; shift 2 ;;
+    -i)
+      if [ $# -lt 2 ]; then echo "Option -i requires a path" >&2; exit 2; fi
+      image="$2"; shift 2 ;;
+    -*)
+      echo "Unknown option: $1" >&2; usage; exit 2 ;;
+    *)
+      echo "Unknown argument: $1" >&2; usage; exit 2 ;;
+  esac
+done
+
+if [ -z "$prompt_file" ]; then
+  echo "Error: --prompt-file is required." >&2
+  usage
+  exit 2
+fi
+
+if [ ! -f "$prompt_file" ]; then
+  echo "Error: prompt file not found: $prompt_file" >&2
+  exit 2
+fi
+
+prompt="$(cat "$prompt_file")"
+
+CODEX_BIN="/opt/homebrew/bin/codex"
+if [ ! -x "$CODEX_BIN" ]; then
+  echo "Error: codex CLI not found or not executable at $CODEX_BIN" >&2
+  exit 127
+fi
+
+if [ -n "${image}" ]; then
+  if [ ! -f "${image}" ]; then
+    echo "Error: image file not found: ${image}" >&2
+    exit 2
+  fi
+  image="$(realpath "${image}")"
+fi
+
+# Isolate from ~/.codex by using a temp CODEX_HOME unless user sets one
+created_tmp_home=0
+if [ -n "${CODEX_HOME-}" ]; then
+  codex_home_dir="$CODEX_HOME"
+  mkdir -p "$codex_home_dir"
+else
+  codex_home_dir="$(mktemp -d -t ask.codex_home.XXXXXX)"
+  created_tmp_home=1
+fi
+
+# Copy only auth.json (no AGENTS.md)
+if [ -f "$HOME/.codex/auth.json" ]; then
+  mkdir -p "$codex_home_dir"
+  cp -p "$HOME/.codex/auth.json" "$codex_home_dir/auth.json" 2>/dev/null || true
+fi
+
+out_file="$(mktemp -t ask.out.XXXXXX)"
+
+cleanup() {
+  rm -f "$out_file" 2>/dev/null || true
+  if [ "$created_tmp_home" -eq 1 ]; then rm -rf "$codex_home_dir" 2>/dev/null || true; fi
+}
+trap cleanup EXIT
+
+cmd=(env CODEX_HOME="$codex_home_dir" "$CODEX_BIN" --ask-for-approval never --sandbox read-only exec --skip-git-repo-check --output-last-message "$out_file")
+
+if [ -n "${image}" ]; then
+  cmd+=(-i "${image}")
+fi
+
+if ! "${cmd[@]}" <<< "${prompt}" >/dev/null; then
+  if [ -s "$out_file" ]; then
+    cat "$out_file"
+  fi
+  exit 1
+fi
+
+if [ -f "$out_file" ]; then
+  cat "$out_file"
+else
+  echo "Error: no output generated." >&2
+  exit 1
+fi

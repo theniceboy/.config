@@ -1,6 +1,5 @@
 {
   "includeCoAuthoredBy": false,
-  "model": "opusplan",
   "hooks": {
     "Stop": [
       {
@@ -8,7 +7,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "voice_flag=\"$HOME/.claude/voice-enabled\"; ring_flag=\"$HOME/.claude/ring-enabled\"; if [ -f \"$ring_flag\" ]; then pkill -f 'say' 2>/dev/null; nohup bash -c 'say \"Claude Code Done\"' >/dev/null 2>&1 & elif [ -f \"$voice_flag\" ]; then transcript_path=$(cat | jq -r '.transcript_path'); pkill -f 'say' 2>/dev/null; nohup bash -c 'tail -1 \"'$transcript_path'\" | jq -r \".message.content[0].text // empty\" | say' >/dev/null 2>&1 & fi"
+            "command": "transcript_path=$(cat | jq -r '.transcript_path'); last_message=$(tail -1 \"$transcript_path\" | jq -r '.message.content[0].text // empty'); notification_json=$(jq -n --arg msg \"$last_message\" '{type: \"agent-turn-complete\", \"last-assistant-message\": $msg}'); \"$HOME/.config/claude/notify.py\" \"$notification_json\" >/dev/null 2>&1 &"
           }
         ]
       }
@@ -22,4 +21,5 @@
   "env": {
     "DISABLE_AUTOUPDATER": "1"
   }
+  "alwaysThinkingEnabled": true
 }

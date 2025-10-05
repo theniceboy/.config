@@ -1,0 +1,36 @@
+add_newline = false
+scan_timeout = 30
+
+# Pane-title friendly: dir + git (branch+status) + venv
+format = "$directory$git_branch$git_status$python"
+
+[directory]
+format = " [$path]($style)"
+truncate_to_repo = true
+truncation_length = 2
+style = "bold"
+
+[git_branch]
+format = " [$branch]($style)"
+truncation_length = 24
+symbol = ""
+
+[git_status]
+format = " [$all_status$ahead_behind]($style)"
+conflicted = "✖"
+modified = "!"
+staged = "+"
+untracked = "?"
+renamed = "»"
+deleted = "✘"
+stashed = "≡"
+ahead = "⇡${count}"
+behind = "⇣${count}"
+diverged = "⇕${ahead_count}⇣${behind_count}"
+
+[python]
+# Show only the virtualenv/conda env name if active
+format = " [$virtualenv]($style)"
+pyenv_version_name = false
+python_binary = ["python", "python3"]
+disabled = false

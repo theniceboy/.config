@@ -88,3 +88,4 @@ agent-tracker/run/server.pid
 tmux/cache
 agent-tracker/.DS_Store
 agent-tracker/run
+!starship-tmux.toml

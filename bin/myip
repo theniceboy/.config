@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Print the current public IPv4 address, with fast fallbacks.
+
+endpoints=(
+  "https://ipv4.icanhazip.com"
+  "https://ipinfo.io/ip"
+  "https://ifconfig.co/ip"
+  "https://api.ipify.org"
+  "https://checkip.amazonaws.com"
+)
+
+curl_opts=( -4 -fsS --max-time 2 --retry 0 )
+
+validate_ipv4() {
+  local ip="$1"
+  [[ "$ip" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] || return 1
+  IFS=. read -r a b c d <<< "$ip" || return 1
+  for o in "$a" "$b" "$c" "$d"; do
+    [[ "$o" -ge 0 && "$o" -le 255 ]] || return 1
+  done
+  printf '%s\n' "$ip"
+}
+
+for url in "${endpoints[@]}"; do
+  if out=$(curl "${curl_opts[@]}" "$url" 2>/dev/null | tr -d ' \t\n\r'); then
+    ip=$(printf '%s' "$out" | grep -Eo '([0-9]{1,3}\.){3}[0-9]{1,3}' | head -n1 || true)
+    if [[ -n "${ip:-}" ]] && validate_ipv4 "$ip" >/dev/null; then
+      printf '%s\n' "$ip"
+      exit 0
+    fi
+  fi
+done
+
+# Fallback using DNS if curl endpoints fail
+if command -v dig >/dev/null 2>&1; then
+  if ip=$(dig +short -4 myip.opendns.com @resolver1.opendns.com | head -n1); then
+    if [[ -n "$ip" ]] && validate_ipv4 "$ip" >/dev/null; then
+      printf '%s\n' "$ip"
+      exit 0
+    fi
+  fi
+fi
+
+echo "unable to determine public IPv4" >&2
+exit 1
+

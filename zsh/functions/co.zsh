@@ -56,25 +56,79 @@ co() {
     fi
   fi
 
-  local entry name
-  for entry in "$base_home"/* "$base_home"/.[!.]* "$base_home"/..?*; do
-    if [ ! -e "$entry" ]; then
-      continue
-    fi
-    name="${entry##*/}"
-    case "$name" in
-      '.'|'..'|'config.toml'|'AGENTS.md')
-        continue
-        ;;
-    esac
-    if ! ln -s "$entry" "$tmp_home/$name"; then
-      trap - EXIT INT TERM
-      eval "$cleanup_cmd"
-      print -u2 "co: failed to symlink $entry"
-      return 1
+  # Symlink only selected persistent items into the temporary home
+  local -a to_link
+  to_link=(
+    log
+    sessions
+    auth.json
+    history.jsonl
+    internal_storage.json
+    notify.py
+    version.json
+  )
+
+  local name
+  for name in "${to_link[@]}"; do
+    if [ -e "$base_home/$name" ]; then
+      if ! ln -s "$base_home/$name" "$tmp_home/$name" 2>/dev/null; then
+        trap - EXIT INT TERM
+        eval "$cleanup_cmd"
+        print -u2 "co: failed to symlink $base_home/$name"
+        return 1
+      fi
+    else
+      print -u2 "co: note: $base_home/$name not found; skipping symlink"
     fi
   done
-  print -u2 "co: prepared $tmp_home with copies of config.toml and AGENTS.md; symlinked remaining entries"
+  print -u2 "co: prepared $tmp_home with copies of config.toml and AGENTS.md; symlinked selected persistent items"
+
+  if [ ! -d "$base_home/prompts" ]; then
+    if ! mkdir -p "$base_home/prompts"; then
+      trap - EXIT INT TERM
+      eval "$cleanup_cmd"
+      print -u2 "co: failed to create $base_home/prompts"
+      return 1
+    fi
+    print -u2 "co: created $base_home/prompts"
+  fi
+
+  # Prepare prompts directory and merge base + project prompts (project overrides)
+  if ! mkdir -p "$tmp_home/prompts"; then
+    trap - EXIT INT TERM
+    eval "$cleanup_cmd"
+    print -u2 "co: failed to create $tmp_home/prompts"
+    return 1
+  fi
+
+  local f
+  for f in "$base_home/prompts"/*.md; do
+    [ -f "$f" ] || continue
+    if [ ! -e "$tmp_home/prompts/${f:t}" ]; then
+      if ! cp "$f" "$tmp_home/prompts/" >/dev/null 2>&1; then
+        trap - EXIT INT TERM
+        eval "$cleanup_cmd"
+        print -u2 "co: failed to copy base prompt $f"
+        return 1
+      fi
+    fi
+  done
+  if [ -d "$PWD/codex-prompts" ]; then
+    local copied_any=0
+    for f in "$PWD/codex-prompts"/*.md; do
+      [ -f "$f" ] || continue
+      copied_any=1
+      if ! cp -f "$f" "$tmp_home/prompts/" >/dev/null 2>&1; then
+        trap - EXIT INT TERM
+        eval "$cleanup_cmd"
+        print -u2 "co: failed to copy project prompt $f"
+        return 1
+      fi
+    done
+    if (( copied_any )); then
+      print -u2 "co: added project prompts from $PWD/codex-prompts (overriding base on conflicts)"
+    fi
+  fi
 
   local tmux_id
   if tmux_id=$(tmux display-message -p '#{session_id}::#{window_id}::#{pane_id}' 2>/dev/null); then

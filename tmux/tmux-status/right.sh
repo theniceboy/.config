@@ -24,7 +24,7 @@ fi
 segment_bg="#3b4252"
 segment_fg="#eceff4"
 # Host (domain) colors to mirror left active style
-host_bg="#b294bb"
+host_bg="${TMUX_THEME_COLOR:-#b294bb}"
 host_fg="#1d1f21"
 separator=""
 right_cap="█"

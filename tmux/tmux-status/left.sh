@@ -22,7 +22,7 @@ fi
 
 inactive_bg="#373b41"
 inactive_fg="#c5c8c6"
-active_bg="#b294bb"
+active_bg="${TMUX_THEME_COLOR:-#b294bb}"
 active_fg="#1d1f21"
 separator=""
 left_cap="█"

@@ -393,6 +393,7 @@ def schedule_npm_updates(runner):
         "@openai/codex",
         "instant-markdown-d",
         "mcp-proxy",
+        "@google/gemini-cli",
     ]
 
     runner.add_task("Node Apps Update", action=create_npm_update_action(packages, locks=NPM_PACKAGE_LOCKS))

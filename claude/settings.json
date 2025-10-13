@@ -1,4 +1,7 @@
 {
+  "env": {
+    "DISABLE_AUTOUPDATER": "1"
+  },
   "includeCoAuthoredBy": false,
   "hooks": {
     "Stop": [
@@ -15,11 +18,8 @@
   },
   "statusLine": {
     "type": "command",
-    "command": "bunx -y ccstatusline@latest",
+    "command": "ccstatusline",
     "padding": 0
   },
-  "env": {
-    "DISABLE_AUTOUPDATER": "1"
-  }
   "alwaysThinkingEnabled": true
 }

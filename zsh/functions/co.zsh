@@ -1,6 +1,6 @@
 co() {
   local -a codex_cmd
-  codex_cmd=(codex --sandbox danger-full-access -m gpt-5 -c 'model_reasoning_summary_format=experimental' -c 'model_reasoning_effort=high' --search)
+  codex_cmd=(codex --sandbox danger-full-access -m gpt-5 -c 'model_reasoning_summary_format=experimental' -c 'model_reasoning_effort=high')
   local search_dir=$PWD
   local overlay_file=""
   while :; do

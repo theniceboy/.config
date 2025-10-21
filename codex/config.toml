@@ -5,6 +5,15 @@ tui                    = { theme = { name = "dark-zen-garden" }, spinner = { nam
 model_reasoning_effort = "high"
 notify                 = ["/usr/bin/python3", "/Users/david/.config/codex/notify.py"]
 
+approval_policy = "never"
+sandbox_mode    = "danger-full-access"
+
+tools.web_search = true
+
+show_raw_agent_reasoning = true
+
+experimental_use_rmcp_client = true
+
 # [mcp_servers.file-edit]
 # command = "/Users/david/Github/file-edit-mcp/fileeditmcp"
 

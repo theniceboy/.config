@@ -113,9 +113,16 @@ co() {
       fi
     fi
   done
-  if [ -d "$PWD/codex-prompts" ]; then
+  local project_prompts_dir=""
+  if [ -d "$PWD/.agent-prompts" ]; then
+    project_prompts_dir="$PWD/.agent-prompts"
+  elif [ -d "$PWD/codex-prompts" ]; then
+    project_prompts_dir="$PWD/codex-prompts"
+  fi
+
+  if [ -n "$project_prompts_dir" ]; then
     local copied_any=0
-    for f in "$PWD/codex-prompts"/*.md; do
+    for f in "$project_prompts_dir"/*.md; do
       [ -f "$f" ] || continue
       copied_any=1
       if ! cp -f "$f" "$tmp_home/prompts/" >/dev/null 2>&1; then
@@ -126,7 +133,7 @@ co() {
       fi
     done
     if (( copied_any )); then
-      print -u2 "co: added project prompts from $PWD/codex-prompts (overriding base on conflicts)"
+      print -u2 "co: added project prompts from $project_prompts_dir (overriding base on conflicts)"
     fi
   fi
 

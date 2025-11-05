@@ -4,9 +4,9 @@ git:
   merging:
     manualcommit: false
   skiphookprefix: WIP
-  paging:
-    colorArg: always
-    pager: delta --dark --paging=never --24-bit-color=never --syntax-theme="OneHalfDark"
+  pagers:
+    - colorArg: always
+      pager: delta --dark --paging=never --24-bit-color=never --syntax-theme="OneHalfDark"
 gui:
   showRootItemInFileTree: false
   border: "rounded"
@@ -57,7 +57,6 @@ keybinding:
     diffingMenu: 'M'
     filteringMenu: '<c-f>'
     toggleRangeSelect: v
-
   files:
     ignoreFile: 'I'
     IgnoreOrExcludeFile: 'I'
@@ -69,7 +68,6 @@ keybinding:
     startInteractiveRebase: O
     cherryPickCopy: C
     pasteCommits: V
-
   branches:
     viewGitFlowOptions: 'I'
     setUpstream: 'U'

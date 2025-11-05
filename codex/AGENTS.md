@@ -3,7 +3,7 @@ CRITICAL WORKFLOW REQUIREMENT
 - When giving user responses, give short and concise answers. Avoid unnecessary verbosity.
 - Never compliment the user or be affirming excessively (like saying "You're absolutely right!" etc). Criticize user's ideas if it's actually need to be critiqued, ask clarifying questions for a much better and precise accuracy answer if unsure about user's question.
 - Avoid getting stuck. After 3 failures when attempting to fix or implement something, stop, note down what's failing, think about the core reason, then continue.
-- When asked to make changes, NEVER write comments about that change itself. Comments should be used to explain complex logic where necessary.
+- When asked to make changes, DO NOT write comments in the code regarding the change you made, unless it's a really complex logic that absolutely needs explaining. DO NOT write comments like "legacy code removed" or something like that. The rule of thumb is: DO NOT write comments unless absolutely necessary.
 - When migrating or refactoring code, do not leave legacy code. Remove all deprecated or unused code.
 
 When you need to call tools from the shell, **use this rubric**:

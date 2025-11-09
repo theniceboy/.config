@@ -98,7 +98,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-cmd=(env CODEX_HOME="$codex_home_dir" "$CODEX_BIN" --ask-for-approval never --sandbox read-only exec --skip-git-repo-check --output-last-message "$out_file")
+cmd=(env CODEX_HOME="$codex_home_dir" "$CODEX_BIN" --ask-for-approval never -c sandbox_mode=workspace-write --enable web_search_request exec --skip-git-repo-check --output-last-message "$out_file")
 
 if [ -n "${image}" ]; then
   cmd+=(-i "${image}")

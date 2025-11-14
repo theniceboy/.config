@@ -232,7 +232,7 @@ def install_brew_packages():
         # Media and graphics
         "ffmpeg", "imagemagick", "poppler", "yt-dlp",
         # Network and web
-        "wget", "speedtest-cli",
+        "wget", "speedtest-cli", "cliproxyapi",
         # Terminal and shell
         "tmux", "neovim", "starship", "rainbarf", "neofetch", "onefetch", "tldr", "bmon", "loc",
         # Applications

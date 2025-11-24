@@ -19,7 +19,7 @@ hide_gpt5_1_migration_prompt = true
 web_search_request   = true
 streamable_shell     = true
 apply_patch_freeform = true
-unified_exec         = true
+unified_exec         = false
 
 # [mcp_servers.file-edit]
 # command = "/Users/david/Github/file-edit-mcp/fileeditmcp"

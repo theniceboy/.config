@@ -265,6 +265,92 @@ def install_brew_packages():
         print("✅ All packages already installed")
         return True
 
+def get_brew_outdated():
+    result = subprocess.run(
+        ['brew', 'outdated', '--greedy', '--verbose', '--json=v2'],
+        capture_output=True,
+        text=True
+    )
+
+    stdout = result.stdout.strip()
+    if not stdout:
+        return []
+
+    try:
+        data = json.loads(stdout)
+    except json.JSONDecodeError:
+        return []
+
+    upgrades = []
+
+    for formula in data.get('formulae') or []:
+        name = formula.get('name')
+        installed = formula.get('installed_versions') or []
+        current = formula.get('current_version')
+        if name and installed and current:
+            from_version = installed[-1]
+            upgrades.append(f"{name} {from_version}->{current}")
+
+    for cask in data.get('casks') or []:
+        name = cask.get('name')
+        installed = cask.get('installed_versions') or []
+        current = cask.get('current_version')
+        if isinstance(name, list):
+            name = name[0] if name else None
+        if name and installed and current:
+            from_version = installed[-1]
+            upgrades.append(f"{name} {from_version}->{current}")
+
+    return upgrades
+
+def create_brew_update_action():
+    def action():
+        if shutil.which('brew') is None:
+            return False, "", "brew not found"
+
+        before = get_brew_outdated()
+        output_parts = []
+
+        update_result = subprocess.run(
+            ['brew', 'update'],
+            capture_output=True,
+            text=True
+        )
+        output_parts.extend([update_result.stdout or "", update_result.stderr or ""])
+        if update_result.returncode != 0:
+            return False, "", "".join(output_parts)
+
+        upgrade_result = subprocess.run(
+            ['brew', 'upgrade', '--greedy'],
+            capture_output=True,
+            text=True
+        )
+        output_parts.extend([upgrade_result.stdout or "", upgrade_result.stderr or ""])
+        if upgrade_result.returncode != 0:
+            return False, "", "".join(output_parts)
+
+        after = get_brew_outdated()
+
+        note = ""
+        if before:
+            before_names = {entry.split()[0] for entry in before if entry.split()}
+            after_names = {entry.split()[0] for entry in after if entry.split()} if after else set()
+            updated_entries = [entry for entry in before if entry.split() and entry.split()[0] not in after_names]
+            if updated_entries:
+                if len(updated_entries) > 6:
+                    shown = ", ".join(updated_entries[:6])
+                    note = f"(updated: {shown}, +{len(updated_entries) - 6} more)"
+                else:
+                    note = f"(updated: {', '.join(updated_entries)})"
+            else:
+                note = "(brew already up to date)"
+        else:
+            note = "(brew already up to date)"
+
+        return True, note, "".join(output_parts)
+
+    return action
+
 def get_npm_updates(packages, locks=None):
     packages = list(dict.fromkeys(packages))
     locks = locks or {}
@@ -408,7 +494,7 @@ def main():
         sys.exit(1)
 
     schedule_npm_updates(runner)
-    runner.add_task("Homebrew Update", "brew update && brew upgrade --greedy")
+    runner.add_task("Homebrew Update", action=create_brew_update_action())
     runner.add_task("Config Git Pull", "cd ~/.config && git pull")
     runner.add_task("Neovim Config Git Pull", "cd ~/.config/nvim && git pull")
     runner.add_task("SConfig Git Pull", "cd ~/.sconfig && git pull")

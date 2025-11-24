@@ -1,14 +1,25 @@
-model_verbosity = "medium" # low|medium|high
+tui    = { theme = { name = "dark-zen-garden" }, spinner = { name = "brailleDotsClassic" }, alternate_screen = true, notifications = true }
+notify = ["/usr/bin/python3", "/Users/david/.config/codex/notify.py"]
 
-model                  = "gpt-5-codex"
-tui                    = { theme = { name = "dark-zen-garden" }, spinner = { name = "brailleDotsClassic" }, alternate_screen = true, notifications = true }
-model_reasoning_effort = "high"
-notify                 = ["/usr/bin/python3", "/Users/david/.config/codex/notify.py"]
+model                    = "gpt-5.1-codex-max"
+model_verbosity          = "medium"            # low|medium|high
+model_reasoning_effort   = "high"
+show_raw_agent_reasoning = true
 
 approval_policy = "never"
 sandbox_mode    = "danger-full-access"
+exec_timeout_ms = 900000               # 15 minutes
+rmcp_client     = true
 
-show_raw_agent_reasoning = true
+
+[notice]
+hide_gpt5_1_migration_prompt = true
+
+[features]
+web_search_request   = true
+streamable_shell     = true
+apply_patch_freeform = true
+unified_exec         = true
 
 # [mcp_servers.file-edit]
 # command = "/Users/david/Github/file-edit-mcp/fileeditmcp"

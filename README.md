@@ -9,7 +9,7 @@ This config folder includes configurations for various development tools and app
 ### Quick Setup
 Run the deployment script to install all tools and configure symlinks:
 ```bash
-./deploy.sh
+bin/upgrade-all
 ```
 
 The script is idempotent - you can run it multiple times safely. It will:

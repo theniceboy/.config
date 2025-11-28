@@ -1,0 +1,97 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat >&2 <<'USAGE'
+ai-agent — Codex wrapper with isolated config/home.
+
+Usage:
+  ai-agent [--prompt-file FILE] [-i IMAGE]
+  ai-agent --help
+
+Options:
+  --prompt-file FILE   Read prompt text from FILE; otherwise read stdin.
+  -i IMAGE             Attach an image file to the prompt.
+  -h, --help           Show this help and exit.
+
+Behavior:
+  - Uses a temporary CODEX_HOME with the templates config.toml.
+  - Symlinks auth.json from the real CODEX home for credentials.
+  - Invokes codex exec and streams Codex output to stdout.
+USAGE
+}
+
+image=""
+prompt_file=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -h|--help) usage; exit 0 ;;
+    --prompt-file)
+      if [ $# -lt 2 ]; then echo "Option --prompt-file requires a path" >&2; exit 2; fi
+      prompt_file="$2"; shift 2 ;;
+    -i)
+      if [ $# -lt 2 ]; then echo "Option -i requires a path" >&2; exit 2; fi
+      image="$2"; shift 2 ;;
+    *)
+      echo "Unknown option: $1" >&2
+      usage
+      exit 2 ;;
+  esac
+done
+
+if [ -n "$prompt_file" ] && [ ! -f "$prompt_file" ]; then
+  echo "Error: prompt file not found: $prompt_file" >&2
+  exit 2
+fi
+
+if [ -n "$image" ] && [ ! -f "$image" ]; then
+  echo "Error: image file not found: $image" >&2
+  exit 2
+fi
+
+base_home="${CODEX_HOME:-$HOME/.codex}"
+tmp_home=$(mktemp -d "${TMPDIR:-/tmp}/codex-home.XXXXXX") || exit 1
+cleanup() { rm -rf "$tmp_home" 2>/dev/null || true; }
+trap cleanup EXIT INT TERM
+
+template_config="$HOME/Github/instaboard-pseo/templates/config.toml"
+if [ ! -f "$template_config" ]; then
+  echo "Error: template config missing at $template_config" >&2
+  exit 1
+fi
+if ! cp "$template_config" "$tmp_home/config.toml" >/dev/null 2>&1; then
+  echo "Error: failed to copy config to $tmp_home" >&2
+  exit 1
+fi
+
+if [ -f "$base_home/auth.json" ]; then
+  ln -s "$base_home/auth.json" "$tmp_home/auth.json" 2>/dev/null || true
+fi
+
+CODEX_BIN="/opt/homebrew/bin/codex"
+if [ ! -x "$CODEX_BIN" ]; then
+  echo "Error: codex CLI not found at $CODEX_BIN" >&2
+  exit 127
+fi
+
+cmd=(env CODEX_HOME="$tmp_home" "$CODEX_BIN" exec)
+if [ -n "$image" ]; then
+  image_path=$(realpath "$image")
+  cmd=(-i "$image_path" "${cmd[@]}")
+fi
+
+# Read prompt
+if [ -n "$prompt_file" ]; then
+  prompt_content=$(cat "$prompt_file")
+else
+  prompt_content=$(cat)
+fi
+
+if [ -z "$prompt_content" ]; then
+  echo "Error: prompt is empty" >&2
+  exit 2
+fi
+
+if ! printf '%s' "$prompt_content" | "${cmd[@]}"; then
+  exit 1
+fi

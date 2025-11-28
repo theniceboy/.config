@@ -16,7 +16,7 @@ rmcp_client     = true
 hide_gpt5_1_migration_prompt = true
 
 [features]
-web_search_request   = true
+web_search_request   = false
 streamable_shell     = true
 apply_patch_freeform = true
 unified_exec         = false
@@ -38,4 +38,14 @@ unified_exec         = false
 
 [mcp_servers.tracker]
 command            = "/Users/david/.config/agent-tracker/bin/tracker-mcp"
+startup_timeout_ms = 20000
+
+[mcp_servers.web]
+command            = "/bin/sh"
+args               = ["-lc", "exec mctrl-mcp web"]
+startup_timeout_ms = 20000
+
+[rmcp_servers.web]
+command            = "/bin/sh"
+args               = ["-lc", "exec mctrl-mcp web"]
 startup_timeout_ms = 20000

@@ -663,6 +663,7 @@ def schedule_npm_updates(runner):
         "@openai/codex",
         "instant-markdown-d",
         "mcp-proxy",
+        "opencode-ai",
         "yarn",
         "@google/gemini-cli",
     ]

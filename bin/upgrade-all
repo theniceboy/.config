@@ -3,6 +3,7 @@
 import json
 import os
 import shutil
+import stat
 import subprocess
 import tempfile
 import threading
@@ -295,6 +296,35 @@ def ensure_git_available():
         return True, "(installed)", output
     return False, "", output
 
+
+def ensure_npm_available():
+    def npm_works():
+        path_now = shutil.which("npm")
+        if path_now is None:
+            return False, "npm missing"
+        check = subprocess.run(["npm", "--version"], capture_output=True, text=True)
+        if check.returncode != 0:
+            return False, f"npm --version failed: {check.stdout}{check.stderr}"
+        return True, check.stdout.strip()
+
+    ok, detail = npm_works()
+    if ok:
+        return True, f"(found {detail})", ""
+
+    install = subprocess.run(["brew", "install", "node"], capture_output=True, text=True)
+    output_parts = [install.stdout or '', install.stderr or '']
+    ok, detail = npm_works()
+    if ok:
+        return True, "(installed node)", ''.join(output_parts)
+
+    reinstall = subprocess.run(["brew", "reinstall", "node"], capture_output=True, text=True)
+    output_parts.extend([reinstall.stdout or '', reinstall.stderr or ''])
+    ok, detail = npm_works()
+    if ok:
+        return True, "(reinstalled node)", ''.join(output_parts)
+    return False, "", ''.join(output_parts) + detail
+
+
 def ensure_github_known_host():
     ssh_dir = os.path.expanduser("~/.ssh")
     known_hosts = os.path.join(ssh_dir, "known_hosts")
@@ -586,6 +616,7 @@ def get_npm_updates(packages, locks=None):
 def format_package_for_install(package):
     return package if '@' in package[1:] else f"{package}@latest"
 
+
 def create_npm_update_action(packages, locks=None):
     packages = list(packages)
     locks = locks or {}
@@ -874,6 +905,7 @@ def main():
         ("GitHub SSH Auth", check_github_ssh),
         ("Paths Writable", lambda: ensure_paths_writable(["~", "~/.config", "~/.config/bin"])),
         ("System Build Tools", ensure_system_build_tools),
+        ("NPM Available", ensure_npm_available),
         ("Repo ~/.config", create_repo_action("~/.config", "theniceboy/.config", must_exist=True)),
         ("Repo ~/.config/nvim", create_repo_action("~/.config/nvim", "theniceboy/nvim")),
         ("Repo ~/.sconfig", create_repo_action("~/.sconfig", "theniceboy/.sconfig")),

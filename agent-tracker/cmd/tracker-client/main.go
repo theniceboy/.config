@@ -525,13 +525,13 @@ func runUI(args []string) error {
 	scopeTag := func(s noteScope) string {
 		switch s {
 		case scopeWindow:
-			return "[W]"
+			return "W"
 		case scopeSession:
-			return "[S]"
+			return "S"
 		case scopeAll:
-			return "[G]"
+			return "G"
 		default:
-			return "[?]"
+			return "?"
 		}
 	}
 
@@ -894,7 +894,7 @@ func runUI(args []string) error {
 		}
 
 		renderTasks := func(list []ipc.Task, state *listState) {
-			clampList(state, len(list), 4, visibleRows)
+			clampList(state, len(list), 3, visibleRows)
 			row := 3
 			for idx := state.offset; idx < len(list); idx++ {
 				if row >= height {
@@ -906,59 +906,96 @@ func runUI(args []string) error {
 				if summary == "" {
 					summary = "(no summary)"
 				}
-				line := fmt.Sprintf("%s %s", indicator, summary)
 
-				mainStyle := tcell.StyleDefault
+				// Style definitions
+				baseStyle := tcell.StyleDefault
+				accentStyle := tcell.StyleDefault.Foreground(tcell.ColorLightSlateGray)
+				timeStyle := tcell.StyleDefault.Foreground(tcell.ColorDarkCyan)
+
 				switch t.Status {
 				case statusInProgress:
-					mainStyle = mainStyle.Foreground(tcell.ColorLightGoldenrodYellow).Bold(true)
+					baseStyle = baseStyle.Foreground(tcell.ColorLightGoldenrodYellow).Bold(true)
+					indicator = "▶ " + indicator
 				case statusCompleted:
 					if t.Acknowledged {
-						mainStyle = mainStyle.Foreground(tcell.ColorLightGreen).Bold(true)
+						baseStyle = baseStyle.Foreground(tcell.ColorLightGreen)
 					} else {
-						mainStyle = mainStyle.Foreground(tcell.ColorFuchsia).Bold(true)
+						baseStyle = baseStyle.Foreground(tcell.ColorFuchsia)
 					}
 				}
 
 				if idx == state.selected {
-					mainStyle = mainStyle.Background(tcell.ColorDarkSlateGray)
+					baseStyle = baseStyle.Background(tcell.ColorDarkSlateGray)
+					accentStyle = accentStyle.Background(tcell.ColorDarkSlateGray)
+					timeStyle = timeStyle.Background(tcell.ColorDarkSlateGray)
 				}
 
-				writeStyledLine(screen, 0, row, truncate(line, width), mainStyle)
+				// Line 1: Indicator + Summary + Right-aligned Duration
+				dur := liveDuration(t, now)
+				availWidth := width - len(indicator) - 1 - len(dur) - 1
+				if availWidth < 0 {
+					availWidth = 0
+				}
+
+				line1Segs := []struct {
+					text  string
+					style tcell.Style
+				}{
+					{text: indicator + " ", style: baseStyle},
+					{text: truncate(summary, availWidth), style: baseStyle},
+				}
+
+				// Fill spacing for right alignment
+				usedWidth := len(indicator) + 1 + len([]rune(truncate(summary, availWidth)))
+				padding := width - usedWidth - len(dur)
+				if padding > 0 {
+					line1Segs = append(line1Segs, struct {
+						text  string
+						style tcell.Style
+					}{
+						text:  strings.Repeat(" ", padding),
+						style: baseStyle,
+					})
+				}
+				line1Segs = append(line1Segs, struct {
+					text  string
+					style tcell.Style
+				}{
+					text:  dur,
+					style: timeStyle,
+				})
+
+				writeStyledSegments(screen, row, line1Segs...)
 				row++
+
 				if row >= height {
 					break
 				}
 
-				metaStyle := subtleStyle
-				if idx == state.selected {
-					metaStyle = metaStyle.Background(tcell.ColorDarkSlateGray)
+				// Line 2: Meta info (Session / Window)
+				meta := fmt.Sprintf("   └ %s / %s", t.Session, t.Window)
+				if t.Status == statusCompleted && !t.Acknowledged {
+					meta += " (awaiting review)"
 				}
 
-				meta := fmt.Sprintf("   %s · %s · %s", t.Session, t.Window, liveDuration(t, now))
-				if t.Status == statusCompleted {
-					if !t.Acknowledged {
-						meta += " • awaiting review"
-					} else if t.CompletedAt != "" {
-						if completed, err := time.Parse(time.RFC3339, t.CompletedAt); err == nil {
-							meta += fmt.Sprintf(" • finished %s", completed.Format("15:04"))
-						}
-					}
-				}
-				writeStyledLine(screen, 0, row, truncate(meta, width), metaStyle)
+				writeStyledLine(screen, 0, row, truncate(meta, width), accentStyle)
 				row++
 
 				if t.CompletionNote != "" && row < height {
+					note := fmt.Sprintf("     Note: %s", t.CompletionNote)
 					noteStyle := tcell.StyleDefault.Foreground(tcell.ColorLightSteelBlue)
 					if idx == state.selected {
 						noteStyle = noteStyle.Background(tcell.ColorDarkSlateGray)
 					}
-					note := fmt.Sprintf("   ↳ %s", t.CompletionNote)
 					writeStyledLine(screen, 0, row, truncate(note, width), noteStyle)
 					row++
 				}
 
+				// Spacer
 				if row < height {
+					if idx == state.selected {
+						// Optional: subtle separator for selected item
+					}
 					row++
 				}
 			}
@@ -973,71 +1010,120 @@ func runUI(args []string) error {
 				}
 				n := list[idx]
 				ns := noteScopeOf(n)
-				indicator := "•"
+
+				// Styles
+				scopeSt := scopeStyle(ns)
+				textStyle := tcell.StyleDefault.Foreground(tcell.ColorWhite)
+				metaStyle := tcell.StyleDefault.Foreground(tcell.ColorLightSlateGray)
+				timeStyle := tcell.StyleDefault.Foreground(tcell.ColorDarkCyan)
+
 				if n.Completed {
-					indicator = "✓"
+					textStyle = tcell.StyleDefault.Foreground(tcell.ColorDarkGray)
+					scopeSt = tcell.StyleDefault.Foreground(tcell.ColorDarkGray)
 				}
-				line := fmt.Sprintf("%s %s", indicator, n.Summary)
-				mainStyle := tcell.StyleDefault.Foreground(tcell.ColorLightGoldenrodYellow)
-				if n.Completed {
-					mainStyle = tcell.StyleDefault.Foreground(tcell.ColorLightGreen)
-				}
+
 				if idx == state.selected {
-					mainStyle = mainStyle.Background(tcell.ColorDarkSlateGray)
+					textStyle = textStyle.Background(tcell.ColorDarkSlateGray)
+					scopeSt = scopeSt.Background(tcell.ColorDarkSlateGray)
+					metaStyle = metaStyle.Background(tcell.ColorDarkSlateGray)
+					timeStyle = timeStyle.Background(tcell.ColorDarkSlateGray)
 				}
-				tag := scopeTag(ns) + " "
-				remaining := width - len([]rune(tag))
-				if remaining < 0 {
-					remaining = 0
+
+				// Tag Logic
+				tagText := " " + scopeTag(ns) + " " // e.g. " [W] "
+
+				// Timestamp Logic
+				tsStr := ""
+				if archived {
+					if n.ArchivedAt != "" {
+						if ts, ok := parseTimestamp(n.ArchivedAt); ok {
+							tsStr = ts.Format("15:04")
+						}
+					}
+				} else {
+					if n.CreatedAt != "" {
+						if ts, ok := parseTimestamp(n.CreatedAt); ok {
+							tsStr = ts.Format("15:04")
+						}
+					}
 				}
+
+				// Line 1 Construction
+				// [TAG] Summary ...................... Time
+				availWidth := width - len(tagText) - len(tsStr)
+				if availWidth < 0 {
+					availWidth = 0
+				}
+
+				summary := n.Summary
+				if n.Completed {
+					summary = "✓ " + summary
+				}
+
 				segs := []struct {
 					text  string
 					style tcell.Style
 				}{
-					{text: tag, style: scopeStyle(ns)},
-					{text: truncate(line, remaining), style: mainStyle},
+					{text: tagText, style: scopeSt},
+					{text: truncate(summary, availWidth), style: textStyle},
 				}
-				fill := mainStyle
-				if idx == state.selected {
-					fill = fill.Background(tcell.ColorDarkSlateGray)
+
+				usedLen := len(tagText) + len([]rune(truncate(summary, availWidth)))
+				padding := width - usedLen - len(tsStr)
+				if padding > 0 {
+					segs = append(segs, struct {
+						text  string
+						style tcell.Style
+					}{
+						text:  strings.Repeat(" ", padding),
+						style: textStyle,
+					})
 				}
-				writeStyledSegmentsPad(screen, row, segs, fill)
+				segs = append(segs, struct {
+					text  string
+					style tcell.Style
+				}{
+					text:  tsStr,
+					style: timeStyle,
+				})
+
+				writeStyledSegments(screen, row, segs...)
 				row++
 				if row >= height {
 					break
 				}
-				metaStyle := subtleStyle
-				if idx == state.selected {
-					metaStyle = metaStyle.Background(tcell.ColorDarkSlateGray)
-				}
-				meta := fmt.Sprintf("%s · %s", n.Session, n.Window)
-				if archived {
-					if n.ArchivedAt != "" {
-						if ts, ok := parseTimestamp(n.ArchivedAt); ok {
-							meta += fmt.Sprintf(" · archived %s", ts.Format("15:04"))
-						}
-					}
-				} else if n.CreatedAt != "" {
-					if ts, ok := parseTimestamp(n.CreatedAt); ok {
-						meta += fmt.Sprintf(" · %s", ts.Format("15:04"))
-					}
-				}
-				metaRemaining := width
-				if metaRemaining < 0 {
-					metaRemaining = 0
-				}
-				segsMeta := []struct {
+
+				// Line 2: Context Metadata
+				//    Session / Window
+				prefix := "   "
+				metaText := fmt.Sprintf("%s / %s", n.Session, n.Window)
+
+				// If visual space allows, maybe include date if it's old?
+				// For now keeping it simple as per request.
+
+				metaSegs := []struct {
 					text  string
 					style tcell.Style
 				}{
-					{text: truncate(meta, metaRemaining), style: metaStyle},
+					{text: prefix, style: metaStyle},
+					{text: truncate(metaText, width-len(prefix)), style: metaStyle},
 				}
-				fillMeta := metaStyle
-				if idx == state.selected {
-					fillMeta = fillMeta.Background(tcell.ColorDarkSlateGray)
+				// Pad the rest of the line to ensure background color extends if selected
+				metaUsed := len(prefix) + len([]rune(truncate(metaText, width-len(prefix))))
+				if width > metaUsed {
+					metaSegs = append(metaSegs, struct {
+						text  string
+						style tcell.Style
+					}{
+						text:  strings.Repeat(" ", width-metaUsed),
+						style: metaStyle,
+					})
 				}
-				writeStyledSegmentsPad(screen, row, segsMeta, fillMeta)
+
+				writeStyledSegments(screen, row, metaSegs...)
 				row++
+
+				// Spacer line
 				if row < height {
 					row++
 				}

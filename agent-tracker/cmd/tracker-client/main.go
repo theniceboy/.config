@@ -43,7 +43,6 @@ const (
 type noteScope string
 
 const (
-	scopePane    noteScope = "pane"
 	scopeWindow  noteScope = "window"
 	scopeSession noteScope = "session"
 	scopeAll     noteScope = "all"
@@ -467,21 +466,8 @@ func runUI(args []string) error {
 	helpVisible := false
 	var editNote *ipc.Note
 
-	scopeLabel := func(s noteScope) string {
-		switch s {
-		case scopePane:
-			return "Pane"
-		case scopeSession:
-			return "Session"
-		case scopeAll:
-			return "All"
-		default:
-			return "Window"
-		}
-	}
-
-	cycleScope := func(forward bool) {
-		order := []noteScope{scopePane, scopeWindow, scopeSession, scopeAll}
+	cycleScope := func(forward bool, wrap bool) {
+		order := []noteScope{scopeWindow, scopeSession, scopeAll}
 		pos := 0
 		for i, s := range order {
 			if scope == s {
@@ -492,11 +478,60 @@ func runUI(args []string) error {
 		if forward {
 			if pos < len(order)-1 {
 				scope = order[pos+1]
+			} else if wrap {
+				scope = order[0]
 			}
 			return
 		}
 		if pos > 0 {
 			scope = order[pos-1]
+		} else if wrap {
+			scope = order[len(order)-1]
+		}
+	}
+
+	scopeStyle := func(s noteScope) tcell.Style {
+		switch s {
+		case scopeWindow:
+			return tcell.StyleDefault.Foreground(tcell.ColorLightYellow).Bold(true)
+		case scopeSession:
+			return tcell.StyleDefault.Foreground(tcell.ColorFuchsia).Bold(true)
+		case scopeAll:
+			return tcell.StyleDefault.Foreground(tcell.ColorLightGreen).Bold(true)
+		default:
+			return tcell.StyleDefault.Foreground(tcell.ColorLightYellow).Bold(true)
+		}
+	}
+
+	noteScopeOf := func(n ipc.Note) noteScope {
+		switch strings.ToLower(strings.TrimSpace(n.Scope)) {
+		case string(scopeWindow):
+			return scopeWindow
+		case string(scopeSession):
+			return scopeSession
+		case string(scopeAll):
+			return scopeAll
+		}
+		switch {
+		case strings.TrimSpace(n.WindowID) != "":
+			return scopeWindow
+		case strings.TrimSpace(n.SessionID) != "":
+			return scopeSession
+		default:
+			return scopeAll
+		}
+	}
+
+	scopeTag := func(s noteScope) string {
+		switch s {
+		case scopeWindow:
+			return "[W]"
+		case scopeSession:
+			return "[S]"
+		case scopeAll:
+			return "[G]"
+		default:
+			return "[?]"
 		}
 	}
 
@@ -535,13 +570,21 @@ func runUI(args []string) error {
 	}
 
 	matchesScope := func(n ipc.Note, s noteScope, ctx tmuxContext) bool {
+		ns := noteScopeOf(n)
 		switch s {
-		case scopePane:
-			return strings.TrimSpace(n.Pane) != "" && n.Pane == ctx.PaneID
 		case scopeWindow:
-			return strings.TrimSpace(n.WindowID) != "" && n.WindowID == ctx.WindowID
+			if ns == scopeAll {
+				return true
+			}
+			if ns == scopeSession && strings.TrimSpace(n.SessionID) == strings.TrimSpace(ctx.SessionID) {
+				return true
+			}
+			return ns == scopeWindow && strings.TrimSpace(n.WindowID) == strings.TrimSpace(ctx.WindowID)
 		case scopeSession:
-			return strings.TrimSpace(n.SessionID) != "" && n.SessionID == ctx.SessionID
+			if ns == scopeAll {
+				return true
+			}
+			return strings.TrimSpace(n.SessionID) == strings.TrimSpace(ctx.SessionID)
 		case scopeAll:
 			return true
 		default:
@@ -689,7 +732,7 @@ func runUI(args []string) error {
 		ctx := currentCtx
 		return sendCommand("note_attach", func(env *ipc.Envelope) {
 			env.NoteID = id
-			setScopeFields(env, scopePane, ctx)
+			setScopeFields(env, scopeWindow, ctx)
 		})
 	}
 
@@ -813,13 +856,34 @@ func runUI(args []string) error {
 			if showCompletedNotes {
 				completedState = "shown"
 			}
-			subtitle = fmt.Sprintf("%s · Scope: %s · Completed: %s", st.message, scopeLabel(scope), completedState)
+			subtitle = fmt.Sprintf("%s · Completed: %s", st.message, completedState)
 		} else if mode == viewEdit && editNote != nil {
 			subtitle = fmt.Sprintf("%s · %s · %s", st.message, editNote.Session, editNote.Window)
 		}
 
 		writeStyledLine(screen, 0, 0, truncate(fmt.Sprintf("▌ %s", title), width), headerStyle)
-		writeStyledLine(screen, 0, 1, truncate(subtitle, width), subtleStyle)
+		if mode == viewNotes {
+			label := ""
+			switch scope {
+			case scopeWindow:
+				label = "Window"
+			case scopeSession:
+				label = "Session"
+			case scopeAll:
+				label = "Global"
+			default:
+				label = "Window"
+			}
+			writeStyledSegmentsPad(screen, 1, []struct {
+				text  string
+				style tcell.Style
+			}{
+				{text: label + " ", style: scopeStyle(scope)},
+				{text: truncate(subtitle, width-len(label)-1), style: subtleStyle},
+			}, subtleStyle)
+		} else {
+			writeStyledLine(screen, 0, 1, truncate(subtitle, width), subtleStyle)
+		}
 		if width > 0 {
 			writeStyledLine(screen, 0, 2, strings.Repeat("─", width), infoStyle)
 		}
@@ -908,6 +972,7 @@ func runUI(args []string) error {
 					break
 				}
 				n := list[idx]
+				ns := noteScopeOf(n)
 				indicator := "•"
 				if n.Completed {
 					indicator = "✓"
@@ -920,7 +985,23 @@ func runUI(args []string) error {
 				if idx == state.selected {
 					mainStyle = mainStyle.Background(tcell.ColorDarkSlateGray)
 				}
-				writeStyledLine(screen, 0, row, truncate(line, width), mainStyle)
+				tag := scopeTag(ns) + " "
+				remaining := width - len([]rune(tag))
+				if remaining < 0 {
+					remaining = 0
+				}
+				segs := []struct {
+					text  string
+					style tcell.Style
+				}{
+					{text: tag, style: scopeStyle(ns)},
+					{text: truncate(line, remaining), style: mainStyle},
+				}
+				fill := mainStyle
+				if idx == state.selected {
+					fill = fill.Background(tcell.ColorDarkSlateGray)
+				}
+				writeStyledSegmentsPad(screen, row, segs, fill)
 				row++
 				if row >= height {
 					break
@@ -929,7 +1010,7 @@ func runUI(args []string) error {
 				if idx == state.selected {
 					metaStyle = metaStyle.Background(tcell.ColorDarkSlateGray)
 				}
-				meta := fmt.Sprintf("   %s · %s", n.Session, n.Window)
+				meta := fmt.Sprintf("%s · %s", n.Session, n.Window)
 				if archived {
 					if n.ArchivedAt != "" {
 						if ts, ok := parseTimestamp(n.ArchivedAt); ok {
@@ -941,7 +1022,21 @@ func runUI(args []string) error {
 						meta += fmt.Sprintf(" · %s", ts.Format("15:04"))
 					}
 				}
-				writeStyledLine(screen, 0, row, truncate(meta, width), metaStyle)
+				metaRemaining := width
+				if metaRemaining < 0 {
+					metaRemaining = 0
+				}
+				segsMeta := []struct {
+					text  string
+					style tcell.Style
+				}{
+					{text: truncate(meta, metaRemaining), style: metaStyle},
+				}
+				fillMeta := metaStyle
+				if idx == state.selected {
+					fillMeta = fillMeta.Background(tcell.ColorDarkSlateGray)
+				}
+				writeStyledSegmentsPad(screen, row, segsMeta, fillMeta)
 				row++
 				if row < height {
 					row++
@@ -1120,6 +1215,17 @@ func runUI(args []string) error {
 					continue
 				}
 
+				if tev.Key() == tcell.KeyTab && mode == viewNotes {
+					cycleScope(true, true)
+					draw(time.Now())
+					continue
+				}
+				if tev.Key() == tcell.KeyBacktab && mode == viewNotes {
+					cycleScope(false, true)
+					draw(time.Now())
+					continue
+				}
+
 				if tev.Key() != tcell.KeyRune {
 					continue
 				}
@@ -1139,9 +1245,9 @@ func runUI(args []string) error {
 				case 'n':
 					if mode == viewNotes {
 						if shift {
-							cycleScope(false)
+							cycleScope(false, false)
 						} else {
-							cycleScope(true)
+							cycleScope(true, false)
 						}
 						draw(time.Now())
 					}
@@ -1183,8 +1289,6 @@ func runUI(args []string) error {
 				case 'c':
 					if shift {
 						switch mode {
-						case viewTracker:
-							showCompletedTasks = !showCompletedTasks
 						case viewNotes:
 							showCompletedNotes = !showCompletedNotes
 						case viewArchive:
@@ -1477,6 +1581,46 @@ func writeStyledLine(s tcell.Screen, x, y int, text string, style tcell.Style) {
 			r = runes[i]
 		}
 		s.SetContent(x+i, y, r, nil, style)
+	}
+}
+
+func writeStyledSegments(s tcell.Screen, y int, segments ...struct {
+	text  string
+	style tcell.Style
+}) {
+	x := 0
+	width, _ := s.Size()
+	for _, seg := range segments {
+		runes := []rune(seg.text)
+		for _, r := range runes {
+			if x >= width {
+				return
+			}
+			s.SetContent(x, y, r, nil, seg.style)
+			x++
+		}
+	}
+}
+
+func writeStyledSegmentsPad(s tcell.Screen, y int, segments []struct {
+	text  string
+	style tcell.Style
+}, fill tcell.Style) {
+	x := 0
+	width, _ := s.Size()
+	for _, seg := range segments {
+		runes := []rune(seg.text)
+		for _, r := range runes {
+			if x >= width {
+				return
+			}
+			s.SetContent(x, y, r, nil, seg.style)
+			x++
+		}
+	}
+	for x < width {
+		s.SetContent(x, y, ' ', nil, fill)
+		x++
 	}
 }
 

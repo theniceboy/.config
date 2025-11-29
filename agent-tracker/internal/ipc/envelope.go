@@ -37,6 +37,7 @@ type Task struct {
 
 type Note struct {
 	ID         string `json:"id"`
+	Scope      string `json:"scope,omitempty"`
 	SessionID  string `json:"session_id"`
 	Session    string `json:"session"`
 	WindowID   string `json:"window_id"`

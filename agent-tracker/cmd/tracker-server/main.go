@@ -38,7 +38,6 @@ const (
 )
 
 const (
-	scopePane    = "pane"
 	scopeWindow  = "window"
 	scopeSession = "session"
 	scopeAll     = "all"
@@ -58,6 +57,7 @@ type taskRecord struct {
 
 type noteRecord struct {
 	ID         string
+	Scope      string
 	SessionID  string
 	Session    string
 	WindowID   string
@@ -69,6 +69,22 @@ type noteRecord struct {
 	CreatedAt  time.Time
 	UpdatedAt  time.Time
 	ArchivedAt *time.Time
+}
+
+type storedNote struct {
+	ID         string     `json:"id"`
+	Scope      string     `json:"scope"`
+	SessionID  string     `json:"session_id"`
+	Session    string     `json:"session"`
+	WindowID   string     `json:"window_id"`
+	Window     string     `json:"window"`
+	PaneID     string     `json:"pane_id"`
+	Summary    string     `json:"summary"`
+	Completed  bool       `json:"completed"`
+	Archived   bool       `json:"archived"`
+	CreatedAt  time.Time  `json:"created_at"`
+	UpdatedAt  time.Time  `json:"updated_at"`
+	ArchivedAt *time.Time `json:"archived_at,omitempty"`
 }
 
 type tmuxTarget struct {
@@ -408,7 +424,7 @@ func (s *server) deleteTask(sessionID, windowID, paneID string) error {
 func normalizeScope(scope string) string {
 	scope = strings.TrimSpace(strings.ToLower(scope))
 	switch scope {
-	case scopePane, scopeWindow, scopeSession, scopeAll:
+	case scopeWindow, scopeSession, scopeAll:
 		return scope
 	default:
 		return scopeWindow
@@ -423,18 +439,12 @@ func (s *server) addNote(target tmuxTarget, scope, summary string) error {
 	scope = normalizeScope(scope)
 	target = normalizeNoteTargetNames(target)
 	switch scope {
-	case scopePane:
-		if target.SessionID == "" || target.WindowID == "" || target.PaneID == "" {
-			return fmt.Errorf("pane notes require session, window, and pane identifiers")
-		}
 	case scopeWindow:
 		if target.SessionID == "" || target.WindowID == "" {
 			return fmt.Errorf("window notes require session and window identifiers")
 		}
 	case scopeSession, scopeAll:
-		if target.SessionID == "" {
-			return fmt.Errorf("session notes require a session identifier")
-		}
+		// allow global (scopeAll) notes to omit session/window/pane
 	}
 
 	now := time.Now()
@@ -442,6 +452,7 @@ func (s *server) addNote(target tmuxTarget, scope, summary string) error {
 	defer s.mu.Unlock()
 	n := &noteRecord{
 		ID:        s.newNoteIDLocked(now),
+		Scope:     scope,
 		SessionID: target.SessionID,
 		Session:   target.SessionName,
 		WindowID:  target.WindowID,
@@ -559,6 +570,7 @@ func (s *server) attachArchivedNote(id string, target tmuxTarget) error {
 	n.WindowID = target.WindowID
 	n.Window = target.WindowName
 	n.PaneID = target.PaneID
+	n.Scope = scopeWindow
 	n.Archived = false
 	n.ArchivedAt = nil
 	n.UpdatedAt = now
@@ -569,21 +581,6 @@ func (s *server) saveNotesLocked() error {
 	if err := os.MkdirAll(filepath.Dir(s.notesPath), 0o755); err != nil {
 		return err
 	}
-	type storedNote struct {
-		ID         string     `json:"id"`
-		SessionID  string     `json:"session_id"`
-		Session    string     `json:"session"`
-		WindowID   string     `json:"window_id"`
-		Window     string     `json:"window"`
-		PaneID     string     `json:"pane_id"`
-		Summary    string     `json:"summary"`
-		Completed  bool       `json:"completed"`
-		Archived   bool       `json:"archived"`
-		CreatedAt  time.Time  `json:"created_at"`
-		UpdatedAt  time.Time  `json:"updated_at"`
-		ArchivedAt *time.Time `json:"archived_at,omitempty"`
-	}
-
 	records := make([]storedNote, 0, len(s.notes))
 	for _, n := range s.notes {
 		records = append(records, storedNote(*n))
@@ -610,28 +607,25 @@ func (s *server) loadNotes() error {
 		}
 		return err
 	}
-	type storedNote struct {
-		ID         string     `json:"id"`
-		SessionID  string     `json:"session_id"`
-		Session    string     `json:"session"`
-		WindowID   string     `json:"window_id"`
-		Window     string     `json:"window"`
-		PaneID     string     `json:"pane_id"`
-		Summary    string     `json:"summary"`
-		Completed  bool       `json:"completed"`
-		Archived   bool       `json:"archived"`
-		CreatedAt  time.Time  `json:"created_at"`
-		UpdatedAt  time.Time  `json:"updated_at"`
-		ArchivedAt *time.Time `json:"archived_at,omitempty"`
-	}
 	var records []storedNote
 	if err := json.Unmarshal(data, &records); err != nil {
 		return err
 	}
 	for _, rec := range records {
 		n := rec
+		if strings.TrimSpace(n.Scope) == "" {
+			switch {
+			case n.WindowID != "":
+				n.Scope = scopeWindow
+			case n.SessionID != "":
+				n.Scope = scopeSession
+			default:
+				n.Scope = scopeAll
+			}
+		}
 		s.notes[n.ID] = &noteRecord{
 			ID:         n.ID,
+			Scope:      n.Scope,
 			SessionID:  n.SessionID,
 			Session:    n.Session,
 			WindowID:   n.WindowID,
@@ -677,6 +671,7 @@ func (s *server) notesForState() ([]ipc.Note, []ipc.Note) {
 	for _, n := range records {
 		copy := ipc.Note{
 			ID:        n.ID,
+			Scope:     n.Scope,
 			SessionID: n.SessionID,
 			Session:   n.Session,
 			WindowID:  n.WindowID,

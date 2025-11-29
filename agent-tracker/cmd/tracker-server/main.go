@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -36,6 +37,13 @@ const (
 	statusCompleted  = "completed"
 )
 
+const (
+	scopePane    = "pane"
+	scopeWindow  = "window"
+	scopeSession = "session"
+	scopeAll     = "all"
+)
+
 type taskRecord struct {
 	SessionID      string
 	WindowID       string
@@ -46,6 +54,21 @@ type taskRecord struct {
 	CompletedAt    *time.Time
 	Status         string
 	Acknowledged   bool
+}
+
+type noteRecord struct {
+	ID         string
+	SessionID  string
+	Session    string
+	WindowID   string
+	Window     string
+	PaneID     string
+	Summary    string
+	Completed  bool
+	Archived   bool
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
+	ArchivedAt *time.Time
 }
 
 type tmuxTarget struct {
@@ -68,7 +91,10 @@ type server struct {
 	width       int
 	height      int
 	tasks       map[string]*taskRecord
+	notes       map[string]*noteRecord
 	subscribers map[*uiSubscriber]struct{}
+	notesPath   string
+	noteCounter uint64
 }
 
 func newServer() *server {
@@ -78,7 +104,9 @@ func newServer() *server {
 		width:       84,
 		height:      24,
 		tasks:       make(map[string]*taskRecord),
+		notes:       make(map[string]*noteRecord),
 		subscribers: make(map[*uiSubscriber]struct{}),
+		notesPath:   notesStorePath(),
 	}
 }
 
@@ -90,6 +118,9 @@ func main() {
 }
 
 func (s *server) run() error {
+	if err := s.loadNotes(); err != nil {
+		return err
+	}
 	if err := os.MkdirAll(filepath.Dir(s.socketPath), 0o755); err != nil {
 		return err
 	}
@@ -208,19 +239,19 @@ func (s *server) handleCommand(env ipc.Envelope) error {
 		s.broadcastStateAsync()
 		s.statusRefreshAsync()
 		return nil
-    case "finish_task":
-        target, err := requireSessionWindow(env)
-        if err != nil {
-            return err
-        }
-        note := firstNonEmpty(env.Summary, env.Message)
-        if err := s.finishTask(target, note); err != nil {
-            return err
-        }
-        // s.notifyResponded(target)
-        s.broadcastStateAsync()
-        s.statusRefreshAsync()
-        return nil
+	case "finish_task":
+		target, err := requireSessionWindow(env)
+		if err != nil {
+			return err
+		}
+		note := firstNonEmpty(env.Summary, env.Message)
+		if err := s.finishTask(target, note); err != nil {
+			return err
+		}
+		// s.notifyResponded(target)
+		s.broadcastStateAsync()
+		s.statusRefreshAsync()
+		return nil
 	case "acknowledge":
 		target, err := requireSessionWindow(env)
 		if err != nil {
@@ -251,6 +282,69 @@ func (s *server) handleCommand(env ipc.Envelope) error {
 		if err := s.focusTask(env.Client, target); err != nil {
 			return err
 		}
+		return nil
+	case "note_add":
+		target := tmuxTarget{
+			SessionName: strings.TrimSpace(env.Session),
+			SessionID:   strings.TrimSpace(env.SessionID),
+			WindowName:  strings.TrimSpace(env.Window),
+			WindowID:    strings.TrimSpace(env.WindowID),
+			PaneID:      strings.TrimSpace(env.Pane),
+		}
+		if err := s.addNote(target, env.Scope, env.Summary); err != nil {
+			return err
+		}
+		s.broadcastStateAsync()
+		s.statusRefreshAsync()
+		return nil
+	case "note_edit":
+		if err := s.editNote(strings.TrimSpace(env.NoteID), env.Summary); err != nil {
+			return err
+		}
+		s.broadcastStateAsync()
+		s.statusRefreshAsync()
+		return nil
+	case "note_toggle_complete":
+		if err := s.toggleNoteCompletion(strings.TrimSpace(env.NoteID)); err != nil {
+			return err
+		}
+		s.broadcastStateAsync()
+		s.statusRefreshAsync()
+		return nil
+	case "note_delete":
+		if err := s.deleteNote(strings.TrimSpace(env.NoteID)); err != nil {
+			return err
+		}
+		s.broadcastStateAsync()
+		s.statusRefreshAsync()
+		return nil
+	case "note_archive":
+		if err := s.archiveNote(strings.TrimSpace(env.NoteID)); err != nil {
+			return err
+		}
+		s.broadcastStateAsync()
+		s.statusRefreshAsync()
+		return nil
+	case "note_archive_pane":
+		if err := s.archiveNotesForPane(strings.TrimSpace(env.SessionID), strings.TrimSpace(env.WindowID), strings.TrimSpace(env.Pane)); err != nil {
+			return err
+		}
+		s.broadcastStateAsync()
+		s.statusRefreshAsync()
+		return nil
+	case "note_attach":
+		target := tmuxTarget{
+			SessionName: strings.TrimSpace(env.Session),
+			SessionID:   strings.TrimSpace(env.SessionID),
+			WindowName:  strings.TrimSpace(env.Window),
+			WindowID:    strings.TrimSpace(env.WindowID),
+			PaneID:      strings.TrimSpace(env.Pane),
+		}
+		if err := s.attachArchivedNote(strings.TrimSpace(env.NoteID), target); err != nil {
+			return err
+		}
+		s.broadcastStateAsync()
+		s.statusRefreshAsync()
 		return nil
 	default:
 		return fmt.Errorf("unknown command %q", env.Command)
@@ -309,6 +403,302 @@ func (s *server) deleteTask(sessionID, windowID, paneID string) error {
 	defer s.mu.Unlock()
 	delete(s.tasks, taskKey(sessionID, windowID, paneID))
 	return nil
+}
+
+func normalizeScope(scope string) string {
+	scope = strings.TrimSpace(strings.ToLower(scope))
+	switch scope {
+	case scopePane, scopeWindow, scopeSession, scopeAll:
+		return scope
+	default:
+		return scopeWindow
+	}
+}
+
+func (s *server) addNote(target tmuxTarget, scope, summary string) error {
+	summary = strings.TrimSpace(summary)
+	if summary == "" {
+		return fmt.Errorf("note summary required")
+	}
+	scope = normalizeScope(scope)
+	target = normalizeNoteTargetNames(target)
+	switch scope {
+	case scopePane:
+		if target.SessionID == "" || target.WindowID == "" || target.PaneID == "" {
+			return fmt.Errorf("pane notes require session, window, and pane identifiers")
+		}
+	case scopeWindow:
+		if target.SessionID == "" || target.WindowID == "" {
+			return fmt.Errorf("window notes require session and window identifiers")
+		}
+	case scopeSession, scopeAll:
+		if target.SessionID == "" {
+			return fmt.Errorf("session notes require a session identifier")
+		}
+	}
+
+	now := time.Now()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n := &noteRecord{
+		ID:        s.newNoteIDLocked(now),
+		SessionID: target.SessionID,
+		Session:   target.SessionName,
+		WindowID:  target.WindowID,
+		Window:    target.WindowName,
+		PaneID:    target.PaneID,
+		Summary:   summary,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	s.notes[n.ID] = n
+	return s.saveNotesLocked()
+}
+
+func (s *server) editNote(id, summary string) error {
+	summary = strings.TrimSpace(summary)
+	if summary == "" {
+		return fmt.Errorf("note summary required")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n, ok := s.notes[id]
+	if !ok {
+		return fmt.Errorf("note not found")
+	}
+	n.Summary = summary
+	now := time.Now()
+	n.UpdatedAt = now
+	return s.saveNotesLocked()
+}
+
+func (s *server) toggleNoteCompletion(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n, ok := s.notes[id]
+	if !ok {
+		return fmt.Errorf("note not found")
+	}
+	n.Completed = !n.Completed
+	n.UpdatedAt = time.Now()
+	return s.saveNotesLocked()
+}
+
+func (s *server) deleteNote(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.notes[id]; !ok {
+		return fmt.Errorf("note not found")
+	}
+	delete(s.notes, id)
+	return s.saveNotesLocked()
+}
+
+func (s *server) archiveNote(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n, ok := s.notes[id]
+	if !ok {
+		return fmt.Errorf("note not found")
+	}
+	if n.Archived {
+		return nil
+	}
+	now := time.Now()
+	n.Archived = true
+	n.ArchivedAt = &now
+	n.UpdatedAt = now
+	return s.saveNotesLocked()
+}
+
+func (s *server) archiveNotesForPane(sessionID, windowID, paneID string) error {
+	sessionID = strings.TrimSpace(sessionID)
+	windowID = strings.TrimSpace(windowID)
+	paneID = strings.TrimSpace(paneID)
+	if sessionID == "" || windowID == "" || paneID == "" {
+		return fmt.Errorf("pane archive requires session, window, and pane identifiers")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := time.Now()
+	changed := false
+	for _, n := range s.notes {
+		if n.Archived {
+			continue
+		}
+		if n.SessionID == sessionID && n.WindowID == windowID && n.PaneID == paneID {
+			n.Archived = true
+			n.ArchivedAt = &now
+			n.UpdatedAt = now
+			changed = true
+		}
+	}
+	if !changed {
+		return nil
+	}
+	return s.saveNotesLocked()
+}
+
+func (s *server) attachArchivedNote(id string, target tmuxTarget) error {
+	target = normalizeNoteTargetNames(target)
+	if target.SessionID == "" || target.WindowID == "" || target.PaneID == "" {
+		return fmt.Errorf("attach requires session, window, and pane identifiers")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n, ok := s.notes[id]
+	if !ok {
+		return fmt.Errorf("note not found")
+	}
+	if !n.Archived {
+		return fmt.Errorf("note is not archived")
+	}
+	now := time.Now()
+	n.SessionID = target.SessionID
+	n.Session = target.SessionName
+	n.WindowID = target.WindowID
+	n.Window = target.WindowName
+	n.PaneID = target.PaneID
+	n.Archived = false
+	n.ArchivedAt = nil
+	n.UpdatedAt = now
+	return s.saveNotesLocked()
+}
+
+func (s *server) saveNotesLocked() error {
+	if err := os.MkdirAll(filepath.Dir(s.notesPath), 0o755); err != nil {
+		return err
+	}
+	type storedNote struct {
+		ID         string     `json:"id"`
+		SessionID  string     `json:"session_id"`
+		Session    string     `json:"session"`
+		WindowID   string     `json:"window_id"`
+		Window     string     `json:"window"`
+		PaneID     string     `json:"pane_id"`
+		Summary    string     `json:"summary"`
+		Completed  bool       `json:"completed"`
+		Archived   bool       `json:"archived"`
+		CreatedAt  time.Time  `json:"created_at"`
+		UpdatedAt  time.Time  `json:"updated_at"`
+		ArchivedAt *time.Time `json:"archived_at,omitempty"`
+	}
+
+	records := make([]storedNote, 0, len(s.notes))
+	for _, n := range s.notes {
+		records = append(records, storedNote(*n))
+	}
+	data, err := json.MarshalIndent(records, "", "  ")
+	if err != nil {
+		return err
+	}
+	tmp := s.notesPath + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, s.notesPath)
+}
+
+func (s *server) loadNotes() error {
+	if s.notes == nil {
+		s.notes = make(map[string]*noteRecord)
+	}
+	data, err := os.ReadFile(s.notesPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	type storedNote struct {
+		ID         string     `json:"id"`
+		SessionID  string     `json:"session_id"`
+		Session    string     `json:"session"`
+		WindowID   string     `json:"window_id"`
+		Window     string     `json:"window"`
+		PaneID     string     `json:"pane_id"`
+		Summary    string     `json:"summary"`
+		Completed  bool       `json:"completed"`
+		Archived   bool       `json:"archived"`
+		CreatedAt  time.Time  `json:"created_at"`
+		UpdatedAt  time.Time  `json:"updated_at"`
+		ArchivedAt *time.Time `json:"archived_at,omitempty"`
+	}
+	var records []storedNote
+	if err := json.Unmarshal(data, &records); err != nil {
+		return err
+	}
+	for _, rec := range records {
+		n := rec
+		s.notes[n.ID] = &noteRecord{
+			ID:         n.ID,
+			SessionID:  n.SessionID,
+			Session:    n.Session,
+			WindowID:   n.WindowID,
+			Window:     n.Window,
+			PaneID:     n.PaneID,
+			Summary:    n.Summary,
+			Completed:  n.Completed,
+			Archived:   n.Archived,
+			CreatedAt:  n.CreatedAt,
+			UpdatedAt:  n.UpdatedAt,
+			ArchivedAt: n.ArchivedAt,
+		}
+	}
+	return nil
+}
+
+func (s *server) newNoteIDLocked(now time.Time) string {
+	counter := atomic.AddUint64(&s.noteCounter, 1)
+	return fmt.Sprintf("%x-%x", now.UnixNano(), counter)
+}
+
+func normalizeNoteTargetNames(target tmuxTarget) tmuxTarget {
+	if strings.TrimSpace(target.SessionName) == "" {
+		target.SessionName = target.SessionID
+	}
+	if strings.TrimSpace(target.WindowName) == "" {
+		target.WindowName = target.WindowID
+	}
+	return target
+}
+
+func (s *server) notesForState() ([]ipc.Note, []ipc.Note) {
+	s.mu.Lock()
+	records := make([]*noteRecord, 0, len(s.notes))
+	for _, n := range s.notes {
+		records = append(records, n)
+	}
+	s.mu.Unlock()
+
+	active := make([]ipc.Note, 0, len(records))
+	archived := make([]ipc.Note, 0, len(records))
+
+	for _, n := range records {
+		copy := ipc.Note{
+			ID:        n.ID,
+			SessionID: n.SessionID,
+			Session:   n.Session,
+			WindowID:  n.WindowID,
+			Window:    n.Window,
+			Pane:      n.PaneID,
+			Summary:   n.Summary,
+			Completed: n.Completed,
+			Archived:  n.Archived,
+			CreatedAt: n.CreatedAt.Format(time.RFC3339),
+			UpdatedAt: n.UpdatedAt.Format(time.RFC3339),
+		}
+		if n.ArchivedAt != nil {
+			copy.ArchivedAt = n.ArchivedAt.Format(time.RFC3339)
+		}
+		if n.Archived {
+			archived = append(archived, copy)
+		} else {
+			active = append(active, copy)
+		}
+	}
+
+	return active, archived
 }
 
 func (s *server) notifyResponded(target tmuxTarget) {
@@ -548,6 +938,10 @@ func (s *server) closeOnClients() error {
 }
 
 func (s *server) openPopup(client string) error {
+	origin := ""
+	if ctx, err := tmuxDisplay(client, "#{session_name}:::#{session_id}:::#{window_name}:::#{window_id}:::#{pane_id}"); err == nil {
+		origin = strings.TrimSpace(ctx)
+	}
 	width, height := s.popupSize()
 	x, y, err := s.popupPosition(client, width, height)
 	if err != nil {
@@ -567,6 +961,18 @@ func (s *server) openPopup(client string) error {
 		return err
 	}
 	args = append(args, bin, "ui", "--client", client)
+	if origin != "" {
+		parts := strings.Split(origin, ":::")
+		if len(parts) == 5 {
+			args = append(args,
+				"--origin-session", parts[0],
+				"--origin-session-id", parts[1],
+				"--origin-window", parts[2],
+				"--origin-window-id", parts[3],
+				"--origin-pane", parts[4],
+			)
+		}
+	}
 	return runTmux(args...)
 }
 
@@ -703,8 +1109,17 @@ func (s *server) buildStateEnvelope() *ipc.Envelope {
 		})
 	}
 
-	msg := stateSummary(tasks)
-	return &ipc.Envelope{Kind: "state", Visible: &visible, Position: string(pos), Message: msg, Tasks: tasks}
+	activeNotes, archived := s.notesForState()
+	msg := stateSummary(tasks, activeNotes, archived)
+	return &ipc.Envelope{
+		Kind:     "state",
+		Visible:  &visible,
+		Position: string(pos),
+		Message:  msg,
+		Tasks:    tasks,
+		Notes:    activeNotes,
+		Archived: archived,
+	}
 }
 
 func (s *server) addSubscriber(sub *uiSubscriber) {
@@ -872,6 +1287,11 @@ func socketPath() string {
 	return filepath.Join(os.TempDir(), "agent-tracker.sock")
 }
 
+func notesStorePath() string {
+	base := filepath.Join(os.Getenv("HOME"), ".config", "agent-tracker", "run")
+	return filepath.Join(base, "notes.json")
+}
+
 func taskKey(sessionID, windowID, paneID string) string {
 	return strings.Join([]string{sessionID, windowID, paneID}, "|")
 }
@@ -1011,7 +1431,7 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
-func stateSummary(tasks []ipc.Task) string {
+func stateSummary(tasks []ipc.Task, notes []ipc.Note, archived []ipc.Note) string {
 	inProgress := 0
 	waiting := 0
 	for _, t := range tasks {
@@ -1024,5 +1444,11 @@ func stateSummary(tasks []ipc.Task) string {
 			}
 		}
 	}
-	return fmt.Sprintf("Active %d · Waiting %d · %s", inProgress, waiting, time.Now().Format(time.Kitchen))
+	noteCount := len(notes)
+	archivedCount := len(archived)
+	notePart := fmt.Sprintf("Notes %d", noteCount)
+	if archivedCount > 0 {
+		notePart = fmt.Sprintf("%s (+%d archived)", notePart, archivedCount)
+	}
+	return fmt.Sprintf("Active %d · Waiting %d · %s · %s", inProgress, waiting, notePart, time.Now().Format(time.Kitchen))
 }

@@ -31,6 +31,43 @@ var spinnerFrames = []rune{'⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧
 
 const spinnerInterval = 120 * time.Millisecond
 
+type viewMode int
+
+const (
+	viewTracker viewMode = iota
+	viewNotes
+	viewArchive
+	viewEdit
+)
+
+type noteScope string
+
+const (
+	scopePane    noteScope = "pane"
+	scopeWindow  noteScope = "window"
+	scopeSession noteScope = "session"
+	scopeAll     noteScope = "all"
+)
+
+type listState struct {
+	selected int
+	offset   int
+}
+
+type promptMode string
+
+const (
+	promptAddNote  promptMode = "add_note"
+	promptEditNote promptMode = "edit_note"
+)
+
+type promptState struct {
+	active bool
+	mode   promptMode
+	text   []rune
+	noteID string
+}
+
 func main() {
 	log.SetFlags(0)
 	if len(os.Args) < 2 {
@@ -63,7 +100,7 @@ func main() {
 
 func runCommand(args []string) error {
 	fs := flag.NewFlagSet("tracker-client command", flag.ExitOnError)
-	var client, session, sessionID, window, windowID, pane, summary string
+	var client, session, sessionID, window, windowID, pane, summary, scope, noteID string
 	fs.StringVar(&client, "client", "", "tmux client tty")
 	fs.StringVar(&session, "session", "", "tmux session name")
 	fs.StringVar(&sessionID, "session-id", "", "tmux session id")
@@ -71,6 +108,8 @@ func runCommand(args []string) error {
 	fs.StringVar(&windowID, "window-id", "", "tmux window id")
 	fs.StringVar(&pane, "pane", "", "tmux pane id")
 	fs.StringVar(&summary, "summary", "", "summary or note payload")
+	fs.StringVar(&scope, "scope", "", "note scope")
+	fs.StringVar(&noteID, "note-id", "", "note identifier")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -91,6 +130,8 @@ func runCommand(args []string) error {
 		Window:    strings.TrimSpace(window),
 		WindowID:  strings.TrimSpace(windowID),
 		Pane:      strings.TrimSpace(pane),
+		Scope:     strings.TrimSpace(scope),
+		NoteID:    strings.TrimSpace(noteID),
 		Summary:   strings.TrimSpace(summary),
 	}
 	if env.Summary != "" {
@@ -98,7 +139,7 @@ func runCommand(args []string) error {
 	}
 
 	switch env.Command {
-	case "start_task", "finish_task", "acknowledge":
+	case "start_task", "finish_task", "acknowledge", "note_add", "note_archive_pane", "note_attach":
 		ctx, err := resolveContext(env.Session, env.SessionID, env.Window, env.WindowID, env.Pane)
 		if err != nil {
 			return err
@@ -178,6 +219,12 @@ type tmuxContext struct {
 	PaneID      string
 }
 
+func (c tmuxContext) complete() bool {
+	return strings.TrimSpace(c.SessionID) != "" &&
+		strings.TrimSpace(c.WindowID) != "" &&
+		strings.TrimSpace(c.PaneID) != ""
+}
+
 func resolveContext(sessionName, sessionID, windowName, windowID, paneID string) (tmuxContext, error) {
 	ctx := tmuxContext{
 		SessionName: strings.TrimSpace(sessionName),
@@ -227,10 +274,6 @@ func resolveContext(sessionName, sessionID, windowName, windowID, paneID string)
 	return ctx, nil
 }
 
-func (c tmuxContext) complete() bool {
-	return c.SessionName != "" && c.SessionID != "" && c.WindowName != "" && c.WindowID != "" && c.PaneID != ""
-}
-
 func (c tmuxContext) merge(other tmuxContext) tmuxContext {
 	if c.SessionName == "" {
 		c.SessionName = other.SessionName
@@ -275,10 +318,46 @@ func detectTmuxContext(target string) (tmuxContext, error) {
 	}, nil
 }
 
+func detectTmuxContextForClient(client string) (tmuxContext, error) {
+	if pane := strings.TrimSpace(os.Getenv("TMUX_PANE")); pane != "" {
+		if ctx, err := detectTmuxContext(pane); err == nil {
+			return ctx, nil
+		}
+	}
+	format := "#{session_name}:::#{session_id}:::#{window_name}:::#{window_id}:::#{pane_id}"
+	args := []string{"display-message", "-p"}
+	if strings.TrimSpace(client) != "" {
+		args = append(args, "-c", strings.TrimSpace(client))
+	}
+	args = append(args, format)
+	cmd := exec.Command("tmux", args...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return tmuxContext{}, fmt.Errorf("tmux display-message: %w (%s)", err, strings.TrimSpace(string(output)))
+	}
+	parts := strings.Split(strings.TrimSpace(string(output)), ":::")
+	if len(parts) != 5 {
+		return tmuxContext{}, fmt.Errorf("unexpected tmux response: %s", strings.TrimSpace(string(output)))
+	}
+	return tmuxContext{
+		SessionName: strings.TrimSpace(parts[0]),
+		SessionID:   strings.TrimSpace(parts[1]),
+		WindowName:  strings.TrimSpace(parts[2]),
+		WindowID:    strings.TrimSpace(parts[3]),
+		PaneID:      strings.TrimSpace(parts[4]),
+	}, nil
+}
+
 func runUI(args []string) error {
 	fs := flag.NewFlagSet("tracker-client ui", flag.ExitOnError)
 	var client string
+	var originSession, originSessionID, originWindow, originWindowID, originPane string
 	fs.StringVar(&client, "client", "", "tmux client tty")
+	fs.StringVar(&originSession, "origin-session", "", "origin session name")
+	fs.StringVar(&originSessionID, "origin-session-id", "", "origin session id")
+	fs.StringVar(&originWindow, "origin-window", "", "origin window name")
+	fs.StringVar(&originWindowID, "origin-window-id", "", "origin window id")
+	fs.StringVar(&originPane, "origin-pane", "", "origin pane id")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -307,10 +386,32 @@ func runUI(args []string) error {
 	}
 
 	type state struct {
-		message string
-		tasks   []ipc.Task
+		message  string
+		tasks    []ipc.Task
+		notes    []ipc.Note
+		archived []ipc.Note
 	}
 	st := state{message: "Connecting to tracker…"}
+
+	originCtx := tmuxContext{
+		SessionName: strings.TrimSpace(originSession),
+		SessionID:   strings.TrimSpace(originSessionID),
+		WindowName:  strings.TrimSpace(originWindow),
+		WindowID:    strings.TrimSpace(originWindowID),
+		PaneID:      strings.TrimSpace(originPane),
+	}
+
+	currentCtx := originCtx
+	refreshCtx := func() {
+		if originCtx.complete() {
+			currentCtx = originCtx
+			return
+		}
+		if ctx, err := detectTmuxContextForClient(client); err == nil {
+			currentCtx = ctx
+		}
+	}
+	refreshCtx()
 
 	incoming := make(chan ipc.Envelope)
 	errCh := make(chan error, 1)
@@ -352,9 +453,343 @@ func runUI(args []string) error {
 		return enc.Encode(&env)
 	}
 
-	selected := 0
-	offset := 0
-	var tasks []ipc.Task
+	mode := viewNotes
+	scope := scopeWindow
+	showCompletedTasks := true
+	showCompletedNotes := false
+	showCompletedArchive := false
+	taskList := listState{}
+	noteList := listState{}
+	archiveList := listState{}
+	keepTasksVisible := make(map[string]bool)
+	keepNotesVisible := make(map[string]bool)
+	prompt := promptState{}
+	helpVisible := false
+	var editNote *ipc.Note
+
+	scopeLabel := func(s noteScope) string {
+		switch s {
+		case scopePane:
+			return "Pane"
+		case scopeSession:
+			return "Session"
+		case scopeAll:
+			return "All"
+		default:
+			return "Window"
+		}
+	}
+
+	cycleScope := func(forward bool) {
+		order := []noteScope{scopePane, scopeWindow, scopeSession, scopeAll}
+		pos := 0
+		for i, s := range order {
+			if scope == s {
+				pos = i
+				break
+			}
+		}
+		if forward {
+			if pos < len(order)-1 {
+				scope = order[pos+1]
+			}
+			return
+		}
+		if pos > 0 {
+			scope = order[pos-1]
+		}
+	}
+
+	clampList := func(state *listState, length int, rowHeight int, visibleRows int) {
+		if length == 0 {
+			state.selected = 0
+			state.offset = 0
+			return
+		}
+		if state.selected >= length {
+			state.selected = length - 1
+		}
+		if state.selected < 0 {
+			state.selected = 0
+		}
+		capacity := visibleRows / rowHeight
+		if capacity < 1 {
+			capacity = 1
+		}
+		maxOffset := length - capacity
+		if maxOffset < 0 {
+			maxOffset = 0
+		}
+		if state.offset > maxOffset {
+			state.offset = maxOffset
+		}
+		if state.selected < state.offset {
+			state.offset = state.selected
+		}
+		if state.selected >= state.offset+capacity {
+			state.offset = state.selected - capacity + 1
+		}
+		if state.offset < 0 {
+			state.offset = 0
+		}
+	}
+
+	matchesScope := func(n ipc.Note, s noteScope, ctx tmuxContext) bool {
+		switch s {
+		case scopePane:
+			return strings.TrimSpace(n.Pane) != "" && n.Pane == ctx.PaneID
+		case scopeWindow:
+			return strings.TrimSpace(n.WindowID) != "" && n.WindowID == ctx.WindowID
+		case scopeSession:
+			return strings.TrimSpace(n.SessionID) != "" && n.SessionID == ctx.SessionID
+		case scopeAll:
+			return true
+		default:
+			return true
+		}
+	}
+
+	sortNotes := func(notes []ipc.Note) {
+		sort.SliceStable(notes, func(i, j int) bool {
+			iu, hasIU := parseTimestamp(notes[i].UpdatedAt)
+			ju, hasJU := parseTimestamp(notes[j].UpdatedAt)
+			if hasIU && hasJU && !iu.Equal(ju) {
+				return iu.After(ju)
+			}
+			if hasIU != hasJU {
+				return hasIU
+			}
+			ic, hasIC := parseTimestamp(notes[i].CreatedAt)
+			jc, hasJC := parseTimestamp(notes[j].CreatedAt)
+			if hasIC && hasJC && !ic.Equal(jc) {
+				return ic.After(jc)
+			}
+			if hasIC != hasJC {
+				return hasIC
+			}
+			return notes[i].Summary < notes[j].Summary
+		})
+	}
+
+	getVisibleTasks := func() []ipc.Task {
+		result := make([]ipc.Task, 0, len(st.tasks))
+		for _, t := range st.tasks {
+			key := fmt.Sprintf("%s|%s|%s", strings.TrimSpace(t.SessionID), strings.TrimSpace(t.WindowID), strings.TrimSpace(t.Pane))
+			if !showCompletedTasks && t.Status == statusCompleted && !keepTasksVisible[key] {
+				continue
+			}
+			result = append(result, t)
+		}
+		sortTasks(result)
+		return result
+	}
+
+	getVisibleNotes := func() []ipc.Note {
+		result := make([]ipc.Note, 0, len(st.notes))
+		for _, n := range st.notes {
+			if n.Archived {
+				continue
+			}
+			if !showCompletedNotes && n.Completed && !keepNotesVisible[n.ID] {
+				continue
+			}
+			if matchesScope(n, scope, currentCtx) {
+				result = append(result, n)
+			}
+		}
+		sortNotes(result)
+		return result
+	}
+
+	getArchivedNotes := func() []ipc.Note {
+		result := make([]ipc.Note, 0, len(st.archived))
+		for _, n := range st.archived {
+			if !showCompletedArchive && n.Completed {
+				continue
+			}
+			result = append(result, n)
+		}
+		sortNotes(result)
+		return result
+	}
+
+	setScopeFields := func(env *ipc.Envelope, s noteScope, ctx tmuxContext) {
+		env.Scope = string(s)
+		env.Session = ctx.SessionName
+		env.SessionID = ctx.SessionID
+		if ctx.WindowName != "" || ctx.WindowID != "" {
+			env.Window = ctx.WindowName
+			env.WindowID = ctx.WindowID
+		}
+		if ctx.PaneID != "" {
+			env.Pane = ctx.PaneID
+		}
+	}
+
+	addNote := func(text string) error {
+		text = strings.TrimSpace(text)
+		if text == "" {
+			return fmt.Errorf("note text required")
+		}
+		refreshCtx()
+		ctx := currentCtx
+		return sendCommand("note_add", func(env *ipc.Envelope) {
+			env.Summary = text
+			setScopeFields(env, scope, ctx)
+		})
+	}
+
+	updateNote := func(id, text string) error {
+		text = strings.TrimSpace(text)
+		if text == "" {
+			return fmt.Errorf("note text required")
+		}
+		if strings.TrimSpace(id) == "" {
+			return fmt.Errorf("note id required")
+		}
+		return sendCommand("note_edit", func(env *ipc.Envelope) {
+			env.NoteID = id
+			env.Summary = text
+		})
+	}
+
+	toggleNote := func(id string) error {
+		if strings.TrimSpace(id) == "" {
+			return fmt.Errorf("note id required")
+		}
+		keepNotesVisible[id] = true
+		return sendCommand("note_toggle_complete", func(env *ipc.Envelope) {
+			env.NoteID = id
+		})
+	}
+
+	deleteNote := func(id string) error {
+		if strings.TrimSpace(id) == "" {
+			return fmt.Errorf("note id required")
+		}
+		return sendCommand("note_delete", func(env *ipc.Envelope) {
+			env.NoteID = id
+		})
+	}
+
+	archiveNote := func(id string) error {
+		if strings.TrimSpace(id) == "" {
+			return fmt.Errorf("note id required")
+		}
+		return sendCommand("note_archive", func(env *ipc.Envelope) {
+			env.NoteID = id
+		})
+	}
+
+	attachNote := func(id string) error {
+		if strings.TrimSpace(id) == "" {
+			return fmt.Errorf("note id required")
+		}
+		refreshCtx()
+		ctx := currentCtx
+		return sendCommand("note_attach", func(env *ipc.Envelope) {
+			env.NoteID = id
+			setScopeFields(env, scopePane, ctx)
+		})
+	}
+
+	toggleTask := func(t ipc.Task) error {
+		key := fmt.Sprintf("%s|%s|%s", strings.TrimSpace(t.SessionID), strings.TrimSpace(t.WindowID), strings.TrimSpace(t.Pane))
+		keepTasksVisible[key] = true
+		if t.Status == statusInProgress {
+			return sendCommand("finish_task", func(env *ipc.Envelope) {
+				env.Session = t.Session
+				env.SessionID = t.SessionID
+				env.Window = t.Window
+				env.WindowID = t.WindowID
+				env.Pane = t.Pane
+			})
+		}
+		return sendCommand("acknowledge", func(env *ipc.Envelope) {
+			env.Session = t.Session
+			env.SessionID = t.SessionID
+			env.Window = t.Window
+			env.WindowID = t.WindowID
+			env.Pane = t.Pane
+		})
+	}
+
+	deleteTask := func(t ipc.Task) error {
+		return sendCommand("delete_task", func(env *ipc.Envelope) {
+			env.Session = t.Session
+			env.SessionID = t.SessionID
+			env.Window = t.Window
+			env.WindowID = t.WindowID
+			env.Pane = t.Pane
+		})
+	}
+
+	focusTask := func(t ipc.Task) error {
+		return sendCommand("focus_task", func(env *ipc.Envelope) {
+			env.Session = t.Session
+			env.SessionID = t.SessionID
+			env.Window = t.Window
+			env.WindowID = t.WindowID
+			env.Pane = t.Pane
+		})
+	}
+
+	startAddPrompt := func() {
+		prompt = promptState{active: true, mode: promptAddNote, text: []rune{}}
+	}
+
+	startEditPrompt := func(n ipc.Note) {
+		copy := n
+		editNote = &copy
+		mode = viewEdit
+		prompt = promptState{active: true, mode: promptEditNote, text: []rune(n.Summary), noteID: n.ID}
+	}
+
+	handlePromptKey := func(tev *tcell.EventKey) (bool, error) {
+		if !prompt.active {
+			return false, nil
+		}
+		switch tev.Key() {
+		case tcell.KeyEnter:
+			text := strings.TrimSpace(string(prompt.text))
+			var err error
+			switch prompt.mode {
+			case promptAddNote:
+				err = addNote(text)
+			case promptEditNote:
+				err = updateNote(prompt.noteID, text)
+			}
+			prompt.active = false
+			if prompt.mode == promptEditNote {
+				mode = viewNotes
+				editNote = nil
+			}
+			if err != nil {
+				return true, err
+			}
+			return true, nil
+		case tcell.KeyEscape:
+			prompt.active = false
+			if prompt.mode == promptEditNote {
+				mode = viewNotes
+				editNote = nil
+			}
+			return true, nil
+		case tcell.KeyBackspace, tcell.KeyBackspace2:
+			if len(prompt.text) > 0 {
+				prompt.text = prompt.text[:len(prompt.text)-1]
+			}
+			return true, nil
+		case tcell.KeyCtrlU:
+			prompt.text = prompt.text[:0]
+			return true, nil
+		case tcell.KeyRune:
+			prompt.text = append(prompt.text, tev.Rune())
+			return true, nil
+		default:
+			return true, nil
+		}
+	}
 
 	draw := func(now time.Time) {
 		screen.Clear()
@@ -364,120 +799,212 @@ func runUI(args []string) error {
 		subtleStyle := tcell.StyleDefault.Foreground(tcell.ColorLightSlateGray)
 		infoStyle := tcell.StyleDefault.Foreground(tcell.ColorSilver)
 
-		writeStyledLine(screen, 0, 0, truncate("▌ Tracker", width), headerStyle)
-		writeStyledLine(screen, 0, 1, truncate(st.message, width), subtleStyle)
+		title := "Tracker"
+		if mode == viewNotes {
+			title = "Notes"
+		} else if mode == viewArchive {
+			title = "Archive"
+		} else if mode == viewEdit {
+			title = "Edit Note"
+		}
+		subtitle := st.message
+		if mode == viewNotes {
+			completedState := "hidden"
+			if showCompletedNotes {
+				completedState = "shown"
+			}
+			subtitle = fmt.Sprintf("%s · Scope: %s · Completed: %s", st.message, scopeLabel(scope), completedState)
+		} else if mode == viewEdit && editNote != nil {
+			subtitle = fmt.Sprintf("%s · %s · %s", st.message, editNote.Session, editNote.Window)
+		}
+
+		writeStyledLine(screen, 0, 0, truncate(fmt.Sprintf("▌ %s", title), width), headerStyle)
+		writeStyledLine(screen, 0, 1, truncate(subtitle, width), subtleStyle)
 		if width > 0 {
 			writeStyledLine(screen, 0, 2, strings.Repeat("─", width), infoStyle)
-		}
-
-		if len(tasks) == 0 {
-			offset = 0
-			if height > 3 {
-				writeStyledLine(screen, 0, 3, truncate("No active work. Enjoy the calm.", width), infoStyle)
-			}
-			screen.Show()
-			return
-		}
-
-		if selected >= len(tasks) {
-			selected = len(tasks) - 1
-		}
-		if selected < 0 {
-			selected = 0
 		}
 
 		visibleRows := height - 3
 		if visibleRows < 0 {
 			visibleRows = 0
 		}
-		capacity := visibleRows / 4
-		if capacity < 1 {
-			capacity = 1
-		}
-		maxOffset := len(tasks) - capacity
-		if maxOffset < 0 {
-			maxOffset = 0
-		}
-		if offset > maxOffset {
-			offset = maxOffset
-		}
-		if selected < offset {
-			offset = selected
-		}
-		if selected >= offset+capacity {
-			offset = selected - capacity + 1
-		}
-		if offset < 0 {
-			offset = 0
-		}
 
-		row := 3
-		for idx := offset; idx < len(tasks); idx++ {
-			t := tasks[idx]
-			if row >= height {
-				break
-			}
-
-			indicator := taskIndicator(t, now)
-			summary := t.Summary
-			if summary == "" {
-				summary = "(no summary)"
-			}
-			line := fmt.Sprintf("%s %s", indicator, summary)
-
-			mainStyle := tcell.StyleDefault
-			switch t.Status {
-			case statusInProgress:
-				mainStyle = mainStyle.Foreground(tcell.ColorLightGoldenrodYellow).Bold(true)
-			case statusCompleted:
-				if t.Acknowledged {
-					mainStyle = mainStyle.Foreground(tcell.ColorLightGreen).Bold(true)
-				} else {
-					mainStyle = mainStyle.Foreground(tcell.ColorFuchsia).Bold(true)
+		renderTasks := func(list []ipc.Task, state *listState) {
+			clampList(state, len(list), 4, visibleRows)
+			row := 3
+			for idx := state.offset; idx < len(list); idx++ {
+				if row >= height {
+					break
 				}
-			}
+				t := list[idx]
+				indicator := taskIndicator(t, now)
+				summary := t.Summary
+				if summary == "" {
+					summary = "(no summary)"
+				}
+				line := fmt.Sprintf("%s %s", indicator, summary)
 
-			if idx == selected {
-				mainStyle = mainStyle.Background(tcell.ColorDarkSlateGray)
-			}
-
-			writeStyledLine(screen, 0, row, truncate(line, width), mainStyle)
-			row++
-			if row >= height {
-				break
-			}
-
-			metaStyle := subtleStyle
-			if idx == selected {
-				metaStyle = metaStyle.Background(tcell.ColorDarkSlateGray)
-			}
-
-			meta := fmt.Sprintf("   %s · %s · %s", t.Session, t.Window, liveDuration(t, now))
-			if t.Status == statusCompleted {
-				if !t.Acknowledged {
-					meta += " • awaiting review"
-				} else if t.CompletedAt != "" {
-					if completed, err := time.Parse(time.RFC3339, t.CompletedAt); err == nil {
-						meta += fmt.Sprintf(" • finished %s", completed.Format("15:04"))
+				mainStyle := tcell.StyleDefault
+				switch t.Status {
+				case statusInProgress:
+					mainStyle = mainStyle.Foreground(tcell.ColorLightGoldenrodYellow).Bold(true)
+				case statusCompleted:
+					if t.Acknowledged {
+						mainStyle = mainStyle.Foreground(tcell.ColorLightGreen).Bold(true)
+					} else {
+						mainStyle = mainStyle.Foreground(tcell.ColorFuchsia).Bold(true)
 					}
 				}
-			}
-			writeStyledLine(screen, 0, row, truncate(meta, width), metaStyle)
-			row++
 
-			if t.CompletionNote != "" && row < height {
-				noteStyle := tcell.StyleDefault.Foreground(tcell.ColorLightSteelBlue)
-				if idx == selected {
-					noteStyle = noteStyle.Background(tcell.ColorDarkSlateGray)
+				if idx == state.selected {
+					mainStyle = mainStyle.Background(tcell.ColorDarkSlateGray)
 				}
-				note := fmt.Sprintf("   ↳ %s", t.CompletionNote)
-				writeStyledLine(screen, 0, row, truncate(note, width), noteStyle)
-				row++
-			}
 
-			if row < height {
+				writeStyledLine(screen, 0, row, truncate(line, width), mainStyle)
+				row++
+				if row >= height {
+					break
+				}
+
+				metaStyle := subtleStyle
+				if idx == state.selected {
+					metaStyle = metaStyle.Background(tcell.ColorDarkSlateGray)
+				}
+
+				meta := fmt.Sprintf("   %s · %s · %s", t.Session, t.Window, liveDuration(t, now))
+				if t.Status == statusCompleted {
+					if !t.Acknowledged {
+						meta += " • awaiting review"
+					} else if t.CompletedAt != "" {
+						if completed, err := time.Parse(time.RFC3339, t.CompletedAt); err == nil {
+							meta += fmt.Sprintf(" • finished %s", completed.Format("15:04"))
+						}
+					}
+				}
+				writeStyledLine(screen, 0, row, truncate(meta, width), metaStyle)
+				row++
+
+				if t.CompletionNote != "" && row < height {
+					noteStyle := tcell.StyleDefault.Foreground(tcell.ColorLightSteelBlue)
+					if idx == state.selected {
+						noteStyle = noteStyle.Background(tcell.ColorDarkSlateGray)
+					}
+					note := fmt.Sprintf("   ↳ %s", t.CompletionNote)
+					writeStyledLine(screen, 0, row, truncate(note, width), noteStyle)
+					row++
+				}
+
+				if row < height {
+					row++
+				}
+			}
+		}
+
+		renderNotes := func(list []ipc.Note, state *listState, archived bool) {
+			clampList(state, len(list), 3, visibleRows)
+			row := 3
+			for idx := state.offset; idx < len(list); idx++ {
+				if row >= height {
+					break
+				}
+				n := list[idx]
+				indicator := "•"
+				if n.Completed {
+					indicator = "✓"
+				}
+				line := fmt.Sprintf("%s %s", indicator, n.Summary)
+				mainStyle := tcell.StyleDefault.Foreground(tcell.ColorLightGoldenrodYellow)
+				if n.Completed {
+					mainStyle = tcell.StyleDefault.Foreground(tcell.ColorLightGreen)
+				}
+				if idx == state.selected {
+					mainStyle = mainStyle.Background(tcell.ColorDarkSlateGray)
+				}
+				writeStyledLine(screen, 0, row, truncate(line, width), mainStyle)
+				row++
+				if row >= height {
+					break
+				}
+				metaStyle := subtleStyle
+				if idx == state.selected {
+					metaStyle = metaStyle.Background(tcell.ColorDarkSlateGray)
+				}
+				meta := fmt.Sprintf("   %s · %s", n.Session, n.Window)
+				if archived {
+					if n.ArchivedAt != "" {
+						if ts, ok := parseTimestamp(n.ArchivedAt); ok {
+							meta += fmt.Sprintf(" · archived %s", ts.Format("15:04"))
+						}
+					}
+				} else if n.CreatedAt != "" {
+					if ts, ok := parseTimestamp(n.CreatedAt); ok {
+						meta += fmt.Sprintf(" · %s", ts.Format("15:04"))
+					}
+				}
+				writeStyledLine(screen, 0, row, truncate(meta, width), metaStyle)
+				row++
+				if row < height {
+					row++
+				}
+			}
+		}
+
+		if helpVisible {
+			helpLines := []string{
+				"t: toggle Tracker/Notes | n/N: scope (Notes) | Alt-A: archive view | Shift-A: archive note",
+				"a/k: add note | i: edit note | Enter/c: complete (Tracker/Notes) | p: focus task",
+				"Shift-D: delete | Shift-C: show/hide completed | Esc: close | ?: toggle help",
+			}
+			row := 3
+			for _, line := range helpLines {
+				if row >= height {
+					break
+				}
+				writeStyledLine(screen, 0, row, truncate(line, width), infoStyle)
 				row++
 			}
+			screen.Show()
+			return
+		}
+
+		switch mode {
+		case viewTracker:
+			list := getVisibleTasks()
+			if len(list) == 0 && height > 3 {
+				writeStyledLine(screen, 0, 3, truncate("No tasks.", width), infoStyle)
+			} else {
+				renderTasks(list, &taskList)
+			}
+		case viewNotes:
+			list := getVisibleNotes()
+			if len(list) == 0 && height > 3 {
+				writeStyledLine(screen, 0, 3, truncate("No notes in this scope.", width), infoStyle)
+			} else {
+				renderNotes(list, &noteList, false)
+			}
+		case viewArchive:
+			list := getArchivedNotes()
+			if len(list) == 0 && height > 3 {
+				writeStyledLine(screen, 0, 3, truncate("Archive is empty.", width), infoStyle)
+			} else {
+				renderNotes(list, &archiveList, true)
+			}
+		case viewEdit:
+			bodyStyle := tcell.StyleDefault.Foreground(tcell.ColorLightGreen)
+			if editNote == nil {
+				writeStyledLine(screen, 0, 3, truncate("No note selected.", width), infoStyle)
+			} else {
+				writeStyledLine(screen, 0, 3, truncate("Editing note (Enter to save, Esc to cancel):", width), infoStyle)
+				writeStyledLine(screen, 0, 5, truncate(string(prompt.text), width), bodyStyle)
+			}
+		}
+
+		if prompt.active && mode != viewEdit {
+			label := "Add note: "
+			if prompt.mode == promptEditNote {
+				label = "Edit note: "
+			}
+			writeStyledLine(screen, 0, height-1, truncate(label+string(prompt.text), width), tcell.StyleDefault.Foreground(tcell.ColorLightGreen))
 		}
 
 		screen.Show()
@@ -494,14 +1021,13 @@ func runUI(args []string) error {
 			switch env.Kind {
 			case "state":
 				st.message = env.Message
-				tasks = make([]ipc.Task, len(env.Tasks))
-				copy(tasks, env.Tasks)
-				sortTasks(tasks)
-				if len(tasks) == 0 {
-					selected = 0
-				} else if selected >= len(tasks) {
-					selected = len(tasks) - 1
-				}
+				st.tasks = make([]ipc.Task, len(env.Tasks))
+				copy(st.tasks, env.Tasks)
+				st.notes = make([]ipc.Note, len(env.Notes))
+				copy(st.notes, env.Notes)
+				st.archived = make([]ipc.Note, len(env.Archived))
+				copy(st.archived, env.Archived)
+				refreshCtx()
 				draw(time.Now())
 			case "ack":
 			default:
@@ -511,95 +1037,285 @@ func runUI(args []string) error {
 				return nil
 			}
 			switch tev := ev.(type) {
-            case *tcell.EventKey:
-                if tev.Key() == tcell.KeyEnter {
-                    if len(tasks) > 0 && selected < len(tasks) {
-                        task := tasks[selected]
-                        // Mark completed tasks as viewed (acknowledged) before focusing
-                        if task.Status == statusCompleted && !task.Acknowledged {
-                            if err := sendCommand("acknowledge", func(env *ipc.Envelope) {
-                                env.SessionID = task.SessionID
-                                env.WindowID = task.WindowID
-                                env.Pane = task.Pane
-                            }); err != nil {
-                                return err
-                            }
-                        }
-                        if err := sendCommand("focus_task", func(env *ipc.Envelope) {
-                            env.SessionID = task.SessionID
-                            env.WindowID = task.WindowID
-                            env.Pane = task.Pane
-                        }); err != nil {
-                            return err
-                        }
-                    }
-                    if err := sendCommand("hide"); err != nil {
-                        return err
-                    }
-                    return nil
-                }
-				if tev.Key() == tcell.KeyCtrlC {
-					return sendCommand("hide")
-				}
-				if tev.Modifiers()&tcell.ModAlt != 0 {
-					r := unicode.ToLower(tev.Rune())
-					switch r {
-					case 't':
-						if err := sendCommand("hide"); err != nil {
-							return err
-						}
-					case 'n':
-						if err := sendCommand("move_left"); err != nil {
-							return err
-						}
-					case 'i':
-						if err := sendCommand("move_right"); err != nil {
-							return err
-						}
-					case 'u':
-						if selected > 0 {
-							selected--
-							draw(time.Now())
-						}
-					case 'e':
-						if selected < len(tasks)-1 {
-							selected++
-							draw(time.Now())
-						}
+			case *tcell.EventKey:
+				if handled, err := handlePromptKey(tev); handled {
+					if err != nil {
+						st.message = err.Error()
 					}
-				} else if tev.Key() == tcell.KeyRune {
-					r := tev.Rune()
-					if unicode.ToLower(r) == 'd' && (tev.Modifiers()&tcell.ModShift != 0 || unicode.IsUpper(r)) {
-						if len(tasks) > 0 && selected < len(tasks) {
-							task := tasks[selected]
-							if err := sendCommand("delete_task", func(env *ipc.Envelope) {
-								env.SessionID = task.SessionID
-								env.WindowID = task.WindowID
-								env.Pane = task.Pane
-								env.Session = task.Session
-								env.Window = task.Window
-							}); err != nil {
-								return err
-							}
-						}
+					draw(time.Now())
+					continue
+				}
+
+				if tev.Key() == tcell.KeyRune && tev.Rune() == '?' {
+					helpVisible = !helpVisible
+					draw(time.Now())
+					continue
+				}
+
+				if tev.Key() == tcell.KeyEscape {
+					if prompt.active {
+						prompt.active = false
+						draw(time.Now())
 						continue
 					}
-					r = unicode.ToLower(r)
-					if r == 'u' {
-						if selected > 0 {
-							selected--
-							draw(time.Now())
+					if mode == viewEdit {
+						mode = viewNotes
+						editNote = nil
+						draw(time.Now())
+						continue
+					}
+					if err := sendCommand("hide"); err != nil {
+						return err
+					}
+					return nil
+				}
+
+				if tev.Key() == tcell.KeyCtrlC {
+					if err := sendCommand("hide"); err != nil {
+						return err
+					}
+					return nil
+				}
+
+				if tev.Modifiers()&tcell.ModAlt != 0 {
+					r := unicode.ToLower(tev.Rune())
+					if r == 'a' {
+						if mode == viewNotes {
+							mode = viewArchive
+						} else if mode == viewArchive {
+							mode = viewNotes
+						} else {
+							mode = viewNotes
 						}
-					} else if r == 'e' {
-						if selected < len(tasks)-1 {
-							selected++
+						draw(time.Now())
+						continue
+					}
+				}
+
+				if tev.Key() == tcell.KeyEnter {
+					switch mode {
+					case viewTracker:
+						tasks := getVisibleTasks()
+						if len(tasks) > 0 && taskList.selected < len(tasks) {
+							if err := focusTask(tasks[taskList.selected]); err != nil {
+								st.message = err.Error()
+							}
+						}
+					case viewNotes:
+						notes := getVisibleNotes()
+						if len(notes) > 0 && noteList.selected < len(notes) {
+							if err := toggleNote(notes[noteList.selected].ID); err != nil {
+								st.message = err.Error()
+							}
+						}
+					case viewArchive:
+						notes := getArchivedNotes()
+						if len(notes) > 0 && archiveList.selected < len(notes) {
+							if err := attachNote(notes[archiveList.selected].ID); err != nil {
+								st.message = err.Error()
+							}
+						}
+					}
+					draw(time.Now())
+					continue
+				}
+
+				if tev.Key() != tcell.KeyRune {
+					continue
+				}
+
+				r := tev.Rune()
+				lower := unicode.ToLower(r)
+				shift := tev.Modifiers()&tcell.ModShift != 0 || unicode.IsUpper(r)
+
+				switch lower {
+				case 't':
+					if mode == viewTracker {
+						mode = viewNotes
+					} else {
+						mode = viewTracker
+					}
+					draw(time.Now())
+				case 'n':
+					if mode == viewNotes {
+						if shift {
+							cycleScope(false)
+						} else {
+							cycleScope(true)
+						}
+						draw(time.Now())
+					}
+				case 'u':
+					switch mode {
+					case viewTracker:
+						if taskList.selected > 0 {
+							taskList.selected--
+						}
+					case viewNotes:
+						if noteList.selected > 0 {
+							noteList.selected--
+						}
+					case viewArchive:
+						if archiveList.selected > 0 {
+							archiveList.selected--
+						}
+					}
+					draw(time.Now())
+				case 'e':
+					switch mode {
+					case viewTracker:
+						tasks := getVisibleTasks()
+						if taskList.selected < len(tasks)-1 {
+							taskList.selected++
+						}
+					case viewNotes:
+						notes := getVisibleNotes()
+						if noteList.selected < len(notes)-1 {
+							noteList.selected++
+						}
+					case viewArchive:
+						notes := getArchivedNotes()
+						if archiveList.selected < len(notes)-1 {
+							archiveList.selected++
+						}
+					}
+					draw(time.Now())
+				case 'c':
+					if shift {
+						switch mode {
+						case viewTracker:
+							showCompletedTasks = !showCompletedTasks
+						case viewNotes:
+							showCompletedNotes = !showCompletedNotes
+						case viewArchive:
+							showCompletedArchive = !showCompletedArchive
+						}
+						draw(time.Now())
+						break
+					}
+					switch mode {
+					case viewTracker:
+						tasks := getVisibleTasks()
+						if len(tasks) > 0 && taskList.selected < len(tasks) {
+							if err := toggleTask(tasks[taskList.selected]); err != nil {
+								st.message = err.Error()
+							}
+						}
+					case viewNotes:
+						notes := getVisibleNotes()
+						if len(notes) > 0 && noteList.selected < len(notes) {
+							if err := toggleNote(notes[noteList.selected].ID); err != nil {
+								st.message = err.Error()
+							}
+						}
+					case viewArchive:
+						notes := getArchivedNotes()
+						if len(notes) > 0 && archiveList.selected < len(notes) {
+							if err := attachNote(notes[archiveList.selected].ID); err != nil {
+								st.message = err.Error()
+							}
+						}
+					}
+					draw(time.Now())
+				case 'p':
+					if mode == viewTracker {
+						tasks := getVisibleTasks()
+						if len(tasks) > 0 && taskList.selected < len(tasks) {
+							if err := focusTask(tasks[taskList.selected]); err != nil {
+								st.message = err.Error()
+							}
+						}
+						draw(time.Now())
+					} else if mode == viewNotes {
+						notes := getVisibleNotes()
+						if len(notes) > 0 && noteList.selected < len(notes) {
+							if err := focusTask(ipc.Task{
+								Session:   notes[noteList.selected].Session,
+								SessionID: notes[noteList.selected].SessionID,
+								Window:    notes[noteList.selected].Window,
+								WindowID:  notes[noteList.selected].WindowID,
+								Pane:      notes[noteList.selected].Pane,
+							}); err != nil {
+								st.message = err.Error()
+							}
+						}
+						draw(time.Now())
+					}
+				case 'a':
+					if shift && mode == viewNotes {
+						notes := getVisibleNotes()
+						if len(notes) > 0 && noteList.selected < len(notes) {
+							if err := archiveNote(notes[noteList.selected].ID); err != nil {
+								st.message = err.Error()
+							}
+						}
+						draw(time.Now())
+						break
+					}
+					if mode == viewNotes {
+						startAddPrompt()
+						draw(time.Now())
+					}
+				case 'k':
+					if mode == viewNotes {
+						notes := getVisibleNotes()
+						if len(notes) > 0 && noteList.selected < len(notes) {
+							startEditPrompt(notes[noteList.selected])
+						}
+						draw(time.Now())
+					}
+				case 'i':
+					if mode == viewNotes {
+						notes := getVisibleNotes()
+						if len(notes) > 0 && noteList.selected < len(notes) {
+							// same as focus in Tracker mode
+							if err := focusTask(ipc.Task{
+								Session:   notes[noteList.selected].Session,
+								SessionID: notes[noteList.selected].SessionID,
+								Window:    notes[noteList.selected].Window,
+								WindowID:  notes[noteList.selected].WindowID,
+								Pane:      notes[noteList.selected].Pane,
+							}); err != nil {
+								st.message = err.Error()
+							}
+						}
+						draw(time.Now())
+					}
+					if mode == viewTracker {
+						tasks := getVisibleTasks()
+						if len(tasks) > 0 && taskList.selected < len(tasks) {
+							if err := focusTask(tasks[taskList.selected]); err != nil {
+								st.message = err.Error()
+							}
 							draw(time.Now())
 						}
 					}
-				}
-				if tev.Key() == tcell.KeyEscape {
-					if err := sendCommand("hide"); err != nil {
-						return err
+				case 'd':
+					if shift {
+						switch mode {
+						case viewTracker:
+							tasks := getVisibleTasks()
+							if len(tasks) > 0 && taskList.selected < len(tasks) {
+								if err := deleteTask(tasks[taskList.selected]); err != nil {
+									st.message = err.Error()
+								}
+							}
+						case viewNotes:
+							notes := getVisibleNotes()
+							if len(notes) > 0 && noteList.selected < len(notes) {
+								if err := deleteNote(notes[noteList.selected].ID); err != nil {
+									st.message = err.Error()
+								}
+							}
+						case viewArchive:
+							notes := getArchivedNotes()
+							if len(notes) > 0 && archiveList.selected < len(notes) {
+								if err := deleteNote(notes[archiveList.selected].ID); err != nil {
+									st.message = err.Error()
+								}
+							}
+						}
+						draw(time.Now())
 					}
 				}
 			case *tcell.EventResize:

@@ -1,0 +1,32 @@
+{
+	"$schema": "https://opencode.ai/config.json",
+	"small_model": "zai-coding-plan/glm-4.6",
+	"lsp": {
+		"dart": {
+			"command": [
+				"dart",
+				"language-server"
+			],
+			"extensions": [
+				".dart"
+			]
+		}
+	},
+	"permission": {
+		"edit": "allow",
+		"bash": "allow",
+		"webfetch": "allow",
+		"doom_loop": "allow",
+		"external_directory": "allow"
+	},
+	"mcp": {
+		"web": {
+			"type": "local",
+			"command": [
+				"mctrl-mcp",
+				"web"
+			],
+			"enabled": true
+		}
+	}
+}

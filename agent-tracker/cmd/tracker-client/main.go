@@ -1283,8 +1283,8 @@ func runUI(args []string) error {
 
 		if helpVisible {
 			helpLines := []string{
-				"t: toggle Tracker/Notes | s/S: scope (Notes) | Alt-A: archive view | Shift-A: archive note",
-				"a/k: add note | i: edit note | Enter/c: complete (Tracker/Notes) | p: focus task",
+				"t: toggle Tracker/Notes | n/i: view scope | s/S: note scope | Alt-A: archive view",
+				"a/k: add note | p: focus/edit | Enter/c: complete | Shift-A: archive note",
 				"Shift-D: delete | Shift-C: show/hide completed | Esc: close | ?: toggle help",
 			}
 			row := 3
@@ -1495,11 +1495,12 @@ func runUI(args []string) error {
 					draw(time.Now())
 				case 'n':
 					if mode == viewNotes {
-						if shift {
-							cycleScope(false, false)
-						} else {
-							cycleScope(true, false)
-						}
+						cycleScope(false, false)
+						draw(time.Now())
+					}
+				case 'i':
+					if mode == viewNotes {
+						cycleScope(true, false)
 						draw(time.Now())
 					}
 				case 's':
@@ -1629,32 +1630,7 @@ func runUI(args []string) error {
 						}
 						draw(time.Now())
 					}
-				case 'i':
-					if mode == viewNotes {
-						notes := getVisibleNotes()
-						if len(notes) > 0 && noteList.selected < len(notes) {
-							// same as focus in Tracker mode
-							if err := focusTask(ipc.Task{
-								Session:   notes[noteList.selected].Session,
-								SessionID: notes[noteList.selected].SessionID,
-								Window:    notes[noteList.selected].Window,
-								WindowID:  notes[noteList.selected].WindowID,
-								Pane:      notes[noteList.selected].Pane,
-							}); err != nil {
-								st.message = err.Error()
-							}
-						}
-						draw(time.Now())
-					}
-					if mode == viewTracker {
-						tasks := getVisibleTasks()
-						if len(tasks) > 0 && taskList.selected < len(tasks) {
-							if err := focusTask(tasks[taskList.selected]); err != nil {
-								st.message = err.Error()
-							}
-							draw(time.Now())
-						}
-					}
+
 				case 'd':
 					if shift {
 						switch mode {

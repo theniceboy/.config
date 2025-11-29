@@ -17,3 +17,5 @@ source ~/.config/zsh/prompt.zsh
 source ~/.config/zsh/functions/cd_git_root.zsh
 
 source ~/.config/zsh/functions/co.zsh
+source ~/.config/zsh/functions/op.zsh
+

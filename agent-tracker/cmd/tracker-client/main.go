@@ -683,10 +683,11 @@ func runUI(args []string) error {
 		})
 	}
 
-	updateNote := func(id, text string) error {
+	updateNote := func(id, text, scope string) error {
 		text = strings.TrimSpace(text)
-		if text == "" {
-			return fmt.Errorf("note text required")
+		scope = strings.TrimSpace(scope)
+		if text == "" && scope == "" {
+			return fmt.Errorf("note text or scope required")
 		}
 		if strings.TrimSpace(id) == "" {
 			return fmt.Errorf("note id required")
@@ -694,7 +695,24 @@ func runUI(args []string) error {
 		return sendCommand("note_edit", func(env *ipc.Envelope) {
 			env.NoteID = id
 			env.Summary = text
+			env.Scope = scope
 		})
+	}
+
+	cycleNoteScope := func(n ipc.Note) error {
+		current := noteScopeOf(n)
+		var next noteScope
+		switch current {
+		case scopeWindow:
+			next = scopeSession
+		case scopeSession:
+			next = scopeAll
+		case scopeAll:
+			next = scopeWindow
+		default:
+			next = scopeWindow
+		}
+		return updateNote(n.ID, "", string(next))
 	}
 
 	toggleNote := func(id string) error {
@@ -802,7 +820,7 @@ func runUI(args []string) error {
 			case promptAddNote:
 				err = addNote(text)
 			case promptEditNote:
-				err = updateNote(prompt.noteID, text)
+				err = updateNote(prompt.noteID, text, "")
 			}
 			prompt.active = false
 			if prompt.mode == promptEditNote {
@@ -1265,7 +1283,7 @@ func runUI(args []string) error {
 
 		if helpVisible {
 			helpLines := []string{
-				"t: toggle Tracker/Notes | n/N: scope (Notes) | Alt-A: archive view | Shift-A: archive note",
+				"t: toggle Tracker/Notes | s/S: scope (Notes) | Alt-A: archive view | Shift-A: archive note",
 				"a/k: add note | i: edit note | Enter/c: complete (Tracker/Notes) | p: focus task",
 				"Shift-D: delete | Shift-C: show/hide completed | Esc: close | ?: toggle help",
 			}
@@ -1481,6 +1499,16 @@ func runUI(args []string) error {
 							cycleScope(false, false)
 						} else {
 							cycleScope(true, false)
+						}
+						draw(time.Now())
+					}
+				case 's':
+					if mode == viewNotes {
+						notes := getVisibleNotes()
+						if len(notes) > 0 && noteList.selected < len(notes) {
+							if err := cycleNoteScope(notes[noteList.selected]); err != nil {
+								st.message = err.Error()
+							}
 						}
 						draw(time.Now())
 					}

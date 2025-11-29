@@ -314,7 +314,7 @@ func (s *server) handleCommand(env ipc.Envelope) error {
 		s.statusRefreshAsync()
 		return nil
 	case "note_edit":
-		if err := s.editNote(strings.TrimSpace(env.NoteID), env.Summary); err != nil {
+		if err := s.editNote(strings.TrimSpace(env.NoteID), env.Scope, env.Summary); err != nil {
 			return err
 		}
 		s.broadcastStateAsync()
@@ -466,18 +466,22 @@ func (s *server) addNote(target tmuxTarget, scope, summary string) error {
 	return s.saveNotesLocked()
 }
 
-func (s *server) editNote(id, summary string) error {
+func (s *server) editNote(id, scope, summary string) error {
 	summary = strings.TrimSpace(summary)
-	if summary == "" {
-		return fmt.Errorf("note summary required")
-	}
+	scope = normalizeScope(scope)
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	n, ok := s.notes[id]
 	if !ok {
 		return fmt.Errorf("note not found")
 	}
-	n.Summary = summary
+	if summary != "" {
+		n.Summary = summary
+	}
+	if scope != "" {
+		n.Scope = scope
+	}
 	now := time.Now()
 	n.UpdatedAt = now
 	return s.saveNotesLocked()

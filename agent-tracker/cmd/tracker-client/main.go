@@ -963,7 +963,7 @@ func runUI(args []string) error {
 
 				// Line 1: Indicator + Summary + Right-aligned Duration
 				dur := liveDuration(t, now)
-				availWidth := width - len(indicator) - 1 - len(dur) - 1
+				availWidth := width - len(indicator) - 1 - len(dur) - 3
 				if availWidth < 0 {
 					availWidth = 0
 				}
@@ -1032,7 +1032,39 @@ func runUI(args []string) error {
 			}
 		}
 
-		
+		wrapText := func(text string, maxWidth int) []string {
+			if maxWidth <= 0 {
+				return []string{""}
+			}
+			runes := []rune(text)
+			if len(runes) <= maxWidth {
+				return []string{text}
+			}
+			var lines []string
+			for len(runes) > maxWidth {
+				split := maxWidth
+				found := false
+				for i := maxWidth; i > 0; i-- {
+					if unicode.IsSpace(runes[i]) {
+						split = i
+						found = true
+						break
+					}
+				}
+				if !found {
+					split = maxWidth
+				}
+				lines = append(lines, string(runes[:split]))
+				runes = runes[split:]
+				for len(runes) > 0 && unicode.IsSpace(runes[0]) {
+					runes = runes[1:]
+				}
+			}
+			if len(runes) > 0 {
+				lines = append(lines, string(runes))
+			}
+			return lines
+		}
 
 		renderNotes := func(list []ipc.Note, state *listState, archived bool) {
 			clampList(state, len(list), 3, visibleRows)
@@ -1053,6 +1085,8 @@ func runUI(args []string) error {
 				if n.Completed {
 					textStyle = tcell.StyleDefault.Foreground(tcell.ColorDarkGray)
 					scopeSt = tcell.StyleDefault.Foreground(tcell.ColorDarkGray)
+					metaStyle = tcell.StyleDefault.Foreground(tcell.ColorDarkGray)
+					timeStyle = tcell.StyleDefault.Foreground(tcell.ColorDarkGray)
 				}
 
 				if idx == state.selected {
@@ -1063,7 +1097,7 @@ func runUI(args []string) error {
 				}
 
 				// Tag Logic
-				tagText := " " + scopeTag(ns) + " " // e.g. " [W] "
+				tagText := " " + scopeTag(ns) + " "
 
 				// Timestamp Logic
 				tsStr := ""
@@ -1081,16 +1115,43 @@ func runUI(args []string) error {
 					}
 				}
 
-				// Line 1 Construction
-				// [TAG] Summary ...................... Time
-				availWidth := width - len(tagText) - len(tsStr)
-				if availWidth < 0 {
-					availWidth = 0
-				}
-
 				summary := n.Summary
 				if n.Completed {
 					summary = "✓ " + summary
+				}
+
+				// --- Line 1 Rendering ---
+				availWidth1 := width - len(tagText) - len(tsStr) - 2
+				if availWidth1 < 5 {
+					availWidth1 = 5
+				}
+
+				// Split summary for first line
+				line1Text := summary
+				remText := ""
+				runes := []rune(summary)
+				if len(runes) > availWidth1 {
+					split := availWidth1
+					found := false
+					for i := availWidth1; i > 0; i-- {
+						if unicode.IsSpace(runes[i]) {
+							split = i
+							found = true
+							break
+						}
+					}
+					if !found {
+						split = availWidth1
+					}
+
+					line1Text = string(runes[:split])
+					remText = string(runes[split:])
+					// trim leading space from remainder
+					trimRunes := []rune(remText)
+					for len(trimRunes) > 0 && unicode.IsSpace(trimRunes[0]) {
+						trimRunes = trimRunes[1:]
+					}
+					remText = string(trimRunes)
 				}
 
 				segs := []struct {
@@ -1098,10 +1159,10 @@ func runUI(args []string) error {
 					style tcell.Style
 				}{
 					{text: tagText, style: scopeSt},
-					{text: truncate(summary, availWidth), style: textStyle},
+					{text: line1Text, style: textStyle},
 				}
 
-				usedLen := len(tagText) + len([]rune(truncate(summary, availWidth)))
+				usedLen := len(tagText) + len([]rune(line1Text))
 				padding := width - usedLen - len(tsStr)
 				if padding > 0 {
 					segs = append(segs, struct {
@@ -1126,13 +1187,47 @@ func runUI(args []string) error {
 					break
 				}
 
-				// Line 2: Context Metadata
-				//    Session / Window
+				// --- Wrapped Lines Rendering ---
+				if remText != "" {
+					indent := len(tagText)
+					availWidthN := width - indent
+					if availWidthN < 5 {
+						availWidthN = 5
+					}
+
+					wrappedRem := wrapText(remText, availWidthN)
+					for _, wLine := range wrappedRem {
+						segs := []struct {
+							text  string
+							style tcell.Style
+						}{
+							{text: strings.Repeat(" ", indent), style: scopeSt},
+							{text: wLine, style: textStyle},
+						}
+						used := indent + len([]rune(wLine))
+						if width > used {
+							segs = append(segs, struct {
+								text  string
+								style tcell.Style
+							}{
+								text:  strings.Repeat(" ", width-used),
+								style: textStyle,
+							})
+						}
+						writeStyledSegments(screen, row, segs...)
+						row++
+						if row >= height {
+							break
+						}
+					}
+				}
+				if row >= height {
+					break
+				}
+
+				// --- Meta Line Rendering ---
 				prefix := "   "
 				metaText := fmt.Sprintf("%s / %s", n.Session, n.Window)
-
-				// If visual space allows, maybe include date if it's old?
-				// For now keeping it simple as per request.
 
 				metaSegs := []struct {
 					text  string
@@ -1141,7 +1236,6 @@ func runUI(args []string) error {
 					{text: prefix, style: metaStyle},
 					{text: truncate(metaText, width-len(prefix)), style: metaStyle},
 				}
-				// Pad the rest of the line to ensure background color extends if selected
 				metaUsed := len(prefix) + len([]rune(truncate(metaText, width-len(prefix))))
 				if width > metaUsed {
 					metaSegs = append(metaSegs, struct {
@@ -1155,11 +1249,17 @@ func runUI(args []string) error {
 
 				writeStyledSegments(screen, row, metaSegs...)
 				row++
-
-				// Spacer line
-				if row < height {
-					row++
+				if row >= height {
+					break
 				}
+
+				// --- Spacer Rendering ---
+				spacerStyle := tcell.StyleDefault
+				if idx == state.selected {
+					spacerStyle = spacerStyle.Background(tcell.ColorDarkSlateGray)
+				}
+				writeStyledLine(screen, 0, row, strings.Repeat(" ", width), spacerStyle)
+				row++
 			}
 		}
 

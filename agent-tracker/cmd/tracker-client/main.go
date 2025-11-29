@@ -64,6 +64,7 @@ type promptState struct {
 	active bool
 	mode   promptMode
 	text   []rune
+	cursor int
 	noteID string
 }
 
@@ -778,14 +779,15 @@ func runUI(args []string) error {
 	}
 
 	startAddPrompt := func() {
-		prompt = promptState{active: true, mode: promptAddNote, text: []rune{}}
+		prompt = promptState{active: true, mode: promptAddNote, text: []rune{}, cursor: 0}
 	}
 
 	startEditPrompt := func(n ipc.Note) {
 		copy := n
 		editNote = &copy
 		mode = viewEdit
-		prompt = promptState{active: true, mode: promptEditNote, text: []rune(n.Summary), noteID: n.ID}
+		runes := []rune(n.Summary)
+		prompt = promptState{active: true, mode: promptEditNote, text: runes, cursor: len(runes), noteID: n.ID}
 	}
 
 	handlePromptKey := func(tev *tcell.EventKey) (bool, error) {
@@ -818,16 +820,45 @@ func runUI(args []string) error {
 				editNote = nil
 			}
 			return true, nil
+		case tcell.KeyLeft:
+			if prompt.cursor > 0 {
+				prompt.cursor--
+			}
+			return true, nil
+		case tcell.KeyRight:
+			if prompt.cursor < len(prompt.text) {
+				prompt.cursor++
+			}
+			return true, nil
 		case tcell.KeyBackspace, tcell.KeyBackspace2:
-			if len(prompt.text) > 0 {
-				prompt.text = prompt.text[:len(prompt.text)-1]
+			if prompt.cursor > 0 {
+				prompt.text = append(prompt.text[:prompt.cursor-1], prompt.text[prompt.cursor:]...)
+				prompt.cursor--
+			}
+			return true, nil
+		case tcell.KeyCtrlW:
+			if prompt.cursor > 0 {
+				// skip trailing spaces
+				i := prompt.cursor
+				for i > 0 && unicode.IsSpace(prompt.text[i-1]) {
+					i--
+				}
+				// skip non-spaces
+				for i > 0 && !unicode.IsSpace(prompt.text[i-1]) {
+					i--
+				}
+				prompt.text = append(prompt.text[:i], prompt.text[prompt.cursor:]...)
+				prompt.cursor = i
 			}
 			return true, nil
 		case tcell.KeyCtrlU:
 			prompt.text = prompt.text[:0]
+			prompt.cursor = 0
 			return true, nil
 		case tcell.KeyRune:
-			prompt.text = append(prompt.text, tev.Rune())
+			r := tev.Rune()
+			prompt.text = append(prompt.text[:prompt.cursor], append([]rune{r}, prompt.text[prompt.cursor:]...)...)
+			prompt.cursor++
 			return true, nil
 		default:
 			return true, nil
@@ -1000,6 +1031,8 @@ func runUI(args []string) error {
 				}
 			}
 		}
+
+		
 
 		renderNotes := func(list []ipc.Note, state *listState, archived bool) {
 			clampList(state, len(list), 3, visibleRows)
@@ -1177,6 +1210,13 @@ func runUI(args []string) error {
 			} else {
 				writeStyledLine(screen, 0, 3, truncate("Editing note (Enter to save, Esc to cancel):", width), infoStyle)
 				writeStyledLine(screen, 0, 5, truncate(string(prompt.text), width), bodyStyle)
+				if prompt.active {
+					cx := prompt.cursor
+					if cx > width-1 {
+						cx = width - 1
+					}
+					screen.ShowCursor(cx, 5)
+				}
 			}
 		}
 
@@ -1185,7 +1225,14 @@ func runUI(args []string) error {
 			if prompt.mode == promptEditNote {
 				label = "Edit note: "
 			}
-			writeStyledLine(screen, 0, height-1, truncate(label+string(prompt.text), width), tcell.StyleDefault.Foreground(tcell.ColorLightGreen))
+			line := label + string(prompt.text)
+			writeStyledLine(screen, 0, height-1, truncate(line, width), tcell.StyleDefault.Foreground(tcell.ColorLightGreen))
+
+			cx := len(label) + prompt.cursor
+			if cx > width-1 {
+				cx = width - 1
+			}
+			screen.ShowCursor(cx, height-1)
 		}
 
 		screen.Show()

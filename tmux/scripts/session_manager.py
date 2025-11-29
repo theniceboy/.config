@@ -71,6 +71,10 @@ def current_session_id() -> str:
     return run_tmux(["display-message", "-p", "#{session_id}"], capture=True)
 
 
+def current_window_id() -> str:
+    return run_tmux(["display-message", "-p", "#{window_id}"], capture=True)
+
+
 def command_switch(index_str: str) -> None:
     try:
         index = int(index_str)
@@ -126,6 +130,26 @@ def command_created() -> None:
     command_ensure()
 
 
+def command_move_window_to_session(index_str: str) -> None:
+    try:
+        index = int(index_str)
+    except ValueError:
+        return
+    if index < 1:
+        return
+    sessions = list_sessions()
+    if index > len(sessions):
+        return
+    target_session_id = sessions[index - 1]["id"]
+    source_window_id = current_window_id()
+    if not source_window_id:
+        return
+    current_id = current_session_id()
+    if target_session_id != current_id:
+        run_tmux(["move-window", "-s", source_window_id, "-t", f"{target_session_id}:"], check=False)
+    run_tmux(["switch-client", "-t", target_session_id], check=False)
+
+
 def main(argv: List[str]) -> None:
     if len(argv) < 2:
         return
@@ -140,6 +164,8 @@ def main(argv: List[str]) -> None:
         command_ensure()
     elif command == "created":
         command_created()
+    elif command == "move-window-to" and len(argv) >= 3:
+        command_move_window_to_session(argv[2])
 
 
 if __name__ == "__main__":

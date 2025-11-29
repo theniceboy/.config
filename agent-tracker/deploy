@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -euo pipefail
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$ROOT_DIR"
+
+go build -o bin/tracker-server ./cmd/tracker-server
+go build -o bin/tracker-client ./cmd/tracker-client
+
+./scripts/install_brew_service.sh
+brew services restart agent-tracker-server

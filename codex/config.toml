@@ -41,7 +41,7 @@ command            = "/Users/david/.config/agent-tracker/bin/tracker-mcp"
 startup_timeout_ms = 20000
 
 
-[rmcp_servers.web]
+[mcp_servers.web]
 command            = "/bin/sh"
 args               = ["-lc", "exec mctrl-mcp web"]
 startup_timeout_ms = 20000

@@ -20,18 +20,6 @@
 		"doom_loop": "allow",
 		"external_directory": "allow"
 	},
-	"formatter": {
-		"dart": {
-			"command": [
-				"dart",
-				"format",
-				"$FILE"
-			],
-			"extensions": [
-				".dart"
-			]
-		}
-	},
 	"mcp": {
 		"web": {
 			"type": "local",

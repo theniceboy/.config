@@ -61,5 +61,22 @@
 				}
 			}
 		}
+	},
+	"agent": {
+		"Search": {
+			"model": "zai-coding-plan/glm-4.6",
+			"description": "Read-only agent for web searches",
+			"prompt": "You are Jeff, a research specialist. Use only read/online tools to gather information, summarize briefly with sources, and avoid edits or speculation. When researching information on the internet, use the google_search tool to conduct searches, and then follow up with website_fetch tool calls to gather detailed content from relevant pages.",
+			"permission": {
+				"edit": "deny",
+				"bash": "deny",
+				"webfetch": "deny"
+			},
+			"tools": {
+				"edit": false,
+				"bash": false,
+				"webfetch": false
+			}
+		}
 	}
 }

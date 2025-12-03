@@ -1,4 +1,4 @@
-op() {
+se() {
   if ! typeset -f _op_run >/dev/null; then
     local src=${funcfiletrace[1]%:*}
     local dir=${src:h}
@@ -7,11 +7,11 @@ op() {
       common="${XDG_CONFIG_HOME:-$HOME/.config}/zsh/functions/_op_common.zsh"
     fi
     if [ ! -f "$common" ]; then
-      print -u2 "op: missing _op_common.zsh at $common"
+      print -u2 "se: missing _op_common.zsh at $common"
       return 1
     fi
     source "$common" || return 1
   fi
 
-  _op_run op "$@"
+  _op_run se --agent Search "$@"
 }

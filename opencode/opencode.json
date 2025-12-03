@@ -31,8 +31,8 @@
 		}
 	},
 	"keybinds": {
-		"messages_half_page_up": "ctrl+u",
-		"messages_half_page_down": "ctrl+e"
+		"messages_half_page_up": "ctrl+alt+u",
+		"messages_half_page_down": "ctrl+alt+e"
 	},
 	"provider": {
 		"cliproxyapi": {

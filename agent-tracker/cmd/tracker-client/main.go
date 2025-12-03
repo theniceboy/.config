@@ -595,14 +595,6 @@ func runUI(args []string) error {
 
 	sortNotes := func(notes []ipc.Note) {
 		sort.SliceStable(notes, func(i, j int) bool {
-			iu, hasIU := parseTimestamp(notes[i].UpdatedAt)
-			ju, hasJU := parseTimestamp(notes[j].UpdatedAt)
-			if hasIU && hasJU && !iu.Equal(ju) {
-				return iu.After(ju)
-			}
-			if hasIU != hasJU {
-				return hasIU
-			}
 			ic, hasIC := parseTimestamp(notes[i].CreatedAt)
 			jc, hasJC := parseTimestamp(notes[j].CreatedAt)
 			if hasIC && hasJC && !ic.Equal(jc) {

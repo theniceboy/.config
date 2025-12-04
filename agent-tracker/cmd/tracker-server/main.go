@@ -67,7 +67,6 @@ type noteRecord struct {
 	Completed  bool
 	Archived   bool
 	CreatedAt  time.Time
-	UpdatedAt  time.Time
 	ArchivedAt *time.Time
 }
 
@@ -93,7 +92,6 @@ type storedNote struct {
 	Completed  bool       `json:"completed"`
 	Archived   bool       `json:"archived"`
 	CreatedAt  time.Time  `json:"created_at"`
-	UpdatedAt  time.Time  `json:"updated_at"`
 	ArchivedAt *time.Time `json:"archived_at,omitempty"`
 }
 
@@ -416,6 +414,11 @@ func (s *server) handleCommand(env ipc.Envelope) error {
 		s.broadcastStateAsync()
 		s.statusRefreshAsync()
 		return nil
+	case "goal_focus":
+		if err := s.focusGoal(env.Client, strings.TrimSpace(env.SessionID)); err != nil {
+			return err
+		}
+		return nil
 	default:
 		return fmt.Errorf("unknown command %q", env.Command)
 	}
@@ -514,7 +517,6 @@ func (s *server) addNote(target tmuxTarget, scope, summary string) error {
 		PaneID:    target.PaneID,
 		Summary:   summary,
 		CreatedAt: now,
-		UpdatedAt: now,
 	}
 	s.notes[n.ID] = n
 	return s.saveNotesLocked()
@@ -536,8 +538,6 @@ func (s *server) editNote(id, scope, summary string) error {
 	if scope != "" {
 		n.Scope = scope
 	}
-	now := time.Now()
-	n.UpdatedAt = now
 	return s.saveNotesLocked()
 }
 
@@ -549,7 +549,6 @@ func (s *server) toggleNoteCompletion(id string) error {
 		return fmt.Errorf("note not found")
 	}
 	n.Completed = !n.Completed
-	n.UpdatedAt = time.Now()
 	return s.saveNotesLocked()
 }
 
@@ -576,7 +575,6 @@ func (s *server) archiveNote(id string) error {
 	now := time.Now()
 	n.Archived = true
 	n.ArchivedAt = &now
-	n.UpdatedAt = now
 	return s.saveNotesLocked()
 }
 
@@ -598,7 +596,6 @@ func (s *server) archiveNotesForPane(sessionID, windowID, paneID string) error {
 		if n.SessionID == sessionID && n.WindowID == windowID && n.PaneID == paneID {
 			n.Archived = true
 			n.ArchivedAt = &now
-			n.UpdatedAt = now
 			changed = true
 		}
 	}
@@ -622,7 +619,6 @@ func (s *server) attachArchivedNote(id string, target tmuxTarget) error {
 	if !n.Archived {
 		return fmt.Errorf("note is not archived")
 	}
-	now := time.Now()
 	n.SessionID = target.SessionID
 	n.Session = target.SessionName
 	n.WindowID = target.WindowID
@@ -631,7 +627,6 @@ func (s *server) attachArchivedNote(id string, target tmuxTarget) error {
 	n.Scope = scopeWindow
 	n.Archived = false
 	n.ArchivedAt = nil
-	n.UpdatedAt = now
 	return s.saveNotesLocked()
 }
 
@@ -693,7 +688,6 @@ func (s *server) loadNotes() error {
 			Completed:  n.Completed,
 			Archived:   n.Archived,
 			CreatedAt:  n.CreatedAt,
-			UpdatedAt:  n.UpdatedAt,
 			ArchivedAt: n.ArchivedAt,
 		}
 	}
@@ -840,7 +834,6 @@ func (s *server) notesForState() ([]ipc.Note, []ipc.Note) {
 			Completed: n.Completed,
 			Archived:  n.Archived,
 			CreatedAt: n.CreatedAt.Format(time.RFC3339),
-			UpdatedAt: n.UpdatedAt.Format(time.RFC3339),
 		}
 		if n.ArchivedAt != nil {
 			copy.ArchivedAt = n.ArchivedAt.Format(time.RFC3339)
@@ -895,6 +888,21 @@ func (s *server) focusTask(client string, target tmuxTarget) error {
 		return err
 	}
 	if err := runTmux("select-pane", "-t", target.PaneID); err != nil {
+		return err
+	}
+	return s.hide()
+}
+
+func (s *server) focusGoal(client string, sessionID string) error {
+	client = strings.TrimSpace(client)
+	if client == "" {
+		return fmt.Errorf("client required for goal_focus")
+	}
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return fmt.Errorf("session id required for goal_focus")
+	}
+	if err := runTmux("switch-client", "-c", client, "-t", sessionID); err != nil {
 		return err
 	}
 	return s.hide()

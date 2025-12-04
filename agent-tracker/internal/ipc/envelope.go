@@ -11,6 +11,7 @@ type Envelope struct {
 	Pane      string `json:"pane,omitempty"`
 	Scope     string `json:"scope,omitempty"`
 	NoteID    string `json:"note_id,omitempty"`
+	GoalID    string `json:"goal_id,omitempty"`
 	Position  string `json:"position,omitempty"`
 	Visible   *bool  `json:"visible,omitempty"`
 	Message   string `json:"message,omitempty"`
@@ -18,6 +19,7 @@ type Envelope struct {
 	Tasks     []Task `json:"tasks,omitempty"`
 	Notes     []Note `json:"notes,omitempty"`
 	Archived  []Note `json:"archived,omitempty"`
+	Goals     []Goal `json:"goals,omitempty"`
 }
 
 type Task struct {
@@ -49,4 +51,14 @@ type Note struct {
 	CreatedAt  string `json:"created_at"`
 	UpdatedAt  string `json:"updated_at"`
 	ArchivedAt string `json:"archived_at,omitempty"`
+}
+
+type Goal struct {
+	ID        string `json:"id"`
+	SessionID string `json:"session_id"`
+	Session   string `json:"session"`
+	Summary   string `json:"summary"`
+	Completed bool   `json:"completed"`
+	CreatedAt string `json:"created_at"`
+	UpdatedAt string `json:"updated_at"`
 }

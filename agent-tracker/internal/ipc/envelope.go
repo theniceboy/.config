@@ -49,7 +49,6 @@ type Note struct {
 	Completed  bool   `json:"completed"`
 	Archived   bool   `json:"archived"`
 	CreatedAt  string `json:"created_at"`
-	UpdatedAt  string `json:"updated_at"`
 	ArchivedAt string `json:"archived_at,omitempty"`
 }
 

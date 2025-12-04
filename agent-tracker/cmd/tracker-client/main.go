@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/david/agent-tracker/internal/ipc"
 	"github.com/gdamore/tcell/v2"
@@ -599,14 +600,6 @@ func runUI(args []string) error {
 
 	sortNotes := func(notes []ipc.Note) {
 		sort.SliceStable(notes, func(i, j int) bool {
-			iu, hasIU := parseTimestamp(notes[i].UpdatedAt)
-			ju, hasJU := parseTimestamp(notes[j].UpdatedAt)
-			if hasIU && hasJU && !iu.Equal(ju) {
-				return iu.After(ju)
-			}
-			if hasIU != hasJU {
-				return hasIU
-			}
 			ic, hasIC := parseTimestamp(notes[i].CreatedAt)
 			jc, hasJC := parseTimestamp(notes[j].CreatedAt)
 			if hasIC && hasJC && !ic.Equal(jc) {
@@ -631,6 +624,10 @@ func runUI(args []string) error {
 			}
 			return goals[i].Summary < goals[j].Summary
 		})
+	}
+
+	textWidth := func(s string) int {
+		return utf8.RuneCountInString(s)
 	}
 
 	getVisibleTasks := func() []ipc.Task {
@@ -666,11 +663,8 @@ func runUI(args []string) error {
 
 	getVisibleGoals := func() []ipc.Goal {
 		result := make([]ipc.Goal, 0, len(st.goals))
-		currentSession := strings.TrimSpace(currentCtx.SessionID)
 		for _, g := range st.goals {
-			if strings.TrimSpace(g.SessionID) == currentSession {
-				result = append(result, g)
-			}
+			result = append(result, g)
 		}
 		sortGoals(result)
 		return result
@@ -733,6 +727,16 @@ func runUI(args []string) error {
 		}
 		return sendCommand("goal_delete", func(env *ipc.Envelope) {
 			env.GoalID = id
+		})
+	}
+
+	focusGoal := func(g ipc.Goal) error {
+		if strings.TrimSpace(g.SessionID) == "" {
+			return fmt.Errorf("session required to focus goal")
+		}
+		return sendCommand("goal_focus", func(env *ipc.Envelope) {
+			env.SessionID = g.SessionID
+			env.Session = g.Session
 		})
 	}
 
@@ -945,6 +949,11 @@ func runUI(args []string) error {
 			prompt.text = prompt.text[:0]
 			prompt.cursor = 0
 			return true, nil
+		case tcell.KeyTab:
+			if prompt.mode == promptAddNote {
+				cycleScope(true, true)
+			}
+			return true, nil
 		case tcell.KeyRune:
 			r := tev.Rune()
 			prompt.text = append(prompt.text[:prompt.cursor], append([]rune{r}, prompt.text[prompt.cursor:]...)...)
@@ -983,28 +992,7 @@ func runUI(args []string) error {
 		}
 
 		writeStyledLine(screen, 0, 0, truncate(fmt.Sprintf("▌ %s", title), width), headerStyle)
-		if mode == viewNotes {
-			label := ""
-			switch scope {
-			case scopeWindow:
-				label = "Window"
-			case scopeSession:
-				label = "Session"
-			case scopeAll:
-				label = "Global"
-			default:
-				label = "Window"
-			}
-			writeStyledSegmentsPad(screen, 1, []struct {
-				text  string
-				style tcell.Style
-			}{
-				{text: label + " ", style: scopeStyle(scope)},
-				{text: truncate(subtitle, width-len(label)-1), style: subtleStyle},
-			}, subtleStyle)
-		} else {
-			writeStyledLine(screen, 0, 1, truncate(subtitle, width), subtleStyle)
-		}
+		writeStyledLine(screen, 0, 1, truncate(subtitle, width), subtleStyle)
 		if width > 0 {
 			writeStyledLine(screen, 0, 2, strings.Repeat("─", width), infoStyle)
 		}
@@ -1157,12 +1145,35 @@ func runUI(args []string) error {
 		}
 
 		renderGoals := func(list []ipc.Goal, state *listState, focused bool, startRow int) int {
-			row := startRow
-			header := "Goals (session)"
-			if strings.TrimSpace(currentCtx.SessionName) != "" {
-				header = fmt.Sprintf("Goals · %s", currentCtx.SessionName)
+			gutterText := "  "
+			gutterStyle := infoStyle
+			if focused {
+				gutterText = "│ "
+				gutterStyle = tcell.StyleDefault.Foreground(tcell.ColorLightCyan)
 			}
-			writeStyledLine(screen, 0, row, truncate(header, width), infoStyle)
+			row := startRow
+			header := "Goals (all sessions)"
+			if strings.TrimSpace(currentCtx.SessionName) != "" {
+				header = fmt.Sprintf("Goals (all) · current: %s", currentCtx.SessionName)
+			}
+			headerStyle := infoStyle
+			if focused {
+				headerStyle = headerStyle.Bold(true)
+			}
+			contentWidth := width - textWidth(gutterText)
+			if contentWidth < 0 {
+				contentWidth = 0
+			}
+			writeStyledSegments(screen, row,
+				struct {
+					text  string
+					style tcell.Style
+				}{text: gutterText, style: gutterStyle},
+				struct {
+					text  string
+					style tcell.Style
+				}{text: truncate(header, contentWidth), style: headerStyle},
+			)
 			row++
 			availableRows := height - row
 			if availableRows < 0 {
@@ -1171,7 +1182,16 @@ func runUI(args []string) error {
 			clampList(state, len(list), 3, availableRows)
 			if len(list) == 0 {
 				if row < height {
-					writeStyledLine(screen, 0, row, truncate("No goals for this session.", width), subtleStyle)
+					writeStyledSegments(screen, row,
+						struct {
+							text  string
+							style tcell.Style
+						}{text: gutterText, style: gutterStyle},
+						struct {
+							text  string
+							style tcell.Style
+						}{text: truncate("No goals for this session.", contentWidth), style: subtleStyle},
+					)
 					row++
 				}
 				return row
@@ -1191,10 +1211,15 @@ func runUI(args []string) error {
 					metaStyle = tcell.StyleDefault.Foreground(tcell.ColorDarkGray)
 					timeStyle = tcell.StyleDefault.Foreground(tcell.ColorDarkGray)
 				}
+				if strings.TrimSpace(g.SessionID) == strings.TrimSpace(currentCtx.SessionID) && strings.TrimSpace(currentCtx.SessionID) != "" {
+					metaStyle = tcell.StyleDefault.Foreground(tcell.ColorLightGreen)
+				}
+				itemGutterStyle := gutterStyle
 				if focused && idx == state.selected {
 					baseStyle = baseStyle.Background(tcell.ColorDarkSlateGray)
 					metaStyle = metaStyle.Background(tcell.ColorDarkSlateGray)
 					timeStyle = timeStyle.Background(tcell.ColorDarkSlateGray)
+					itemGutterStyle = itemGutterStyle.Background(tcell.ColorDarkSlateGray)
 				}
 
 				created := ""
@@ -1206,7 +1231,7 @@ func runUI(args []string) error {
 				if summary == "" {
 					summary = "(no summary)"
 				}
-				avail := width - len(indicator) - 1 - len(created)
+				avail := contentWidth - textWidth(indicator) - 1 - textWidth(created)
 				if avail < 5 {
 					avail = 5
 				}
@@ -1215,11 +1240,12 @@ func runUI(args []string) error {
 					text  string
 					style tcell.Style
 				}{
+					{text: gutterText, style: itemGutterStyle},
 					{text: indicator + " ", style: baseStyle},
 					{text: lineText, style: baseStyle},
 				}
-				used := len(indicator) + 1 + len([]rune(lineText))
-				padding := width - used - len(created)
+				used := textWidth(indicator) + 1 + textWidth(lineText)
+				padding := contentWidth - used - textWidth(created)
 				if padding > 0 {
 					segs = append(segs, struct {
 						text  string
@@ -1243,7 +1269,22 @@ func runUI(args []string) error {
 				}
 
 				meta := fmt.Sprintf("   └ %s", g.Session)
-				writeStyledLine(screen, 0, row, truncate(meta, width), metaStyle)
+				metaDisplay := truncate(meta, contentWidth)
+				metaPadding := contentWidth - textWidth(metaDisplay)
+				writeStyledSegments(screen, row,
+					struct {
+						text  string
+						style tcell.Style
+					}{text: gutterText, style: itemGutterStyle},
+					struct {
+						text  string
+						style tcell.Style
+					}{text: metaDisplay, style: metaStyle},
+					struct {
+						text  string
+						style tcell.Style
+					}{text: strings.Repeat(" ", metaPadding), style: metaStyle},
+				)
 				row++
 				if row >= height {
 					break
@@ -1253,7 +1294,16 @@ func runUI(args []string) error {
 				if focused && idx == state.selected {
 					spacerStyle = spacerStyle.Background(tcell.ColorDarkSlateGray)
 				}
-				writeStyledLine(screen, 0, row, strings.Repeat(" ", width), spacerStyle)
+				writeStyledSegments(screen, row,
+					struct {
+						text  string
+						style tcell.Style
+					}{text: gutterText, style: itemGutterStyle},
+					struct {
+						text  string
+						style tcell.Style
+					}{text: strings.Repeat(" ", contentWidth), style: spacerStyle},
+				)
 				row++
 			}
 			return row
@@ -1266,6 +1316,16 @@ func runUI(args []string) error {
 			}
 			clampList(state, len(list), 3, availableRows)
 			row := startRow
+			gutterText := "  "
+			gutterStyle := infoStyle
+			if focused {
+				gutterText = "│ "
+				gutterStyle = tcell.StyleDefault.Foreground(tcell.ColorLightCyan)
+			}
+			contentWidth := width - textWidth(gutterText)
+			if contentWidth < 0 {
+				contentWidth = 0
+			}
 			for idx := state.offset; idx < len(list); idx++ {
 				if row >= height {
 					break
@@ -1318,7 +1378,7 @@ func runUI(args []string) error {
 				}
 
 				// --- Line 1 Rendering ---
-				availWidth1 := width - len(tagText) - len(tsStr) - 2
+				availWidth1 := contentWidth - len(tagText) - len(tsStr) - 2
 				if availWidth1 < 5 {
 					availWidth1 = 5
 				}
@@ -1355,12 +1415,13 @@ func runUI(args []string) error {
 					text  string
 					style tcell.Style
 				}{
+					{text: gutterText, style: gutterStyle},
 					{text: tagText, style: scopeSt},
 					{text: line1Text, style: textStyle},
 				}
 
 				usedLen := len(tagText) + len([]rune(line1Text))
-				padding := width - usedLen - len(tsStr)
+				padding := contentWidth - usedLen - len(tsStr)
 				if padding > 0 {
 					segs = append(segs, struct {
 						text  string
@@ -1387,7 +1448,7 @@ func runUI(args []string) error {
 				// --- Wrapped Lines Rendering ---
 				if remText != "" {
 					indent := len(tagText)
-					availWidthN := width - indent
+					availWidthN := contentWidth - indent
 					if availWidthN < 5 {
 						availWidthN = 5
 					}
@@ -1398,16 +1459,17 @@ func runUI(args []string) error {
 							text  string
 							style tcell.Style
 						}{
+							{text: gutterText, style: gutterStyle},
 							{text: strings.Repeat(" ", indent), style: scopeSt},
 							{text: wLine, style: textStyle},
 						}
 						used := indent + len([]rune(wLine))
-						if width > used {
+						if contentWidth > used {
 							segs = append(segs, struct {
 								text  string
 								style tcell.Style
 							}{
-								text:  strings.Repeat(" ", width-used),
+								text:  strings.Repeat(" ", contentWidth-used),
 								style: textStyle,
 							})
 						}
@@ -1430,16 +1492,17 @@ func runUI(args []string) error {
 					text  string
 					style tcell.Style
 				}{
+					{text: gutterText, style: gutterStyle},
 					{text: prefix, style: metaStyle},
-					{text: truncate(metaText, width-len(prefix)), style: metaStyle},
+					{text: truncate(metaText, contentWidth-len(prefix)), style: metaStyle},
 				}
-				metaUsed := len(prefix) + len([]rune(truncate(metaText, width-len(prefix))))
-				if width > metaUsed {
+				metaUsed := len(prefix) + len([]rune(truncate(metaText, contentWidth-len(prefix))))
+				if contentWidth > metaUsed {
 					metaSegs = append(metaSegs, struct {
 						text  string
 						style tcell.Style
 					}{
-						text:  strings.Repeat(" ", width-metaUsed),
+						text:  strings.Repeat(" ", contentWidth-metaUsed),
 						style: metaStyle,
 					})
 				}
@@ -1455,7 +1518,16 @@ func runUI(args []string) error {
 				if focused && idx == state.selected {
 					spacerStyle = spacerStyle.Background(tcell.ColorDarkSlateGray)
 				}
-				writeStyledLine(screen, 0, row, strings.Repeat(" ", width), spacerStyle)
+				writeStyledSegments(screen, row,
+					struct {
+						text  string
+						style tcell.Style
+					}{text: gutterText, style: gutterStyle},
+					struct {
+						text  string
+						style tcell.Style
+					}{text: strings.Repeat(" ", contentWidth), style: spacerStyle},
+				)
 				row++
 			}
 			return row
@@ -1493,11 +1565,79 @@ func runUI(args []string) error {
 			rowStart := 3
 			rowStart = renderGoals(goals, &goalList, focusGoals, rowStart)
 			if rowStart < height {
-				writeStyledLine(screen, 0, rowStart, truncate(strings.Repeat("─", width), width), infoStyle)
+				notesHeader := "Notes"
+				notesStyle := infoStyle
+				gutterText := "  "
+				gutterStyle := infoStyle
+				scopeLabel := "Window"
+				switch scope {
+				case scopeSession:
+					scopeLabel = "Session"
+				case scopeAll:
+					scopeLabel = "Global"
+				}
+				scopeText := fmt.Sprintf("[%s]", scopeLabel)
+				scopeLabelStyle := scopeStyle(scope)
+				if !focusGoals {
+					notesStyle = notesStyle.Bold(true)
+					gutterText = "│ "
+					gutterStyle = tcell.StyleDefault.Foreground(tcell.ColorLightCyan)
+				}
+				contentWidth := width - textWidth(gutterText)
+				if contentWidth < 0 {
+					contentWidth = 0
+				}
+				spaceWidth := 1
+				combinedWidth := textWidth(notesHeader) + spaceWidth + textWidth(scopeText)
+				if combinedWidth > contentWidth {
+					if contentWidth > textWidth(notesHeader)+spaceWidth {
+						scopeText = truncate(scopeText, contentWidth-(textWidth(notesHeader)+spaceWidth))
+					} else {
+						scopeText = ""
+						spaceWidth = 0
+					}
+				}
+				writeStyledSegments(screen, rowStart,
+					struct {
+						text  string
+						style tcell.Style
+					}{text: gutterText, style: gutterStyle},
+					struct {
+						text  string
+						style tcell.Style
+					}{text: truncate(notesHeader, contentWidth), style: notesStyle},
+					struct {
+						text  string
+						style tcell.Style
+					}{text: strings.Repeat(" ", spaceWidth), style: notesStyle},
+					struct {
+						text  string
+						style tcell.Style
+					}{text: scopeText, style: scopeLabelStyle},
+				)
 				rowStart++
 			}
 			if len(notes) == 0 && height > rowStart {
-				writeStyledLine(screen, 0, rowStart, truncate("No notes in this scope.", width), infoStyle)
+				gutterText := "  "
+				gutterStyle := infoStyle
+				if !focusGoals {
+					gutterText = "│ "
+					gutterStyle = tcell.StyleDefault.Foreground(tcell.ColorLightCyan)
+				}
+				contentWidth := width - textWidth(gutterText)
+				if contentWidth < 0 {
+					contentWidth = 0
+				}
+				writeStyledSegments(screen, rowStart,
+					struct {
+						text  string
+						style tcell.Style
+					}{text: gutterText, style: gutterStyle},
+					struct {
+						text  string
+						style tcell.Style
+					}{text: truncate("No notes in this scope.", contentWidth), style: infoStyle},
+				)
 			} else {
 				renderNotes(notes, &noteList, false, rowStart, !focusGoals)
 			}
@@ -1531,6 +1671,8 @@ func runUI(args []string) error {
 				label = "Edit note: "
 			} else if prompt.mode == promptAddGoal {
 				label = "Add goal: "
+			} else if prompt.mode == promptAddNote {
+				label = fmt.Sprintf("Add note (%s): ", scopeTag(scope))
 			}
 			line := label + string(prompt.text)
 			writeStyledLine(screen, 0, height-1, truncate(line, width), tcell.StyleDefault.Foreground(tcell.ColorLightGreen))
@@ -1642,14 +1784,20 @@ func runUI(args []string) error {
 						if focusGoals {
 							goals := getVisibleGoals()
 							if len(goals) > 0 && goalList.selected < len(goals) {
-								if err := toggleGoal(goals[goalList.selected].ID); err != nil {
+								if err := focusGoal(goals[goalList.selected]); err != nil {
 									st.message = err.Error()
 								}
 							}
 						} else {
 							notes := getVisibleNotes()
 							if len(notes) > 0 && noteList.selected < len(notes) {
-								if err := toggleNote(notes[noteList.selected].ID); err != nil {
+								if err := focusTask(ipc.Task{
+									Session:   notes[noteList.selected].Session,
+									SessionID: notes[noteList.selected].SessionID,
+									Window:    notes[noteList.selected].Window,
+									WindowID:  notes[noteList.selected].WindowID,
+									Pane:      notes[noteList.selected].Pane,
+								}); err != nil {
 									st.message = err.Error()
 								}
 							}

@@ -58,6 +58,7 @@ type promptMode string
 const (
 	promptAddNote  promptMode = "add_note"
 	promptEditNote promptMode = "edit_note"
+	promptAddGoal  promptMode = "add_goal"
 )
 
 type promptState struct {
@@ -390,6 +391,7 @@ func runUI(args []string) error {
 		tasks    []ipc.Task
 		notes    []ipc.Note
 		archived []ipc.Note
+		goals    []ipc.Goal
 	}
 	st := state{message: "Connecting to tracker…"}
 
@@ -461,10 +463,12 @@ func runUI(args []string) error {
 	taskList := listState{}
 	noteList := listState{}
 	archiveList := listState{}
+	goalList := listState{}
 	keepTasksVisible := make(map[string]bool)
 	keepNotesVisible := make(map[string]bool)
 	prompt := promptState{}
 	helpVisible := false
+	focusGoals := false
 	var editNote *ipc.Note
 
 	cycleScope := func(forward bool, wrap bool) {
@@ -595,6 +599,14 @@ func runUI(args []string) error {
 
 	sortNotes := func(notes []ipc.Note) {
 		sort.SliceStable(notes, func(i, j int) bool {
+			iu, hasIU := parseTimestamp(notes[i].UpdatedAt)
+			ju, hasJU := parseTimestamp(notes[j].UpdatedAt)
+			if hasIU && hasJU && !iu.Equal(ju) {
+				return iu.After(ju)
+			}
+			if hasIU != hasJU {
+				return hasIU
+			}
 			ic, hasIC := parseTimestamp(notes[i].CreatedAt)
 			jc, hasJC := parseTimestamp(notes[j].CreatedAt)
 			if hasIC && hasJC && !ic.Equal(jc) {
@@ -607,7 +619,22 @@ func runUI(args []string) error {
 		})
 	}
 
+	sortGoals := func(goals []ipc.Goal) {
+		sort.SliceStable(goals, func(i, j int) bool {
+			ci, hasCi := parseTimestamp(goals[i].CreatedAt)
+			cj, hasCj := parseTimestamp(goals[j].CreatedAt)
+			if hasCi && hasCj && !ci.Equal(cj) {
+				return ci.After(cj)
+			}
+			if hasCi != hasCj {
+				return hasCi
+			}
+			return goals[i].Summary < goals[j].Summary
+		})
+	}
+
 	getVisibleTasks := func() []ipc.Task {
+
 		result := make([]ipc.Task, 0, len(st.tasks))
 		for _, t := range st.tasks {
 			key := fmt.Sprintf("%s|%s|%s", strings.TrimSpace(t.SessionID), strings.TrimSpace(t.WindowID), strings.TrimSpace(t.Pane))
@@ -637,6 +664,18 @@ func runUI(args []string) error {
 		return result
 	}
 
+	getVisibleGoals := func() []ipc.Goal {
+		result := make([]ipc.Goal, 0, len(st.goals))
+		currentSession := strings.TrimSpace(currentCtx.SessionID)
+		for _, g := range st.goals {
+			if strings.TrimSpace(g.SessionID) == currentSession {
+				result = append(result, g)
+			}
+		}
+		sortGoals(result)
+		return result
+	}
+
 	getArchivedNotes := func() []ipc.Note {
 		result := make([]ipc.Note, 0, len(st.archived))
 		for _, n := range st.archived {
@@ -660,6 +699,41 @@ func runUI(args []string) error {
 		if ctx.PaneID != "" {
 			env.Pane = ctx.PaneID
 		}
+	}
+
+	addGoal := func(text string) error {
+		text = strings.TrimSpace(text)
+		if text == "" {
+			return fmt.Errorf("goal text required")
+		}
+		refreshCtx()
+		ctx := currentCtx
+		if strings.TrimSpace(ctx.SessionID) == "" {
+			return fmt.Errorf("session required to add goal")
+		}
+		return sendCommand("goal_add", func(env *ipc.Envelope) {
+			env.Summary = text
+			env.Session = ctx.SessionName
+			env.SessionID = ctx.SessionID
+		})
+	}
+
+	toggleGoal := func(id string) error {
+		if strings.TrimSpace(id) == "" {
+			return fmt.Errorf("goal id required")
+		}
+		return sendCommand("goal_toggle_complete", func(env *ipc.Envelope) {
+			env.GoalID = id
+		})
+	}
+
+	deleteGoal := func(id string) error {
+		if strings.TrimSpace(id) == "" {
+			return fmt.Errorf("goal id required")
+		}
+		return sendCommand("goal_delete", func(env *ipc.Envelope) {
+			env.GoalID = id
+		})
 	}
 
 	addNote := func(text string) error {
@@ -792,6 +866,10 @@ func runUI(args []string) error {
 		prompt = promptState{active: true, mode: promptAddNote, text: []rune{}, cursor: 0}
 	}
 
+	startGoalPrompt := func() {
+		prompt = promptState{active: true, mode: promptAddGoal, text: []rune{}, cursor: 0}
+	}
+
 	startEditPrompt := func(n ipc.Note) {
 		copy := n
 		editNote = &copy
@@ -813,6 +891,8 @@ func runUI(args []string) error {
 				err = addNote(text)
 			case promptEditNote:
 				err = updateNote(prompt.noteID, text, "")
+			case promptAddGoal:
+				err = addGoal(text)
 			}
 			prompt.active = false
 			if prompt.mode == promptEditNote {
@@ -1076,9 +1156,116 @@ func runUI(args []string) error {
 			return lines
 		}
 
-		renderNotes := func(list []ipc.Note, state *listState, archived bool) {
-			clampList(state, len(list), 3, visibleRows)
-			row := 3
+		renderGoals := func(list []ipc.Goal, state *listState, focused bool, startRow int) int {
+			row := startRow
+			header := "Goals (session)"
+			if strings.TrimSpace(currentCtx.SessionName) != "" {
+				header = fmt.Sprintf("Goals · %s", currentCtx.SessionName)
+			}
+			writeStyledLine(screen, 0, row, truncate(header, width), infoStyle)
+			row++
+			availableRows := height - row
+			if availableRows < 0 {
+				availableRows = 0
+			}
+			clampList(state, len(list), 3, availableRows)
+			if len(list) == 0 {
+				if row < height {
+					writeStyledLine(screen, 0, row, truncate("No goals for this session.", width), subtleStyle)
+					row++
+				}
+				return row
+			}
+			for idx := state.offset; idx < len(list); idx++ {
+				if row >= height {
+					break
+				}
+				g := list[idx]
+				indicator := "•"
+				baseStyle := tcell.StyleDefault.Foreground(tcell.ColorWhite)
+				metaStyle := tcell.StyleDefault.Foreground(tcell.ColorLightSlateGray)
+				timeStyle := tcell.StyleDefault.Foreground(tcell.ColorDarkCyan)
+				if g.Completed {
+					indicator = "✓"
+					baseStyle = tcell.StyleDefault.Foreground(tcell.ColorDarkGray)
+					metaStyle = tcell.StyleDefault.Foreground(tcell.ColorDarkGray)
+					timeStyle = tcell.StyleDefault.Foreground(tcell.ColorDarkGray)
+				}
+				if focused && idx == state.selected {
+					baseStyle = baseStyle.Background(tcell.ColorDarkSlateGray)
+					metaStyle = metaStyle.Background(tcell.ColorDarkSlateGray)
+					timeStyle = timeStyle.Background(tcell.ColorDarkSlateGray)
+				}
+
+				created := ""
+				if ts, ok := parseTimestamp(g.CreatedAt); ok {
+					created = ts.Format("15:04")
+				}
+
+				summary := g.Summary
+				if summary == "" {
+					summary = "(no summary)"
+				}
+				avail := width - len(indicator) - 1 - len(created)
+				if avail < 5 {
+					avail = 5
+				}
+				lineText := truncate(summary, avail)
+				segs := []struct {
+					text  string
+					style tcell.Style
+				}{
+					{text: indicator + " ", style: baseStyle},
+					{text: lineText, style: baseStyle},
+				}
+				used := len(indicator) + 1 + len([]rune(lineText))
+				padding := width - used - len(created)
+				if padding > 0 {
+					segs = append(segs, struct {
+						text  string
+						style tcell.Style
+					}{
+						text:  strings.Repeat(" ", padding),
+						style: baseStyle,
+					})
+				}
+				segs = append(segs, struct {
+					text  string
+					style tcell.Style
+				}{
+					text:  created,
+					style: timeStyle,
+				})
+				writeStyledSegments(screen, row, segs...)
+				row++
+				if row >= height {
+					break
+				}
+
+				meta := fmt.Sprintf("   └ %s", g.Session)
+				writeStyledLine(screen, 0, row, truncate(meta, width), metaStyle)
+				row++
+				if row >= height {
+					break
+				}
+
+				spacerStyle := tcell.StyleDefault
+				if focused && idx == state.selected {
+					spacerStyle = spacerStyle.Background(tcell.ColorDarkSlateGray)
+				}
+				writeStyledLine(screen, 0, row, strings.Repeat(" ", width), spacerStyle)
+				row++
+			}
+			return row
+		}
+
+		renderNotes := func(list []ipc.Note, state *listState, archived bool, startRow int, focused bool) int {
+			availableRows := height - startRow
+			if availableRows < 0 {
+				availableRows = 0
+			}
+			clampList(state, len(list), 3, availableRows)
+			row := startRow
 			for idx := state.offset; idx < len(list); idx++ {
 				if row >= height {
 					break
@@ -1099,7 +1286,7 @@ func runUI(args []string) error {
 					timeStyle = tcell.StyleDefault.Foreground(tcell.ColorDarkGray)
 				}
 
-				if idx == state.selected {
+				if focused && idx == state.selected {
 					textStyle = textStyle.Background(tcell.ColorDarkSlateGray)
 					scopeSt = scopeSt.Background(tcell.ColorDarkSlateGray)
 					metaStyle = metaStyle.Background(tcell.ColorDarkSlateGray)
@@ -1265,19 +1452,20 @@ func runUI(args []string) error {
 
 				// --- Spacer Rendering ---
 				spacerStyle := tcell.StyleDefault
-				if idx == state.selected {
+				if focused && idx == state.selected {
 					spacerStyle = spacerStyle.Background(tcell.ColorDarkSlateGray)
 				}
 				writeStyledLine(screen, 0, row, strings.Repeat(" ", width), spacerStyle)
 				row++
 			}
+			return row
 		}
 
 		if helpVisible {
 			helpLines := []string{
-				"t: toggle Tracker/Notes | n/i: view scope | s/S: note scope | Alt-A: archive view",
-				"a/k: add note | p: focus/edit | Enter/c: complete | Shift-A: archive note",
-				"Shift-D: delete | Shift-C: show/hide completed | Esc: close | ?: toggle help",
+				"t: toggle Tracker/Notes | Tab: focus goals/notes | n/i: view scope | Alt-A: archive view",
+				"Goals: a add | Enter/c: complete | Shift-D: delete (focus goals first)",
+				"Notes: a add | k edit | Enter/c: complete | Shift-A: archive | Shift-D: delete | Shift-C: show/hide completed | Esc: close | ?: toggle help",
 			}
 			row := 3
 			for _, line := range helpLines {
@@ -1300,18 +1488,25 @@ func runUI(args []string) error {
 				renderTasks(list, &taskList)
 			}
 		case viewNotes:
-			list := getVisibleNotes()
-			if len(list) == 0 && height > 3 {
-				writeStyledLine(screen, 0, 3, truncate("No notes in this scope.", width), infoStyle)
+			goals := getVisibleGoals()
+			notes := getVisibleNotes()
+			rowStart := 3
+			rowStart = renderGoals(goals, &goalList, focusGoals, rowStart)
+			if rowStart < height {
+				writeStyledLine(screen, 0, rowStart, truncate(strings.Repeat("─", width), width), infoStyle)
+				rowStart++
+			}
+			if len(notes) == 0 && height > rowStart {
+				writeStyledLine(screen, 0, rowStart, truncate("No notes in this scope.", width), infoStyle)
 			} else {
-				renderNotes(list, &noteList, false)
+				renderNotes(notes, &noteList, false, rowStart, !focusGoals)
 			}
 		case viewArchive:
 			list := getArchivedNotes()
 			if len(list) == 0 && height > 3 {
 				writeStyledLine(screen, 0, 3, truncate("Archive is empty.", width), infoStyle)
 			} else {
-				renderNotes(list, &archiveList, true)
+				renderNotes(list, &archiveList, true, 3, true)
 			}
 		case viewEdit:
 			bodyStyle := tcell.StyleDefault.Foreground(tcell.ColorLightGreen)
@@ -1334,6 +1529,8 @@ func runUI(args []string) error {
 			label := "Add note: "
 			if prompt.mode == promptEditNote {
 				label = "Edit note: "
+			} else if prompt.mode == promptAddGoal {
+				label = "Add goal: "
 			}
 			line := label + string(prompt.text)
 			writeStyledLine(screen, 0, height-1, truncate(line, width), tcell.StyleDefault.Foreground(tcell.ColorLightGreen))
@@ -1365,6 +1562,8 @@ func runUI(args []string) error {
 				copy(st.notes, env.Notes)
 				st.archived = make([]ipc.Note, len(env.Archived))
 				copy(st.archived, env.Archived)
+				st.goals = make([]ipc.Goal, len(env.Goals))
+				copy(st.goals, env.Goals)
 				refreshCtx()
 				draw(time.Now())
 			case "ack":
@@ -1440,10 +1639,19 @@ func runUI(args []string) error {
 							}
 						}
 					case viewNotes:
-						notes := getVisibleNotes()
-						if len(notes) > 0 && noteList.selected < len(notes) {
-							if err := toggleNote(notes[noteList.selected].ID); err != nil {
-								st.message = err.Error()
+						if focusGoals {
+							goals := getVisibleGoals()
+							if len(goals) > 0 && goalList.selected < len(goals) {
+								if err := toggleGoal(goals[goalList.selected].ID); err != nil {
+									st.message = err.Error()
+								}
+							}
+						} else {
+							notes := getVisibleNotes()
+							if len(notes) > 0 && noteList.selected < len(notes) {
+								if err := toggleNote(notes[noteList.selected].ID); err != nil {
+									st.message = err.Error()
+								}
 							}
 						}
 					case viewArchive:
@@ -1459,12 +1667,7 @@ func runUI(args []string) error {
 				}
 
 				if tev.Key() == tcell.KeyTab && mode == viewNotes {
-					cycleScope(true, true)
-					draw(time.Now())
-					continue
-				}
-				if tev.Key() == tcell.KeyBacktab && mode == viewNotes {
-					cycleScope(false, true)
+					focusGoals = !focusGoals
 					draw(time.Now())
 					continue
 				}
@@ -1512,8 +1715,14 @@ func runUI(args []string) error {
 							taskList.selected--
 						}
 					case viewNotes:
-						if noteList.selected > 0 {
-							noteList.selected--
+						if focusGoals {
+							if goalList.selected > 0 {
+								goalList.selected--
+							}
+						} else {
+							if noteList.selected > 0 {
+								noteList.selected--
+							}
 						}
 					case viewArchive:
 						if archiveList.selected > 0 {
@@ -1529,9 +1738,16 @@ func runUI(args []string) error {
 							taskList.selected++
 						}
 					case viewNotes:
-						notes := getVisibleNotes()
-						if noteList.selected < len(notes)-1 {
-							noteList.selected++
+						if focusGoals {
+							goals := getVisibleGoals()
+							if goalList.selected < len(goals)-1 {
+								goalList.selected++
+							}
+						} else {
+							notes := getVisibleNotes()
+							if noteList.selected < len(notes)-1 {
+								noteList.selected++
+							}
 						}
 					case viewArchive:
 						notes := getArchivedNotes()
@@ -1560,10 +1776,19 @@ func runUI(args []string) error {
 							}
 						}
 					case viewNotes:
-						notes := getVisibleNotes()
-						if len(notes) > 0 && noteList.selected < len(notes) {
-							if err := toggleNote(notes[noteList.selected].ID); err != nil {
-								st.message = err.Error()
+						if focusGoals {
+							goals := getVisibleGoals()
+							if len(goals) > 0 && goalList.selected < len(goals) {
+								if err := toggleGoal(goals[goalList.selected].ID); err != nil {
+									st.message = err.Error()
+								}
+							}
+						} else {
+							notes := getVisibleNotes()
+							if len(notes) > 0 && noteList.selected < len(notes) {
+								if err := toggleNote(notes[noteList.selected].ID); err != nil {
+									st.message = err.Error()
+								}
 							}
 						}
 					case viewArchive:
@@ -1600,7 +1825,7 @@ func runUI(args []string) error {
 						draw(time.Now())
 					}
 				case 'a':
-					if shift && mode == viewNotes {
+					if shift && mode == viewNotes && !focusGoals {
 						notes := getVisibleNotes()
 						if len(notes) > 0 && noteList.selected < len(notes) {
 							if err := archiveNote(notes[noteList.selected].ID); err != nil {
@@ -1611,7 +1836,11 @@ func runUI(args []string) error {
 						break
 					}
 					if mode == viewNotes {
-						startAddPrompt()
+						if focusGoals {
+							startGoalPrompt()
+						} else {
+							startAddPrompt()
+						}
 						draw(time.Now())
 					}
 				case 'k':
@@ -1634,10 +1863,19 @@ func runUI(args []string) error {
 								}
 							}
 						case viewNotes:
-							notes := getVisibleNotes()
-							if len(notes) > 0 && noteList.selected < len(notes) {
-								if err := deleteNote(notes[noteList.selected].ID); err != nil {
-									st.message = err.Error()
+							if focusGoals {
+								goals := getVisibleGoals()
+								if len(goals) > 0 && goalList.selected < len(goals) {
+									if err := deleteGoal(goals[goalList.selected].ID); err != nil {
+										st.message = err.Error()
+									}
+								}
+							} else {
+								notes := getVisibleNotes()
+								if len(notes) > 0 && noteList.selected < len(notes) {
+									if err := deleteNote(notes[noteList.selected].ID); err != nil {
+										st.message = err.Error()
+									}
 								}
 							}
 						case viewArchive:

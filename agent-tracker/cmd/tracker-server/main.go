@@ -71,6 +71,16 @@ type noteRecord struct {
 	ArchivedAt *time.Time
 }
 
+type goalRecord struct {
+	ID        string
+	SessionID string
+	Session   string
+	Summary   string
+	Completed bool
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
 type storedNote struct {
 	ID         string     `json:"id"`
 	Scope      string     `json:"scope"`
@@ -85,6 +95,16 @@ type storedNote struct {
 	CreatedAt  time.Time  `json:"created_at"`
 	UpdatedAt  time.Time  `json:"updated_at"`
 	ArchivedAt *time.Time `json:"archived_at,omitempty"`
+}
+
+type storedGoal struct {
+	ID        string    `json:"id"`
+	SessionID string    `json:"session_id"`
+	Session   string    `json:"session"`
+	Summary   string    `json:"summary"`
+	Completed bool      `json:"completed"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 type tmuxTarget struct {
@@ -108,9 +128,12 @@ type server struct {
 	height      int
 	tasks       map[string]*taskRecord
 	notes       map[string]*noteRecord
+	goals       map[string]*goalRecord
 	subscribers map[*uiSubscriber]struct{}
 	notesPath   string
+	goalsPath   string
 	noteCounter uint64
+	goalCounter uint64
 }
 
 func newServer() *server {
@@ -118,11 +141,13 @@ func newServer() *server {
 		socketPath:  socketPath(),
 		pos:         posTopRight,
 		width:       84,
-		height:      24,
+		height:      28,
 		tasks:       make(map[string]*taskRecord),
 		notes:       make(map[string]*noteRecord),
+		goals:       make(map[string]*goalRecord),
 		subscribers: make(map[*uiSubscriber]struct{}),
 		notesPath:   notesStorePath(),
+		goalsPath:   goalsStorePath(),
 	}
 }
 
@@ -135,6 +160,9 @@ func main() {
 
 func (s *server) run() error {
 	if err := s.loadNotes(); err != nil {
+		return err
+	}
+	if err := s.loadGoals(); err != nil {
 		return err
 	}
 	if err := os.MkdirAll(filepath.Dir(s.socketPath), 0o755); err != nil {
@@ -357,6 +385,32 @@ func (s *server) handleCommand(env ipc.Envelope) error {
 			PaneID:      strings.TrimSpace(env.Pane),
 		}
 		if err := s.attachArchivedNote(strings.TrimSpace(env.NoteID), target); err != nil {
+			return err
+		}
+		s.broadcastStateAsync()
+		s.statusRefreshAsync()
+		return nil
+	case "goal_add":
+		target := tmuxTarget{
+			SessionName: strings.TrimSpace(env.Session),
+			SessionID:   strings.TrimSpace(env.SessionID),
+		}
+		summary := firstNonEmpty(env.Summary, env.Message)
+		if err := s.addGoal(target, summary); err != nil {
+			return err
+		}
+		s.broadcastStateAsync()
+		s.statusRefreshAsync()
+		return nil
+	case "goal_toggle_complete":
+		if err := s.toggleGoalCompletion(strings.TrimSpace(env.GoalID)); err != nil {
+			return err
+		}
+		s.broadcastStateAsync()
+		s.statusRefreshAsync()
+		return nil
+	case "goal_delete":
+		if err := s.deleteGoal(strings.TrimSpace(env.GoalID)); err != nil {
 			return err
 		}
 		s.broadcastStateAsync()
@@ -646,8 +700,109 @@ func (s *server) loadNotes() error {
 	return nil
 }
 
+func (s *server) saveGoalsLocked() error {
+	if err := os.MkdirAll(filepath.Dir(s.goalsPath), 0o755); err != nil {
+		return err
+	}
+	records := make([]storedGoal, 0, len(s.goals))
+	for _, g := range s.goals {
+		records = append(records, storedGoal(*g))
+	}
+	data, err := json.MarshalIndent(records, "", "  ")
+	if err != nil {
+		return err
+	}
+	tmp := s.goalsPath + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, s.goalsPath)
+}
+
+func (s *server) loadGoals() error {
+	if s.goals == nil {
+		s.goals = make(map[string]*goalRecord)
+	}
+	data, err := os.ReadFile(s.goalsPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	var records []storedGoal
+	if err := json.Unmarshal(data, &records); err != nil {
+		return err
+	}
+	for _, rec := range records {
+		g := rec
+		s.goals[g.ID] = &goalRecord{
+			ID:        g.ID,
+			SessionID: g.SessionID,
+			Session:   g.Session,
+			Summary:   g.Summary,
+			Completed: g.Completed,
+			CreatedAt: g.CreatedAt,
+			UpdatedAt: g.UpdatedAt,
+		}
+	}
+	return nil
+}
+
+func (s *server) addGoal(target tmuxTarget, summary string) error {
+	summary = strings.TrimSpace(summary)
+	if summary == "" {
+		return fmt.Errorf("goal summary required")
+	}
+	target = normalizeNoteTargetNames(target)
+	if strings.TrimSpace(target.SessionID) == "" {
+		return fmt.Errorf("session required for goal")
+	}
+	now := time.Now()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	g := &goalRecord{
+		ID:        s.newGoalIDLocked(now),
+		SessionID: target.SessionID,
+		Session:   target.SessionName,
+		Summary:   summary,
+		Completed: false,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	s.goals[g.ID] = g
+	return s.saveGoalsLocked()
+}
+
+func (s *server) toggleGoalCompletion(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	g, ok := s.goals[id]
+	if !ok {
+		return fmt.Errorf("goal not found")
+	}
+	g.Completed = !g.Completed
+	g.UpdatedAt = time.Now()
+	return s.saveGoalsLocked()
+}
+
+func (s *server) deleteGoal(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.goals[id]; !ok {
+		return fmt.Errorf("goal not found")
+	}
+	delete(s.goals, id)
+	return s.saveGoalsLocked()
+}
+
 func (s *server) newNoteIDLocked(now time.Time) string {
 	counter := atomic.AddUint64(&s.noteCounter, 1)
+	return fmt.Sprintf("%x-%x", now.UnixNano(), counter)
+}
+
+func (s *server) newGoalIDLocked(now time.Time) string {
+	counter := atomic.AddUint64(&s.goalCounter, 1)
 	return fmt.Sprintf("%x-%x", now.UnixNano(), counter)
 }
 
@@ -1109,6 +1264,36 @@ func (s *server) buildStateEnvelope() *ipc.Envelope {
 	}
 
 	activeNotes, archived := s.notesForState()
+
+	s.mu.Lock()
+	goalCopies := make([]*goalRecord, 0, len(s.goals))
+	for _, g := range s.goals {
+		copy := *g
+		goalCopies = append(goalCopies, &copy)
+	}
+	s.mu.Unlock()
+
+	goals := make([]ipc.Goal, 0, len(goalCopies))
+	for _, g := range goalCopies {
+		created := ""
+		updated := ""
+		if !g.CreatedAt.IsZero() {
+			created = g.CreatedAt.Format(time.RFC3339)
+		}
+		if !g.UpdatedAt.IsZero() {
+			updated = g.UpdatedAt.Format(time.RFC3339)
+		}
+		goals = append(goals, ipc.Goal{
+			ID:        g.ID,
+			SessionID: g.SessionID,
+			Session:   g.Session,
+			Summary:   g.Summary,
+			Completed: g.Completed,
+			CreatedAt: created,
+			UpdatedAt: updated,
+		})
+	}
+
 	msg := stateSummary(tasks, activeNotes, archived)
 	return &ipc.Envelope{
 		Kind:     "state",
@@ -1118,6 +1303,7 @@ func (s *server) buildStateEnvelope() *ipc.Envelope {
 		Tasks:    tasks,
 		Notes:    activeNotes,
 		Archived: archived,
+		Goals:    goals,
 	}
 }
 
@@ -1289,6 +1475,11 @@ func socketPath() string {
 func notesStorePath() string {
 	base := filepath.Join(os.Getenv("HOME"), ".config", "agent-tracker", "run")
 	return filepath.Join(base, "notes.json")
+}
+
+func goalsStorePath() string {
+	base := filepath.Join(os.Getenv("HOME"), ".config", "agent-tracker", "run")
+	return filepath.Join(base, "goals.json")
 }
 
 func taskKey(sessionID, windowID, paneID string) string {

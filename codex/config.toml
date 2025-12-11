@@ -1,9 +1,9 @@
 tui    = { theme = { name = "dark-zen-garden" }, spinner = { name = "brailleDotsClassic" }, alternate_screen = true, notifications = true }
 notify = ["/usr/bin/python3", "/Users/david/.config/codex/notify.py"]
 
-model                    = "gpt-5.1-codex-max"
-model_verbosity          = "medium"            # low|medium|high
-model_reasoning_effort   = "high"
+model                    = "gpt-5.2"
+model_verbosity          = "medium"  # low|medium|high
+model_reasoning_effort   = "xhigh"
 show_raw_agent_reasoning = true
 
 approval_policy = "never"

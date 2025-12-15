@@ -42,3 +42,6 @@ export ZSH_AUTOSUGGEST_USE_ASYNC=1
 export ZSH_AUTOSUGGEST_MANUAL_REBIND=1
 export PATH="/usr/local/opt/grep/libexec/gnubin:$PATH"
 export HOMEBREW_DOWNLOAD_CONCURRENCY=auto
+if [ -d "$HOME/Github/mac-ctrl/bin" ] && ! echo ":$PATH:" | grep -q ":$HOME/Github/mac-ctrl/bin:" ; then
+  export PATH="$HOME/Github/mac-ctrl/bin:$PATH"
+fi

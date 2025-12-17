@@ -130,8 +130,13 @@ load_tracker_info() {
   fi
 
   if [[ -z "$tracker_lines" ]]; then
+    local tracker_bin="$HOME/.config/agent-tracker/bin/tracker-client"
+    if [[ ! -x "$tracker_bin" ]]; then
+      rm -f "$TRACKER_CACHE_FILE" 2>/dev/null || true
+      return
+    fi
     local tracker_state
-    tracker_state=$(~/.config/agent-tracker/bin/tracker-client state 2>/dev/null || true)
+    tracker_state=$("$tracker_bin" state 2>/dev/null || true)
     if [[ -z "$tracker_state" ]]; then
       rm -f "$TRACKER_CACHE_FILE" 2>/dev/null || true
       return

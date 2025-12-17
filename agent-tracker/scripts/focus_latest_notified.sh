@@ -3,7 +3,7 @@ set -euo pipefail
 
 F="$HOME/.config/agent-tracker/run/latest_notified.txt"
 if [[ ! -f "$F" ]]; then
-  exit -1
+  exit 0
 fi
 
 # Read line and split by literal ':::' into sid, wid, pid robustly
@@ -25,10 +25,10 @@ if [[ -n "$current" ]]; then
   printf '%s\n' "$current" > "$RUN_DIR/jump_back.txt"
 fi
 
-# Mark as viewed (acknowledged) in tracker
+# Mark as viewed (acknowledged) in tracker (graceful if unavailable)
 CLIENT_BIN="$HOME/.config/agent-tracker/bin/tracker-client"
 if [[ -x "$CLIENT_BIN" ]]; then
-  "$CLIENT_BIN" command -session-id "$sid" -window-id "$wid" -pane "$pid" acknowledge >/dev/null 2>&1 || true
+  "$CLIENT_BIN" command acknowledge -session-id "$sid" -window-id "$wid" -pane "$pid" >/dev/null 2>&1 || true
 fi
 
 # Focus the tmux target

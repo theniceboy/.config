@@ -86,6 +86,7 @@ def command_switch(index_str: str) -> None:
     if index > len(sessions):
         return
     run_tmux(["switch-client", "-t", sessions[index - 1]["id"]], check=False)
+    run_tmux(["refresh-client", "-S"], check=False)
 
 
 def command_rename(label: str) -> None:

@@ -1,6 +1,6 @@
 {
 	"$schema": "https://opencode.ai/config.json",
-	"small_model": "zai-coding-plan/glm-4.6",
+	"small_model": "zai-coding-plan/glm-4.7",
 	"model": "anthropic/claude-opus-4-5",
 	"lsp": {
 		"dart": {
@@ -89,7 +89,8 @@
 	},
 	"agent": {
 		"Search": {
-			"model": "zai-coding-plan/glm-4.6",
+			"model": "zai-coding-plan/glm-4.7",
+			"mode": "subagent",
 			"description": "Read-only agent for web searches",
 			"prompt": "You are Jeff, a research specialist. Use only read/online tools to gather information, summarize briefly with sources, and avoid edits or speculation. When researching information on the internet, use the google_search tool to conduct searches, and then follow up with website_fetch tool calls to gather detailed content from relevant pages.",
 			"permission": {

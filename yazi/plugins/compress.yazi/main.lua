@@ -243,13 +243,15 @@ return {
                             is_level = true
                         end
                     end
-                elseif arg:match("^%w+$") then
+                elseif arg:match("^%w[%w\\.]*$") then
                     -- Handle default extension (e.g., 7z, zip)
                     if archive_commands["%." .. arg .. "$"] then
                         default_extension = arg
                     else
                         notify_error(string.format("Unsupported extension: %s", arg), "warn")
                     end
+                else
+                      notify_error(string.format("Unknown argument: %s", arg), "warn")
                 end
             end
         end

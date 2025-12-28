@@ -5,17 +5,17 @@ hash = "f590c5b7d0730e8d6023b1b34ddf7ead"
 
 [[plugin.deps]]
 use = "Rolv-Apneseth/starship"
-rev = "6a0f3f7"
-hash = "d5a74d95c2e8194ac352c5e10e81e64f"
+rev = "eca1861"
+hash = "e519d894e94ded741e06aae4d4775981"
 
 [[plugin.deps]]
 use = "yazi-rs/plugins:git"
-rev = "5eea960"
-hash = "e01006bfb38951ea89031bd918b20dbb"
+rev = "7ca66b4"
+hash = "d2aa1b2f32c8b4fd1775e8f5c45f8fab"
 
 [[plugin.deps]]
 use = "yazi-rs/plugins:smart-enter"
-rev = "5eea960"
+rev = "7ca66b4"
 hash = "56fdabc96fc1f4d53c96eb884b02a5be"
 
 [[plugin.deps]]
@@ -25,8 +25,8 @@ hash = "7cc42012a7c2099f80064d228feb8d44"
 
 [[plugin.deps]]
 use = "KKV9/compress"
-rev = "9fc8fe0"
-hash = "2ad086899bf368fba211a33d8f68c39d"
+rev = "c264639"
+hash = "e17c11b605d989568a1d1741ca17c584"
 
 [flavor]
 deps = []

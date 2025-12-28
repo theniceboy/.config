@@ -5,6 +5,7 @@ local WINDOWS = ya.target_family() == "windows"
 -- The code of supported git status,
 -- also used to determine which status to show for directories when they contain different statuses
 -- see `bubble_up`
+---@enum CODES
 local CODES = {
 	excluded = 100, -- ignored directory
 	ignored = 6, -- ignored file
@@ -26,6 +27,8 @@ local PATTERNS = {
 	{ "[AD][AD]", CODES.updated },
 }
 
+---@param line string
+---@return CODES, string
 local function match(line)
 	local signs = line:sub(1, 2)
 	for _, p in ipairs(PATTERNS) do
@@ -41,9 +44,12 @@ local function match(line)
 		else
 			return code, path
 		end
+		---@diagnostic disable-next-line: missing-return
 	end
 end
 
+---@param cwd Url
+---@return string?
 local function root(cwd)
 	local is_worktree = function(url)
 		local file, head = io.open(tostring(url)), nil
@@ -64,6 +70,8 @@ local function root(cwd)
 	until not cwd
 end
 
+---@param changed Changes
+---@return Changes
 local function bubble_up(changed)
 	local new, empty = {}, Url("")
 	for path, code in pairs(changed) do
@@ -79,6 +87,10 @@ local function bubble_up(changed)
 	return new
 end
 
+---@param excluded string[]
+---@param cwd Url
+---@param repo Url
+---@return Changes
 local function propagate_down(excluded, cwd, repo)
 	local new, rel = {}, cwd:strip_prefix(repo)
 	for _, path in ipairs(excluded) do
@@ -95,7 +107,12 @@ local function propagate_down(excluded, cwd, repo)
 	return new
 end
 
+---@param cwd string
+---@param repo string
+---@param changed Changes
 local add = ya.sync(function(st, cwd, repo, changed)
+	---@cast st State
+
 	st.dirs[cwd] = repo
 	st.repos[repo] = st.repos[repo] or {}
 	for path, code in pairs(changed) do
@@ -108,16 +125,29 @@ local add = ya.sync(function(st, cwd, repo, changed)
 			st.repos[repo][path] = code
 		end
 	end
-	ya.render()
+	-- TODO: remove this
+	if ui.render then
+		ui.render()
+	else
+		ya.render()
+	end
 end)
 
+---@param cwd string
 local remove = ya.sync(function(st, cwd)
+	---@cast st State
+
 	local repo = st.dirs[cwd]
 	if not repo then
 		return
 	end
 
-	ya.render()
+	-- TODO: remove this
+	if ui.render then
+		ui.render()
+	else
+		ya.render()
+	end
 	st.dirs[cwd] = nil
 	if not st.repos[repo] then
 		return
@@ -131,9 +161,11 @@ local remove = ya.sync(function(st, cwd)
 	st.repos[repo] = nil
 end)
 
+---@param st State
+---@param opts Options
 local function setup(st, opts)
-	st.dirs = {} -- Mapping between a directory and its corresponding repository
-	st.repos = {} -- Mapping between a repository and the status of each of its files
+	st.dirs = {}
+	st.repos = {}
 
 	opts = opts or {}
 	opts.order = opts.order or 1500
@@ -157,8 +189,13 @@ local function setup(st, opts)
 	}
 
 	Linemode:children_add(function(self)
+		-- TODO: use `not self._file.in_current` instead
+		if self._file.in_current == false then
+			return ""
+		end
+
 		local url = self._file.url
-		local repo = st.dirs[tostring(url.base)]
+		local repo = st.dirs[tostring(url.base or url.parent)]
 		local code
 		if repo then
 			code = repo == CODES.excluded and CODES.ignored or st.repos[repo][tostring(url):sub(#repo + 2)]
@@ -174,8 +211,9 @@ local function setup(st, opts)
 	end, opts.order)
 end
 
+---@type UnstableFetcher
 local function fetch(_, job)
-	local cwd = job.files[1].url.base
+	local cwd = job.files[1].url.base or job.files[1].url.parent
 	local repo = root(cwd)
 	if not repo then
 		remove(tostring(cwd))

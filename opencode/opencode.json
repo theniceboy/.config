@@ -103,11 +103,6 @@
 				"edit": "deny",
 				"bash": "deny",
 				"webfetch": "deny"
-			},
-			"tools": {
-				"edit": false,
-				"bash": false,
-				"webfetch": false
 			}
 		}
 	}

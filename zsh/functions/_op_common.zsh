@@ -29,30 +29,6 @@ _op_run() {
     return 1
   fi
 
-  # Merge project opencode.json if it exists
-  local project_config=""
-  local search_dir="$PWD"
-  while [ "$search_dir" != "/" ]; do
-    if [ -f "$search_dir/opencode.json" ]; then
-      project_config="$search_dir/opencode.json"
-      break
-    fi
-    if [ -d "$search_dir/.git" ]; then
-      break
-    fi
-    search_dir="${search_dir:h}"
-  done
-
-  if [ -n "$project_config" ]; then
-    print -u2 "$tag: merging project config from $project_config"
-    local merged
-    if merged=$(jq -s '.[0] * .[1]' "$tmp_home/opencode.json" "$project_config" 2>/dev/null); then
-      printf '%s\n' "$merged" > "$tmp_home/opencode.json"
-    else
-      print -u2 "$tag: warning: failed to merge project config, using base only"
-    fi
-  fi
-
   local base_agents="$base_home/AGENTS.md"
   if [ "$tag" = "se" ]; then
     local search_agents="$base_home/agent/search/AGENTS.md"

@@ -10,23 +10,23 @@ hash = "e519d894e94ded741e06aae4d4775981"
 
 [[plugin.deps]]
 use = "yazi-rs/plugins:git"
-rev = "7ca66b4"
-hash = "d2aa1b2f32c8b4fd1775e8f5c45f8fab"
+rev = "57f1863"
+hash = "36a484acf6a0a0219c543ccb4cee218f"
 
 [[plugin.deps]]
 use = "yazi-rs/plugins:smart-enter"
-rev = "7ca66b4"
+rev = "57f1863"
 hash = "56fdabc96fc1f4d53c96eb884b02a5be"
 
 [[plugin.deps]]
 use = "h-hg/yamb"
-rev = "22af003"
-hash = "7cc42012a7c2099f80064d228feb8d44"
+rev = "5f2e22e"
+hash = "699fe07e0d2d1b4af8dafb84168eeb04"
 
 [[plugin.deps]]
 use = "KKV9/compress"
-rev = "c264639"
-hash = "e17c11b605d989568a1d1741ca17c584"
+rev = "e6007f7"
+hash = "e0b1051849756dd72fca874c320259a"
 
 [flavor]
 deps = []

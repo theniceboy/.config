@@ -10,17 +10,10 @@ A [Yazi](https://github.com/sxyazi/yazi) plugin for bookmark management, support
 ## Installation
 
 > [!NOTE]
-> Yazi >= 0.25.
+> Yazi >= 25.6.11
 
 ```sh
-# Linux/macOS
-git clone https://github.com/h-hg/yamb.yazi.git ~/.config/yazi/plugins/yamb.yazi
-
-# Windows
-git clone https://github.com/h-hg/yamb.yazi.git $env:APPDATA\yazi\config\plugins\yamb.yazi
-
-# if you are using Yazi version >= 3.0
-ya pack -a h-hg/yamb
+ya pkg add h-hg/yamb
 ```
 
 ## Usage
@@ -36,7 +29,6 @@ local home_path = ya.target_family() == "windows" and os.getenv("USERPROFILE") o
 if ya.target_family() == "windows" then
   table.insert(bookmarks, {
     tag = "Scoop Local",
-    
     path = (os.getenv("SCOOP") or home_path .. "\\scoop") .. "\\",
     key = "p"
   })
@@ -70,43 +62,43 @@ require("yamb"):setup {
 Add this to your `keymap.toml`:
 
 ```toml
-[[manager.prepend_keymap]]
+[[mgr.prepend_keymap]]
 on = [ "u", "a" ]
-run = "plugin yamb save"
+run = "plugin yamb -- save"
 desc = "Add bookmark"
 
-[[manager.prepend_keymap]]
+[[mgr.prepend_keymap]]
 on = [ "u", "g" ]
-run = "plugin yamb jump_by_key"
+run = "plugin yamb -- jump_by_key"
 desc = "Jump bookmark by key"
 
-[[manager.prepend_keymap]]
+[[mgr.prepend_keymap]]
 on = [ "u", "G" ]
-run = "plugin yamb jump_by_fzf"
+run = "plugin yamb -- jump_by_fzf"
 desc = "Jump bookmark by fzf"
 
-[[manager.prepend_keymap]]
+[[mgr.prepend_keymap]]
 on = [ "u", "d" ]
-run = "plugin yamb delete_by_key"
+run = "plugin yamb -- delete_by_key"
 desc = "Delete bookmark by key"
 
-[[manager.prepend_keymap]]
+[[mgr.prepend_keymap]]
 on = [ "u", "D" ]
-run = "plugin yamb delete_by_fzf"
+run = "plugin yamb -- delete_by_fzf"
 desc = "Delete bookmark by fzf"
 
-[[manager.prepend_keymap]]
+[[mgr.prepend_keymap]]
 on = [ "u", "A" ]
-run = "plugin yamb delete_all"
+run = "plugin yamb -- delete_all"
 desc = "Delete all bookmarks"
 
-[[manager.prepend_keymap]]
+[[mgr.prepend_keymap]]
 on = [ "u", "r" ]
-run = "plugin yamb rename_by_key"
+run = "plugin yamb -- rename_by_key"
 desc = "Rename bookmark by key"
 
-[[manager.prepend_keymap]]
+[[mgr.prepend_keymap]]
 on = [ "u", "R" ]
-run = "plugin yamb rename_by_fzf"
+run = "plugin yamb -- rename_by_fzf"
 desc = "Rename bookmark by fzf"
 ```

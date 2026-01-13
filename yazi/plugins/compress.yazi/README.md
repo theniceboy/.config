@@ -4,8 +4,6 @@
   <i>Effortlessly compress your files and folders with style!</i>
 </p>
 
----
-
 ## 📖 Table of Contents
 
 - [Features](#-features)
@@ -17,8 +15,6 @@
 - [Tips](#-tips)
 - [Credits](#-credits)
 
----
-
 ## 🚀 Features
 
 - 🗂️ **Multi-format support:** zip, 7z, rar, tar, tar.gz, tar.xz, tar.bz2, tar.zst, tar.lz4, tar.lha
@@ -28,8 +24,6 @@
 - ⚡ **Compression level:** Choose your balance of speed vs. size
 - 🛑 **Overwrite safety:** Never lose files by accident
 - 🎯 **Seamless Yazi integration:** Fast, native-like UX
-
----
 
 ## 📦 Supported File Types
 
@@ -46,7 +40,6 @@
 | `.tar.lz4`    | `tar rpf + lz4`   |                |                                |
 | `.tar.lha`    | `tar rpf + lha`   |                |                                |
 
----
 
 ## ⚡️ Installation
 
@@ -60,9 +53,6 @@ git clone https://github.com/KKV9/compress.yazi.git %AppData%\yazi\config\plugin
 # Or with yazi plugin manager
 ya pkg add KKV9/compress
 ```
-
----
-
 ### 🔧 Extras (Windows)
 
 To enable additional compression formats and features on Windows, follow these steps:
@@ -80,8 +70,6 @@ To enable additional compression formats and features on Windows, follow these s
 
 4. **Install Additional Tools:**  
    To use formats like `lha`, `lz4`, `gzip`, etc., install their respective tools and ensure they are added to your `PATH`.
-
----
 
 ## 🎹 Keymap Example
 
@@ -115,8 +103,6 @@ run  = "plugin compress -phl"
 desc = "Archive selected files (password+header+level)"
 ```
 
----
-
 ## 🛠️ Usage
 
 1. **Select files/folders** in Yazi.
@@ -131,8 +117,6 @@ desc = "Archive selected files (password+header+level)"
 5. **Enter password** and/or **compression level** if prompted.
 6. **Overwrite protect** if a file already exists, the new file will be given a suffix _#.
 7. Enjoy your shiny new archive!
-
----
 
 ## 🏳️‍🌈 Flags
 
@@ -154,20 +138,14 @@ on   = [ "c", "a", "r" ]
 run  = "plugin compress '-p -l rar'"
 desc = "Archive selected files to rar (password+level)"
 ```
-
----
-
 ## 💡 Tips
 
 - The file extension **must** match a supported type.
 - The required compression tool **must** be installed and in your `PATH` (7zip/rar etc.).
 - If no extention is provided, the default extention (zip) will be appended automatically.
-
----
+- If you leave the filename blank, the plugin will use the selected filename or parent directory, when multiple files are selected, to name the archive.
 
 ## 📣 Credits
 
 Made with ❤️ for [Yazi](https://github.com/sxyazi/yazi) by [KKV9](https://github.com/KKV9).
 Contributions are welcome! Feel free to submit a pull request.
-
----

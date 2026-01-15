@@ -57,7 +57,7 @@ play = [
 [open]
 rules = [
 	# Folder
-	{ name = "*/", use = ["edit", "open", "reveal"] },
+	{ url = "*/", use = ["edit", "open", "reveal"] },
 	# Text
 	{ mime = "text/*", use = ["edit", "reveal"] },
 	# Image
@@ -66,14 +66,14 @@ rules = [
 	{ mime = "{audio,video}/*", use = ["play", "reveal"] },
 	# Archive
 	{ mime = "application/{,g}zip", use = ["extract", "reveal"] },
-	{ mime = "application/{tar,bzip*,7z*,xz,rar}", use = ["extract", "reveal"] },
+	{ mime = "application/x-{tar,bzip*,7z-compressed,xz,rar}", use = ["extract", "reveal"] },
 	# JSON
-	{ mime = "application/{json,ndjson}", use = ["edit", "reveal"] },
+	{ mime = "application/{json,x-ndjson}", use = ["edit", "reveal"] },
 	{ mime = "*/javascript", use = ["edit", "reveal"] },
 	# Empty file
-	{ mime = "inode/empty", use = ["edit", "reveal"] },
+	{ mime = "inode/x-empty", use = ["edit", "reveal"] },
 	# Fallback
-	{ name = "*", use = ["edit", "open", "reveal"] },
+	{ url = "*", use = ["open", "reveal"] },
 ]
 
 [tasks]
@@ -85,8 +85,10 @@ image_bound      = [0, 0]
 suppress_preload = false
 
 [plugin]
-fetchers = [{ id = "mime", name = "*", run = "mime", if = "!mime", prio = "high" }]
-prepend_fetchers = [{ id = "git", name = "*", run = "git" }, { id = "git", name = "*/", run = "git" }]
+prepend_fetchers = [
+	{ id = "git", url = "*", run = "git" },
+	{ id = "git", url = "*/", run = "git" },
+]
 preloaders = [
 	# Image
 	{ mime = "image/{avif,hei?,jxl,svg+xml}", run = "magick" },
@@ -100,7 +102,7 @@ preloaders = [
 	{ mime = "application/vnd.ms-opentype", run = "font" },
 ]
 previewers = [
-	{ name = "*/", run = "folder", sync = true },
+	{ url = "*/", run = "folder", sync = true },
 	# Code
 	{ mime = "text/*", run = "code" },
 	{ mime = "*/{xml,javascript,x-wine-extension-ini}", run = "code" },
@@ -122,7 +124,7 @@ previewers = [
 	# Empty file
 	{ mime = "inode/x-empty", run = "empty" },
 	# Fallback
-	{ name = "*", run = "file" },
+	{ url = "*", run = "file" },
 ]
 
 [input]

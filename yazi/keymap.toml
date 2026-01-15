@@ -3,32 +3,15 @@
 "$schema" = "https://yazi-rs.github.io/schemas/keymap.json"
 
 [mgr]
-prepend_keymap = [
-	{ on = "i", run = 'plugin smart-enter' },
-	{ on = "<Enter>", run = 'plugin smart-enter' },
-	{ on = "S", run = 'shell "$SHELL" --block --confirm' },
-	{ on = [
-		"'",
-		"a",
-	], run = "plugin yamb save", desc = "Add bookmark" },
-	{ on = [
-		"'",
-		"'",
-	], run = "plugin yamb jump_by_fzf", desc = "Jump bookmark by fzf" },
-	{ on = [
-		"'",
-		"r",
-	], run = "plugin yamb delete_by_key", desc = "Delete bookmark by key" },
-	{ on = [
-		"P",
-	], run = "spot", desc = "Open spotter" },
-	{ on = [
-		"c",
-		"a",
-	], run = "plugin compress", desc = "Archive selected files" },
-]
-
 keymap = [
+	{ on = "i", run = "plugin smart-enter", desc = "Smart enter" },
+	{ on = "<Enter>", run = "plugin smart-enter", desc = "Smart enter" },
+	{ on = "S", run = 'shell "$SHELL" --block --confirm', desc = "Shell" },
+	{ on = ["'", "a"], run = "plugin yamb save", desc = "Add bookmark" },
+	{ on = ["'", "'"], run = "plugin yamb jump_by_fzf", desc = "Jump bookmark by fzf" },
+	{ on = ["'", "r"], run = "plugin yamb delete_by_key", desc = "Delete bookmark by key" },
+	{ on = "P", run = "spot", desc = "Open spotter" },
+	{ on = ["c", "a"], run = "plugin compress", desc = "Archive selected files" },
 	{ on = "<Esc>", run = "escape", desc = "Exit visual mode, clear selected, or cancel search" },
 	{ on = "<C-[>", run = "escape", desc = "Exit visual mode, clear selected, or cancel search" },
 	#{ on = "q", run = "quit", desc = "Exit the process" },

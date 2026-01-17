@@ -52,17 +52,38 @@ if [[ "$rainbarf_toggle" == "1" ]] && command -v rainbarf >/dev/null 2>&1; then
   fi
 fi
 
+# Notes count for current window (red if > 0, hidden otherwise)
+notes_segment=""
+notes_count_script="$HOME/.config/tmux/tmux-status/notes_count.sh"
+if [[ -x "$notes_count_script" ]]; then
+  notes_output=$("$notes_count_script" 2>/dev/null || true)
+  if [[ -n "$notes_output" ]]; then
+    notes_connector_bg="$status_bg"
+    if [[ -n "$rainbarf_segment" ]]; then
+      notes_connector_bg="$rainbarf_bg"
+    fi
+    notes_bg="#cc6666"
+    notes_fg="#1d1f21"
+    notes_segment=$(printf '#[fg=%s,bg=%s]%s#[fg=%s,bg=%s,bold]%s#[default]' \
+      "$notes_bg" "$notes_connector_bg" "$separator" \
+      "$notes_fg" "$notes_bg" "$notes_output")
+  fi
+fi
+
 # Build a connector into the hostname segment using host colors
 host_connector_bg="$status_bg"
-if [[ -n "$rainbarf_segment" ]]; then
+if [[ -n "$notes_segment" ]]; then
+  host_connector_bg="#cc6666"
+elif [[ -n "$rainbarf_segment" ]]; then
   host_connector_bg="$rainbarf_bg"
 fi
 host_prefix=$(printf '#[fg=%s,bg=%s]%s#[fg=%s,bg=%s] ' \
   "$host_bg" "$host_connector_bg" "$separator" \
   "$host_fg" "$host_bg")
 
-printf '%s%s%s #[fg=%s,bg=%s]%s' \
+printf '%s%s%s%s #[fg=%s,bg=%s]%s' \
   "$rainbarf_segment" \
+  "$notes_segment" \
   "$host_prefix" \
   "$hostname" \
   "$host_bg" "$status_bg" "$right_cap"

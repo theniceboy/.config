@@ -6,6 +6,7 @@
 		"auto": false
 	},
 	"plugin": [
+		"opencode-anthropic-auth@0.0.9",
 		"@franlol/opencode-md-table-formatter"
 	],
 	"lsp": {
@@ -49,6 +50,9 @@
 				"apiKey": "sk-dummy"
 			},
 			"models": {
+				"claude-opus-4-5-20251101": {
+					"name": "Claude Opus 4.5 (CLIProxyAPI)"
+				},
 				"gpt-5.1-codex-max": {
 					"name": "GPT-5.1 Codex Max (High)",
 					"options": {

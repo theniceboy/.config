@@ -14,9 +14,10 @@ fi
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SERVER_BIN="$ROOT_DIR/bin/tracker-server"
 
-if [[ ! -x "$SERVER_BIN" ]]; then
-  echo "Error: tracker-server binary not found at $SERVER_BIN" >&2
-  echo "Build it with: (cd $ROOT_DIR && ./install.sh)" >&2
+echo "Building tracker-server..." >&2
+mkdir -p "$ROOT_DIR/bin"
+if ! (cd "$ROOT_DIR" && go build -o bin/tracker-server ./cmd/tracker-server); then
+  echo "Error: go build failed" >&2
   exit 1
 fi
 

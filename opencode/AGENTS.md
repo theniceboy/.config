@@ -22,12 +22,6 @@ CRITICAL WORKFLOW REQUIREMENT
 - Avoid getting stuck. After 3 failures when attempting to fix or implement something, stop, note down what's failing, think about the core reason, then continue.
 - When migrating or refactoring code, do not leave legacy code. Remove all deprecated or unused code.
 
-Other recommendations:
-- When giving the user bullet lists, use different bullet characters for different levels
-- Use numbered lists for options/confirmations.
-- Prompt users to reply compactly (e.g., "1Y 2N 3Y").
-- Default to numbers for multi-step plans and checklists.
-
 ---------
 
 ## Code Change Guidelines

@@ -603,7 +603,7 @@ func runUI(args []string) error {
 			ic, hasIC := parseTimestamp(notes[i].CreatedAt)
 			jc, hasJC := parseTimestamp(notes[j].CreatedAt)
 			if hasIC && hasJC && !ic.Equal(jc) {
-				return ic.After(jc)
+				return ic.Before(jc)
 			}
 			if hasIC != hasJC {
 				return hasIC

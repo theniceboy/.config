@@ -57,6 +57,32 @@ if [[ -z "$sessions" ]]; then
   exit 0
 fi
 
+# Refresh tracker cache (fast - skips if recent)
+"$HOME/.config/tmux/tmux-status/tracker_cache.sh" 2>/dev/null || true
+
+# Read from cache
+CACHE_FILE="/tmp/tmux-tracker-cache.json"
+tracker_state=""
+if [[ -f "$CACHE_FILE" ]]; then
+  tracker_state=$(cat "$CACHE_FILE" 2>/dev/null || true)
+fi
+
+get_session_icon() {
+  local sid="$1"
+  [[ -z "$tracker_state" ]] && return
+  local result
+  result=$(echo "$tracker_state" | jq -r --arg sid "$sid" '
+    .tasks // [] | .[] | select(.session_id == $sid) |
+    if .status == "in_progress" then "in_progress"
+    elif .status == "completed" and .acknowledged != true then "waiting"
+    else empty end
+  ' 2>/dev/null | head -1 || true)
+  case "$result" in
+    in_progress) printf '⏳' ;;
+    waiting) printf '🔔' ;;
+  esac
+}
+
 rendered=""
 prev_bg=""
 current_session_id_norm=$(normalize_session_id "$current_session_id")
@@ -96,12 +122,14 @@ while IFS= read -r entry; do
     label="${label:0:max_width-1}…"
   fi
 
+  task_icon=$(get_session_icon "$session_id")
+
   if [[ -z "$prev_bg" ]]; then
     rendered+="#[fg=${segment_bg},bg=${status_bg}]${left_cap}"
   else
     rendered+="#[fg=${prev_bg},bg=${segment_bg}]${separator}"
   fi
-  rendered+="#[fg=${segment_fg},bg=${segment_bg}] ${label} "
+  rendered+="#[fg=${segment_fg},bg=${segment_bg}] ${label}${task_icon} "
   prev_bg="$segment_bg"
 done <<< "$sessions"
 

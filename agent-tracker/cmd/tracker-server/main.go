@@ -425,6 +425,9 @@ func (s *server) handleCommand(env ipc.Envelope) error {
 }
 
 func (s *server) startTask(target tmuxTarget, summary string) error {
+	if target.SessionID == "" || target.WindowID == "" {
+		return fmt.Errorf("cannot create task: missing session or window ID")
+	}
 	now := time.Now()
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -441,6 +444,9 @@ func (s *server) startTask(target tmuxTarget, summary string) error {
 }
 
 func (s *server) finishTask(target tmuxTarget, note string) error {
+	if target.SessionID == "" || target.WindowID == "" {
+		return nil // silently ignore - pane likely died
+	}
 	now := time.Now()
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -458,7 +464,8 @@ func (s *server) finishTask(target tmuxTarget, note string) error {
 	if note != "" {
 		t.CompletionNote = note
 	}
-	t.Acknowledged = false
+	// Auto-acknowledge if user is currently in this pane
+	t.Acknowledged = isActivePane(target.PaneID)
 	return nil
 }
 
@@ -1217,16 +1224,19 @@ func (s *server) buildStateEnvelope() *ipc.Envelope {
 	visible := s.visible
 	pos := s.pos
 	copies := make([]*taskRecord, 0, len(s.tasks))
-	for _, task := range s.tasks {
+	taskKeys := make([]string, 0, len(s.tasks))
+	for key, task := range s.tasks {
 		copy := *task
 		copies = append(copies, &copy)
+		taskKeys = append(taskKeys, key)
 	}
 	s.mu.Unlock()
 
 	now := time.Now()
 	tasks := make([]ipc.Task, 0, len(copies))
+	var staleKeys []string
 	nameCache := make(map[string][2]string)
-	for _, t := range copies {
+	for i, t := range copies {
 		started := ""
 		if !t.StartedAt.IsZero() {
 			started = t.StartedAt.Format(time.RFC3339)
@@ -1242,14 +1252,24 @@ func (s *server) buildStateEnvelope() *ipc.Envelope {
 		if duration < 0 {
 			duration = 0
 		}
+		// Auto-timeout: in_progress tasks older than 30 minutes
+		if t.Status == statusInProgress && duration > 30*time.Minute {
+			staleKeys = append(staleKeys, taskKeys[i])
+			continue
+		}
 		var names [2]string
 		if cached, ok := nameCache[t.WindowID]; ok {
+			if cached[0] == "" && cached[1] == "" {
+				staleKeys = append(staleKeys, taskKeys[i])
+				continue
+			}
 			names = cached
 		} else {
 			sessName, winName, err := tmuxNamesForWindow(t.WindowID)
-			if err != nil {
-				sessName = t.SessionID
-				winName = t.WindowID
+			if err != nil || (sessName == "" && winName == "") {
+				nameCache[t.WindowID] = [2]string{"", ""}
+				staleKeys = append(staleKeys, taskKeys[i])
+				continue
 			}
 			names = [2]string{sessName, winName}
 			nameCache[t.WindowID] = names
@@ -1269,6 +1289,15 @@ func (s *server) buildStateEnvelope() *ipc.Envelope {
 			DurationSeconds: duration.Seconds(),
 			Acknowledged:    t.Acknowledged,
 		})
+	}
+
+	// Clean up stale tasks (windows that no longer exist)
+	if len(staleKeys) > 0 {
+		s.mu.Lock()
+		for _, key := range staleKeys {
+			delete(s.tasks, key)
+		}
+		s.mu.Unlock()
 	}
 
 	activeNotes, archived := s.notesForState()
@@ -1404,6 +1433,23 @@ func runTmux(args ...string) error {
 		return fmt.Errorf("tmux %s: %w", strings.Join(args, " "), err)
 	}
 	return nil
+}
+
+func isActivePane(paneID string) bool {
+	clients, err := listClients()
+	if err != nil {
+		return false
+	}
+	for _, client := range clients {
+		output, err := tmuxDisplay(client, "#{pane_id}")
+		if err != nil {
+			continue
+		}
+		if strings.TrimSpace(output) == paneID {
+			return true
+		}
+	}
+	return false
 }
 
 func tmuxOutput(args ...string) (string, error) {

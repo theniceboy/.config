@@ -1,12 +1,27 @@
+import { appendFileSync } from "fs";
+
 const NOTIFY_BIN = "/usr/bin/python3";
 const NOTIFY_SCRIPT = "/Users/david/.config/codex/notify.py";
 const MAX_SUMMARY_CHARS = 600;
 const TRACKER_BIN = "/Users/david/.config/agent-tracker/bin/tracker-client";
+const LOG_FILE = "/tmp/tracker-notify-debug.log";
+
+const log = (msg: string, data?: any) => {
+	const timestamp = new Date().toISOString();
+	const logMsg = `[${timestamp}] ${msg}${data ? " " + JSON.stringify(data) : ""}\n`;
+	try {
+		appendFileSync(LOG_FILE, logMsg);
+	} catch (e) {
+		// ignore
+	}
+};
 
 export const TrackerNotifyPlugin = async ({ client, directory, $ }) => {
 	// Only run within tmux (TMUX_PANE must be set)
 	const TMUX_PANE = process.env.TMUX_PANE;
+	log("Plugin loading, TMUX_PANE:", TMUX_PANE);
 	if (!TMUX_PANE) {
+		log("Not in tmux, plugin disabled");
 		return {};
 	}
 
@@ -48,14 +63,6 @@ export const TrackerNotifyPlugin = async ({ client, directory, $ }) => {
 		if (tmuxContext?.paneId) args.push("-pane", tmuxContext.paneId);
 		return args;
 	};
-
-	// On init: finish any stale task for this pane
-	const finishStaleTask = async () => {
-		if (!(await trackerReady())) return;
-		const args = buildTrackerArgs();
-		await $`${TRACKER_BIN} command ${args} -summary "stale" finish_task`.nothrow();
-	};
-	finishStaleTask();
 
 	const summarizeText = (parts = []) => {
 		const text = parts
@@ -155,6 +162,7 @@ export const TrackerNotifyPlugin = async ({ client, directory, $ }) => {
 
 	return {
 		event: async ({ event }) => {
+			
 			// Track message roles from message.updated events
 			if (event?.type === "message.updated") {
 				const info = event?.properties?.info;
@@ -178,13 +186,22 @@ export const TrackerNotifyPlugin = async ({ client, directory, $ }) => {
 				}
 			}
 
-			if (event?.type !== "session.status") return;
+		if (event?.type !== "session.status") return;
 
-			const sessionID = event?.properties?.sessionID;
-			const status = event?.properties?.status;
-			if (!sessionID || !status) return;
+		const sessionID = event?.properties?.sessionID;
+		const status = event?.properties?.status;
+		if (!sessionID || !status) return;
 
-			if (status.type === "busy" && !taskActive) {
+		// Check if this is a subagent session
+		const session = await client.session.get({ path: { id: sessionID } }).catch(() => null);
+		const parentID = session?.data?.parentID;
+		
+		// Skip subagent sessions (they have a parentID)
+		if (parentID) {
+			return;
+		}
+
+		if (status.type === "busy" && !taskActive) {
 				// Use captured message first, then fall back to API
 				let text = lastUserMessage;
 				if (!text) {

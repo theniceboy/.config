@@ -1234,9 +1234,8 @@ func (s *server) buildStateEnvelope() *ipc.Envelope {
 
 	now := time.Now()
 	tasks := make([]ipc.Task, 0, len(copies))
-	var staleKeys []string
 	nameCache := make(map[string][2]string)
-	for i, t := range copies {
+	for _, t := range copies {
 		started := ""
 		if !t.StartedAt.IsZero() {
 			started = t.StartedAt.Format(time.RFC3339)
@@ -1252,15 +1251,9 @@ func (s *server) buildStateEnvelope() *ipc.Envelope {
 		if duration < 0 {
 			duration = 0
 		}
-		// Auto-timeout: in_progress tasks older than 30 minutes
-		if t.Status == statusInProgress && duration > 30*time.Minute {
-			staleKeys = append(staleKeys, taskKeys[i])
-			continue
-		}
 		var names [2]string
 		if cached, ok := nameCache[t.WindowID]; ok {
 			if cached[0] == "" && cached[1] == "" {
-				staleKeys = append(staleKeys, taskKeys[i])
 				continue
 			}
 			names = cached
@@ -1268,7 +1261,6 @@ func (s *server) buildStateEnvelope() *ipc.Envelope {
 			sessName, winName, err := tmuxNamesForWindow(t.WindowID)
 			if err != nil || (sessName == "" && winName == "") {
 				nameCache[t.WindowID] = [2]string{"", ""}
-				staleKeys = append(staleKeys, taskKeys[i])
 				continue
 			}
 			names = [2]string{sessName, winName}
@@ -1289,15 +1281,6 @@ func (s *server) buildStateEnvelope() *ipc.Envelope {
 			DurationSeconds: duration.Seconds(),
 			Acknowledged:    t.Acknowledged,
 		})
-	}
-
-	// Clean up stale tasks (windows that no longer exist)
-	if len(staleKeys) > 0 {
-		s.mu.Lock()
-		for _, key := range staleKeys {
-			delete(s.tasks, key)
-		}
-		s.mu.Unlock()
 	}
 
 	activeNotes, archived := s.notesForState()

@@ -1,25 +1,16 @@
 {
-  "env": {
-    "DISABLE_AUTOUPDATER": "1"
-  },
-  "includeCoAuthoredBy": false,
-  "hooks": {
-    "Stop": [
-      {
-        "matcher": ".*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "transcript_path=$(cat | jq -r '.transcript_path'); last_message=$(tail -1 \"$transcript_path\" | jq -r '.message.content[0].text // empty'); notification_json=$(jq -n --arg msg \"$last_message\" '{type: \"agent-turn-complete\", \"last-assistant-message\": $msg}'); \"$HOME/.config/claude/notify.py\" \"$notification_json\" >/dev/null 2>&1 &"
-          }
-        ]
-      }
-    ]
-  },
-  "statusLine": {
-    "type": "command",
-    "command": "ccstatusline",
-    "padding": 0
-  },
-  "alwaysThinkingEnabled": true
+	"env": {
+		"DISABLE_AUTOUPDATER": "1"
+	},
+	"includeCoAuthoredBy": false,
+	"alwaysThinkingEnabled": true,
+	"model": "claude-opus-4.5",
+	"small_model": "claude-sonnet-4.5",
+	"compaction": {
+		"auto": false
+	},
+	"statusLine": {
+		"type": "command",
+		"command": "input=$(cat); usage=$(echo \"$input\" | jq '.context_window.current_usage'); if [ \"$usage\" != \"null\" ]; then current=$(echo \"$usage\" | jq '.input_tokens + .cache_creation_input_tokens + .cache_read_input_tokens'); size=$(echo \"$input\" | jq '.context_window.context_window_size'); pct=$((current * 100 / size)); printf '%d%% context | ' \"$pct\"; fi; printf '%s in %s' \"$(echo \"$input\" | jq -r '.model.display_name')\" \"$(echo \"$input\" | jq -r '.workspace.current_dir' | sed 's|^/Users/david|~|')\""
+	}
 }

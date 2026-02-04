@@ -51,6 +51,7 @@ _op_run() {
     history
     sessions
     logs
+    skill
   )
 
   local name
@@ -104,8 +105,34 @@ _op_run() {
     fi
   fi
 
-  OPENCODE_CONFIG_DIR="$tmp_home" "${opencode_cmd[@]}"
+  local explicit_session=""
+  local i
+  for (( i=1; i<=${#opencode_cmd[@]}; i++ )); do
+    case "${opencode_cmd[$i]}" in
+      -s|--session) explicit_session="${opencode_cmd[$((i+1))]}"; break ;;
+      -s=*|--session=*) explicit_session="${opencode_cmd[$i]#*=}"; break ;;
+    esac
+  done
+
+  OPENCODE_CONFIG_DIR="$tmp_home" \
+    RIPGREP_CONFIG_PATH="${RIPGREP_CONFIG_PATH:-$HOME/.ripgreprc}" \
+    "${opencode_cmd[@]}"
   local exit_code=$?
+
+  local session_to_save=""
+  if [ -n "$explicit_session" ]; then
+    session_to_save="$explicit_session"
+  else
+    session_to_save=$(OPENCODE_CONFIG_DIR="$tmp_home" opencode session list 2>/dev/null | awk 'NR==3{print $1}')
+  fi
+
+  if [ -n "$session_to_save" ] && [ -n "$TMUX" ]; then
+    local win_key
+    win_key=$(tmux display-message -p '#{session_name}:#{window_name}')
+    local state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/op"
+    mkdir -p "$state_dir"
+    printf '%s\n%s\n' "$session_to_save" "$tag" > "$state_dir/window_${win_key//[^a-zA-Z0-9_]/_}"
+  fi
 
   trap - EXIT INT TERM
   eval "$cleanup_cmd"

@@ -35,4 +35,3 @@ alias ta='tmux a'
 alias t='tmux'
 alias lo='lsof -p $(fps) +w'
 alias py="python"
-alias cl='claude --dangerously-skip-permissions --append-system-prompt "$(cat ~/.config/claude/system-prompt.txt)"'

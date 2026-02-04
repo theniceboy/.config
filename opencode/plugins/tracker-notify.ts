@@ -161,6 +161,15 @@ export const TrackerNotifyPlugin = async ({ client, directory, $ }) => {
 	const messageRoles = new Map();
 
 	return {
+		"tool.execute.before": async (input, output) => {
+			if (input.tool === "question") {
+				log("Question tool called:", {
+					questions: output.args?.questions || "no questions",
+					timestamp: new Date().toISOString()
+				});
+			}
+		},
+		
 		event: async ({ event }) => {
 			
 			// Track message roles from message.updated events

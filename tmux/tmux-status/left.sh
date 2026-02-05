@@ -70,11 +70,20 @@ fi
 get_session_icon() {
   local sid="$1"
 
+  # Check for manual @watching on any window in this session
+  local watching_win
+  watching_win=$(tmux list-windows -t "$sid" -F '#{@watching}' 2>/dev/null | grep -m1 '^1$' || true)
+
   # Check for manual @unread on any window in this session
   local unread_win
   unread_win=$(tmux list-windows -t "$sid" -F '#{@unread}' 2>/dev/null | grep -m1 '^1$' || true)
+
   if [[ -n "$unread_win" ]]; then
     printf '🔔'
+    return
+  fi
+  if [[ -n "$watching_win" ]]; then
+    printf '⏳'
     return
   fi
 

@@ -4,6 +4,13 @@ set -euo pipefail
 window_id="$1"
 [[ -z "$window_id" ]] && exit 0
 
+# Check manual @watching flag
+watching=$(tmux show -wv -t "$window_id" @watching 2>/dev/null || true)
+if [[ "$watching" == "1" ]]; then
+  printf '⏳'
+  exit 0
+fi
+
 # Check manual @unread flag
 unread=$(tmux show -wv -t "$window_id" @unread 2>/dev/null || true)
 if [[ "$unread" == "1" ]]; then

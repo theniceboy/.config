@@ -4,6 +4,13 @@ set -euo pipefail
 window_id="$1"
 [[ -z "$window_id" ]] && exit 0
 
+# Check manual @unread flag
+unread=$(tmux show -wv -t "$window_id" @unread 2>/dev/null || true)
+if [[ "$unread" == "1" ]]; then
+  printf '🔔'
+  exit 0
+fi
+
 CACHE_FILE="/tmp/tmux-tracker-cache.json"
 [[ ! -f "$CACHE_FILE" ]] && exit 0
 

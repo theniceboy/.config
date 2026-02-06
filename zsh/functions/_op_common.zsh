@@ -47,7 +47,6 @@ _op_run() {
   fi
 
   local -a to_link=(
-    plugin
     history
     sessions
     logs
@@ -64,6 +63,13 @@ _op_run() {
         return 1
       fi
     fi
+  done
+
+  mkdir -p "$tmp_home/plugins"
+  local f
+  for f in "$base_home/plugins"/* "$base_home/tui-plugins"/*; do
+    [ -e "$f" ] || continue
+    ln -s "$f" "$tmp_home/plugins/" 2>/dev/null
   done
 
   if ! mkdir -p "$tmp_home/command"; then

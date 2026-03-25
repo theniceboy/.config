@@ -1,0 +1,10 @@
+{
+  "$schema": "https://opencode.ai/tui.json",
+  "keybinds": {
+    "messages_half_page_up": "ctrl+alt+u",
+    "messages_half_page_down": "ctrl+alt+e",
+    "messages_line_down": "none",
+    "messages_line_up": "none",
+    "model_cycle_favorite": "<leader>f"
+  }
+}

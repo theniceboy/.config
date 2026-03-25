@@ -1,6 +1,5 @@
 ---
 description: Search - research specialist for external information
-model: zai-coding-plan/glm-4.7
 mode: subagent
 color: "#10B981"
 permission:

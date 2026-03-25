@@ -17,7 +17,7 @@ export default tool({
       .describe("What you want the other model to weigh in on"),
   },
   async execute(args) {
-    let model = "google/gemini-3-pro-preview"
+    let model = "google/gemini-3.1-pro-preview"
     try {
       const configPath = join(homedir(), ".config/opencode/consult.json")
       const config = JSON.parse(readFileSync(configPath, "utf-8"))

@@ -20,10 +20,10 @@ if [[ ! -f "$CACHE_FILE" ]]; then
 fi
 
 wkey="${session}:${window_idx}"
-read -r pane_val win_val total_val < <(
-  jq -r --arg pid "$pane_id" --arg wk "$wkey" \
-    '[(.pane[$pid] // ""), (.window[$wk] // ""), (.total // "")] | join(" ")' \
+read -r pane_val win_val sess_val total_val < <(
+  jq -r --arg pid "$pane_id" --arg wk "$wkey" --arg sess "$session" \
+    '[(.pane[$pid] // ""), (.window[$wk] // ""), (.session[$sess] // ""), (.total // "")] | join(" ")' \
     "$CACHE_FILE" 2>/dev/null || echo ""
 )
 
-printf '%s\n%s\n%s\n' "$pane_val" "$win_val" "$total_val"
+printf '%s\n%s\n%s\n%s\n' "$pane_val" "$win_val" "$sess_val" "$total_val"

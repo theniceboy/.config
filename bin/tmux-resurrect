@@ -1,0 +1,92 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+BOOTSTRAP_SESSION="__resurrect_bootstrap__"
+RESTORE_SCRIPT="${TMUX_RESURRECT_PLUGIN_SCRIPT:-$HOME/.tmux/plugins/tmux-resurrect/scripts/restore.sh}"
+
+resurrect_dir() {
+  if [[ -d "$HOME/.tmux/resurrect" ]]; then
+    printf '%s\n' "$HOME/.tmux/resurrect"
+  else
+    printf '%s\n' "${XDG_DATA_HOME:-$HOME/.local/share}/tmux/resurrect"
+  fi
+}
+
+LAST_FILE="${TMUX_RESURRECT_LAST_FILE:-$(resurrect_dir)/last}"
+
+die() {
+  printf 'tmux-resurrect: %s\n' "$*" >&2
+  exit 1
+}
+
+tmux_has_sessions() {
+  tmux list-sessions >/dev/null 2>&1
+}
+
+bootstrap_is_only_session() {
+  local sessions
+  sessions="$(tmux list-sessions -F '#{session_name}' 2>/dev/null || true)"
+  [[ -n "$sessions" ]] && [[ "$sessions" == "$BOOTSTRAP_SESSION" ]]
+}
+
+post_restore() {
+  [[ -x "$RESTORE_SCRIPT" ]] || die "restore script not found at $RESTORE_SCRIPT"
+  [[ -e "$LAST_FILE" ]] || die "no resurrect file found at $LAST_FILE"
+
+  if ! "$RESTORE_SCRIPT"; then
+    tmux display-message "tmux restore failed"
+    exec "${SHELL:-/bin/zsh}" -l
+  fi
+
+  if tmux list-sessions -F '#{session_name}' 2>/dev/null | grep -qv "^${BOOTSTRAP_SESSION}$"; then
+    tmux kill-session -t "$BOOTSTRAP_SESSION" 2>/dev/null || true
+  fi
+}
+
+usage() {
+  cat <<'EOF'
+Usage: tmux-resurrect
+
+Restore the last tmux-resurrect snapshot, resume saved OpenCode panes,
+and attach to tmux.
+EOF
+}
+
+if [[ "${1:-}" == "--post-restore" ]]; then
+  if [[ -n "${2:-}" ]]; then
+    BOOTSTRAP_SESSION="$2"
+  fi
+  post_restore
+  exit 0
+fi
+
+case "${1:-}" in
+  "" )
+    ;;
+  -h|--help)
+    usage
+    exit 0
+    ;;
+  *)
+    die "unknown option: $1"
+    ;;
+esac
+
+if tmux_has_sessions; then
+  if bootstrap_is_only_session; then
+    tmux kill-session -t "$BOOTSTRAP_SESSION" 2>/dev/null || true
+  else
+    exec tmux attach-session
+  fi
+fi
+
+[[ -x "$RESTORE_SCRIPT" ]] || die "restore script not found at $RESTORE_SCRIPT"
+[[ -e "$LAST_FILE" ]] || die "no resurrect file found at $LAST_FILE"
+
+SELF="$0"
+if [[ "$SELF" != /* ]]; then
+  SELF="$(command -v "$SELF" || true)"
+fi
+[[ -n "$SELF" ]] || die "could not resolve script path"
+
+exec tmux new-session -A -s "$BOOTSTRAP_SESSION" "\"$SELF\" --post-restore \"$BOOTSTRAP_SESSION\""

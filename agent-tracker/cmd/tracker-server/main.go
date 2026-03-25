@@ -15,21 +15,10 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"syscall"
 	"time"
 
 	"github.com/david/agent-tracker/internal/ipc"
-)
-
-type position string
-
-const (
-	posTopRight    position = "top-right"
-	posTopLeft     position = "top-left"
-	posBottomLeft  position = "bottom-left"
-	posBottomRight position = "bottom-right"
-	posCenter      position = "center"
 )
 
 const (
@@ -37,15 +26,11 @@ const (
 	statusCompleted  = "completed"
 )
 
-const (
-	scopeWindow  = "window"
-	scopeSession = "session"
-	scopeAll     = "all"
-)
-
 type taskRecord struct {
 	SessionID      string
+	SessionName    string
 	WindowID       string
+	WindowName     string
 	Pane           string
 	Summary        string
 	CompletionNote string
@@ -55,54 +40,8 @@ type taskRecord struct {
 	Acknowledged   bool
 }
 
-type noteRecord struct {
-	ID         string
-	Scope      string
-	SessionID  string
-	Session    string
-	WindowID   string
-	Window     string
-	PaneID     string
-	Summary    string
-	Completed  bool
-	Archived   bool
-	CreatedAt  time.Time
-	ArchivedAt *time.Time
-}
-
-type goalRecord struct {
-	ID        string
-	SessionID string
-	Session   string
-	Summary   string
-	Completed bool
-	CreatedAt time.Time
-	UpdatedAt time.Time
-}
-
-type storedNote struct {
-	ID         string     `json:"id"`
-	Scope      string     `json:"scope"`
-	SessionID  string     `json:"session_id"`
-	Session    string     `json:"session"`
-	WindowID   string     `json:"window_id"`
-	Window     string     `json:"window"`
-	PaneID     string     `json:"pane_id"`
-	Summary    string     `json:"summary"`
-	Completed  bool       `json:"completed"`
-	Archived   bool       `json:"archived"`
-	CreatedAt  time.Time  `json:"created_at"`
-	ArchivedAt *time.Time `json:"archived_at,omitempty"`
-}
-
-type storedGoal struct {
-	ID        string    `json:"id"`
-	SessionID string    `json:"session_id"`
-	Session   string    `json:"session"`
-	Summary   string    `json:"summary"`
-	Completed bool      `json:"completed"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+type storedSettings struct {
+	NotificationsEnabled *bool `json:"notifications_enabled,omitempty"`
 }
 
 type tmuxTarget struct {
@@ -111,6 +50,8 @@ type tmuxTarget struct {
 	WindowName  string
 	WindowID    string
 	PaneID      string
+	WindowIndex string
+	PaneIndex   string
 }
 
 type uiSubscriber struct {
@@ -118,34 +59,21 @@ type uiSubscriber struct {
 }
 
 type server struct {
-	mu          sync.Mutex
-	socketPath  string
-	visible     bool
-	pos         position
-	width       int
-	height      int
-	tasks       map[string]*taskRecord
-	notes       map[string]*noteRecord
-	goals       map[string]*goalRecord
-	subscribers map[*uiSubscriber]struct{}
-	notesPath   string
-	goalsPath   string
-	noteCounter uint64
-	goalCounter uint64
+	mu                   sync.Mutex
+	socketPath           string
+	notificationsEnabled bool
+	tasks                map[string]*taskRecord
+	subscribers          map[*uiSubscriber]struct{}
+	settingsPath         string
 }
 
 func newServer() *server {
 	return &server{
-		socketPath:  socketPath(),
-		pos:         posTopRight,
-		width:       84,
-		height:      28,
-		tasks:       make(map[string]*taskRecord),
-		notes:       make(map[string]*noteRecord),
-		goals:       make(map[string]*goalRecord),
-		subscribers: make(map[*uiSubscriber]struct{}),
-		notesPath:   notesStorePath(),
-		goalsPath:   goalsStorePath(),
+		socketPath:           socketPath(),
+		notificationsEnabled: true,
+		tasks:                make(map[string]*taskRecord),
+		subscribers:          make(map[*uiSubscriber]struct{}),
+		settingsPath:         settingsStorePath(),
 	}
 }
 
@@ -157,10 +85,7 @@ func main() {
 }
 
 func (s *server) run() error {
-	if err := s.loadNotes(); err != nil {
-		return err
-	}
-	if err := s.loadGoals(); err != nil {
+	if err := s.loadSettings(); err != nil {
 		return err
 	}
 	if err := os.MkdirAll(filepath.Dir(s.socketPath), 0o755); err != nil {
@@ -248,24 +173,6 @@ func (s *server) handleConn(conn net.Conn) {
 
 func (s *server) handleCommand(env ipc.Envelope) error {
 	switch env.Command {
-	case "toggle":
-		return s.toggle()
-	case "show":
-		return s.show()
-	case "hide":
-		return s.hide()
-	case "refresh":
-		return s.refresh()
-	case "move_left":
-		return s.moveLeft()
-	case "move_right":
-		return s.moveRight()
-	case "move_up":
-		return s.moveUp()
-	case "move_down":
-		return s.moveDown()
-	case "center":
-		return s.center()
 	case "start_task":
 		target, err := requireSessionWindow(env)
 		if err != nil {
@@ -287,12 +194,31 @@ func (s *server) handleCommand(env ipc.Envelope) error {
 			return err
 		}
 		note := firstNonEmpty(env.Summary, env.Message)
-		if err := s.finishTask(target, note); err != nil {
+		notify, err := s.finishTask(target, note)
+		if err != nil {
 			return err
 		}
-		// s.notifyResponded(target)
+		if notify && s.notificationsAreEnabled() {
+			go s.notifyResponded(target)
+		}
 		s.broadcastStateAsync()
 		s.statusRefreshAsync()
+		return nil
+	case "notifications_toggle":
+		enabled, err := s.toggleNotifications()
+		if err != nil {
+			return err
+		}
+		if client := strings.TrimSpace(env.Client); client != "" {
+			status := "OFF"
+			if enabled {
+				status = "ON"
+			}
+			if err := runTmux("display-message", "-c", client, "push notifications: "+status); err != nil {
+				log.Printf("notification toggle message error: %v", err)
+			}
+		}
+		s.broadcastStateAsync()
 		return nil
 	case "acknowledge":
 		target, err := requireSessionWindow(env)
@@ -316,109 +242,6 @@ func (s *server) handleCommand(env ipc.Envelope) error {
 		s.broadcastStateAsync()
 		s.statusRefreshAsync()
 		return nil
-	case "focus_task":
-		target, err := requireSessionWindow(env)
-		if err != nil {
-			return err
-		}
-		if err := s.focusTask(env.Client, target); err != nil {
-			return err
-		}
-		return nil
-	case "note_add":
-		target := tmuxTarget{
-			SessionName: strings.TrimSpace(env.Session),
-			SessionID:   strings.TrimSpace(env.SessionID),
-			WindowName:  strings.TrimSpace(env.Window),
-			WindowID:    strings.TrimSpace(env.WindowID),
-			PaneID:      strings.TrimSpace(env.Pane),
-		}
-		if err := s.addNote(target, env.Scope, env.Summary); err != nil {
-			return err
-		}
-		s.broadcastStateAsync()
-		s.statusRefreshAsync()
-		return nil
-	case "note_edit":
-		if err := s.editNote(strings.TrimSpace(env.NoteID), env.Scope, env.Summary); err != nil {
-			return err
-		}
-		s.broadcastStateAsync()
-		s.statusRefreshAsync()
-		return nil
-	case "note_toggle_complete":
-		if err := s.toggleNoteCompletion(strings.TrimSpace(env.NoteID)); err != nil {
-			return err
-		}
-		s.broadcastStateAsync()
-		s.statusRefreshAsync()
-		return nil
-	case "note_delete":
-		if err := s.deleteNote(strings.TrimSpace(env.NoteID)); err != nil {
-			return err
-		}
-		s.broadcastStateAsync()
-		s.statusRefreshAsync()
-		return nil
-	case "note_archive":
-		if err := s.archiveNote(strings.TrimSpace(env.NoteID)); err != nil {
-			return err
-		}
-		s.broadcastStateAsync()
-		s.statusRefreshAsync()
-		return nil
-	case "note_archive_pane":
-		if err := s.archiveNotesForPane(strings.TrimSpace(env.SessionID), strings.TrimSpace(env.WindowID), strings.TrimSpace(env.Pane)); err != nil {
-			return err
-		}
-		s.broadcastStateAsync()
-		s.statusRefreshAsync()
-		return nil
-	case "note_attach":
-		target := tmuxTarget{
-			SessionName: strings.TrimSpace(env.Session),
-			SessionID:   strings.TrimSpace(env.SessionID),
-			WindowName:  strings.TrimSpace(env.Window),
-			WindowID:    strings.TrimSpace(env.WindowID),
-			PaneID:      strings.TrimSpace(env.Pane),
-		}
-		if err := s.attachArchivedNote(strings.TrimSpace(env.NoteID), target); err != nil {
-			return err
-		}
-		s.broadcastStateAsync()
-		s.statusRefreshAsync()
-		return nil
-	case "goal_add":
-		target := tmuxTarget{
-			SessionName: strings.TrimSpace(env.Session),
-			SessionID:   strings.TrimSpace(env.SessionID),
-		}
-		summary := firstNonEmpty(env.Summary, env.Message)
-		if err := s.addGoal(target, summary); err != nil {
-			return err
-		}
-		s.broadcastStateAsync()
-		s.statusRefreshAsync()
-		return nil
-	case "goal_toggle_complete":
-		if err := s.toggleGoalCompletion(strings.TrimSpace(env.GoalID)); err != nil {
-			return err
-		}
-		s.broadcastStateAsync()
-		s.statusRefreshAsync()
-		return nil
-	case "goal_delete":
-		if err := s.deleteGoal(strings.TrimSpace(env.GoalID)); err != nil {
-			return err
-		}
-		s.broadcastStateAsync()
-		s.statusRefreshAsync()
-		return nil
-	case "goal_focus":
-		if err := s.focusGoal(env.Client, strings.TrimSpace(env.SessionID)); err != nil {
-			return err
-		}
-		return nil
 	default:
 		return fmt.Errorf("unknown command %q", env.Command)
 	}
@@ -428,12 +251,15 @@ func (s *server) startTask(target tmuxTarget, summary string) error {
 	if target.SessionID == "" || target.WindowID == "" {
 		return fmt.Errorf("cannot create task: missing session or window ID")
 	}
+	target = normalizeTargetNames(target)
 	now := time.Now()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.tasks[taskKey(target.SessionID, target.WindowID, target.PaneID)] = &taskRecord{
 		SessionID:    target.SessionID,
+		SessionName:  strings.TrimSpace(target.SessionName),
 		WindowID:     target.WindowID,
+		WindowName:   strings.TrimSpace(target.WindowName),
 		Pane:         target.PaneID,
 		Summary:      summary,
 		StartedAt:    now,
@@ -443,22 +269,34 @@ func (s *server) startTask(target tmuxTarget, summary string) error {
 	return nil
 }
 
-func (s *server) finishTask(target tmuxTarget, note string) error {
+func (s *server) finishTask(target tmuxTarget, note string) (bool, error) {
 	if target.SessionID == "" || target.WindowID == "" {
-		return nil // silently ignore - pane likely died
+		return false, nil // silently ignore - pane likely died
 	}
+	target = normalizeTargetNames(target)
 	now := time.Now()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	key := taskKey(target.SessionID, target.WindowID, target.PaneID)
 	t, ok := s.tasks[key]
+	wasCompleted := false
 	if !ok {
-		t = &taskRecord{SessionID: target.SessionID, WindowID: target.WindowID, Pane: target.PaneID, StartedAt: now}
+		t = &taskRecord{
+			SessionID:   target.SessionID,
+			SessionName: strings.TrimSpace(target.SessionName),
+			WindowID:    target.WindowID,
+			WindowName:  strings.TrimSpace(target.WindowName),
+			Pane:        target.PaneID,
+			StartedAt:   now,
+		}
 		s.tasks[key] = t
+	} else {
+		wasCompleted = t.Status == statusCompleted
 	}
 	if t.Summary == "" {
 		t.Summary = note
 	}
+	mergeTaskNamesFromTarget(t, target)
 	t.Status = statusCompleted
 	t.CompletedAt = &now
 	if note != "" {
@@ -466,7 +304,7 @@ func (s *server) finishTask(target tmuxTarget, note string) error {
 	}
 	// Auto-acknowledge if user is currently in this pane
 	t.Acknowledged = isActivePane(target.PaneID)
-	return nil
+	return !wasCompleted, nil
 }
 
 func (s *server) acknowledgeTask(sessionID, windowID, paneID string) error {
@@ -485,560 +323,199 @@ func (s *server) deleteTask(sessionID, windowID, paneID string) error {
 	return nil
 }
 
-func normalizeScope(scope string) string {
-	scope = strings.TrimSpace(strings.ToLower(scope))
-	switch scope {
-	case scopeWindow, scopeSession, scopeAll:
-		return scope
-	default:
-		return scopeWindow
+func normalizeTargetNames(target tmuxTarget) tmuxTarget {
+	if strings.TrimSpace(target.SessionName) == strings.TrimSpace(target.SessionID) {
+		target.SessionName = ""
 	}
-}
-
-func (s *server) addNote(target tmuxTarget, scope, summary string) error {
-	summary = strings.TrimSpace(summary)
-	if summary == "" {
-		return fmt.Errorf("note summary required")
-	}
-	scope = normalizeScope(scope)
-	target = normalizeNoteTargetNames(target)
-	switch scope {
-	case scopeWindow:
-		if target.SessionID == "" || target.WindowID == "" {
-			return fmt.Errorf("window notes require session and window identifiers")
-		}
-	case scopeSession, scopeAll:
-		// allow global (scopeAll) notes to omit session/window/pane
-	}
-
-	now := time.Now()
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	n := &noteRecord{
-		ID:        s.newNoteIDLocked(now),
-		Scope:     scope,
-		SessionID: target.SessionID,
-		Session:   target.SessionName,
-		WindowID:  target.WindowID,
-		Window:    target.WindowName,
-		PaneID:    target.PaneID,
-		Summary:   summary,
-		CreatedAt: now,
-	}
-	s.notes[n.ID] = n
-	return s.saveNotesLocked()
-}
-
-func (s *server) editNote(id, scope, summary string) error {
-	summary = strings.TrimSpace(summary)
-	scope = normalizeScope(scope)
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	n, ok := s.notes[id]
-	if !ok {
-		return fmt.Errorf("note not found")
-	}
-	if summary != "" {
-		n.Summary = summary
-	}
-	if scope != "" {
-		n.Scope = scope
-	}
-	return s.saveNotesLocked()
-}
-
-func (s *server) toggleNoteCompletion(id string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	n, ok := s.notes[id]
-	if !ok {
-		return fmt.Errorf("note not found")
-	}
-	n.Completed = !n.Completed
-	return s.saveNotesLocked()
-}
-
-func (s *server) deleteNote(id string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if _, ok := s.notes[id]; !ok {
-		return fmt.Errorf("note not found")
-	}
-	delete(s.notes, id)
-	return s.saveNotesLocked()
-}
-
-func (s *server) archiveNote(id string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	n, ok := s.notes[id]
-	if !ok {
-		return fmt.Errorf("note not found")
-	}
-	if n.Archived {
-		return nil
-	}
-	now := time.Now()
-	n.Archived = true
-	n.ArchivedAt = &now
-	return s.saveNotesLocked()
-}
-
-func (s *server) archiveNotesForPane(sessionID, windowID, paneID string) error {
-	sessionID = strings.TrimSpace(sessionID)
-	windowID = strings.TrimSpace(windowID)
-	paneID = strings.TrimSpace(paneID)
-	if sessionID == "" || windowID == "" || paneID == "" {
-		return fmt.Errorf("pane archive requires session, window, and pane identifiers")
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	now := time.Now()
-	changed := false
-	for _, n := range s.notes {
-		if n.Archived {
-			continue
-		}
-		if n.SessionID == sessionID && n.WindowID == windowID && n.PaneID == paneID {
-			n.Archived = true
-			n.ArchivedAt = &now
-			changed = true
-		}
-	}
-	if !changed {
-		return nil
-	}
-	return s.saveNotesLocked()
-}
-
-func (s *server) attachArchivedNote(id string, target tmuxTarget) error {
-	target = normalizeNoteTargetNames(target)
-	if target.SessionID == "" || target.WindowID == "" || target.PaneID == "" {
-		return fmt.Errorf("attach requires session, window, and pane identifiers")
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	n, ok := s.notes[id]
-	if !ok {
-		return fmt.Errorf("note not found")
-	}
-	if !n.Archived {
-		return fmt.Errorf("note is not archived")
-	}
-	n.SessionID = target.SessionID
-	n.Session = target.SessionName
-	n.WindowID = target.WindowID
-	n.Window = target.WindowName
-	n.PaneID = target.PaneID
-	n.Scope = scopeWindow
-	n.Archived = false
-	n.ArchivedAt = nil
-	return s.saveNotesLocked()
-}
-
-func (s *server) saveNotesLocked() error {
-	if err := os.MkdirAll(filepath.Dir(s.notesPath), 0o755); err != nil {
-		return err
-	}
-	records := make([]storedNote, 0, len(s.notes))
-	for _, n := range s.notes {
-		records = append(records, storedNote(*n))
-	}
-	data, err := json.MarshalIndent(records, "", "  ")
-	if err != nil {
-		return err
-	}
-	tmp := s.notesPath + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, s.notesPath)
-}
-
-func (s *server) loadNotes() error {
-	if s.notes == nil {
-		s.notes = make(map[string]*noteRecord)
-	}
-	data, err := os.ReadFile(s.notesPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return err
-	}
-	var records []storedNote
-	if err := json.Unmarshal(data, &records); err != nil {
-		return err
-	}
-	for _, rec := range records {
-		n := rec
-		if strings.TrimSpace(n.Scope) == "" {
-			switch {
-			case n.WindowID != "":
-				n.Scope = scopeWindow
-			case n.SessionID != "":
-				n.Scope = scopeSession
-			default:
-				n.Scope = scopeAll
-			}
-		}
-		s.notes[n.ID] = &noteRecord{
-			ID:         n.ID,
-			Scope:      n.Scope,
-			SessionID:  n.SessionID,
-			Session:    n.Session,
-			WindowID:   n.WindowID,
-			Window:     n.Window,
-			PaneID:     n.PaneID,
-			Summary:    n.Summary,
-			Completed:  n.Completed,
-			Archived:   n.Archived,
-			CreatedAt:  n.CreatedAt,
-			ArchivedAt: n.ArchivedAt,
-		}
-	}
-	return nil
-}
-
-func (s *server) saveGoalsLocked() error {
-	if err := os.MkdirAll(filepath.Dir(s.goalsPath), 0o755); err != nil {
-		return err
-	}
-	records := make([]storedGoal, 0, len(s.goals))
-	for _, g := range s.goals {
-		records = append(records, storedGoal(*g))
-	}
-	data, err := json.MarshalIndent(records, "", "  ")
-	if err != nil {
-		return err
-	}
-	tmp := s.goalsPath + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, s.goalsPath)
-}
-
-func (s *server) loadGoals() error {
-	if s.goals == nil {
-		s.goals = make(map[string]*goalRecord)
-	}
-	data, err := os.ReadFile(s.goalsPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return err
-	}
-	var records []storedGoal
-	if err := json.Unmarshal(data, &records); err != nil {
-		return err
-	}
-	for _, rec := range records {
-		g := rec
-		s.goals[g.ID] = &goalRecord{
-			ID:        g.ID,
-			SessionID: g.SessionID,
-			Session:   g.Session,
-			Summary:   g.Summary,
-			Completed: g.Completed,
-			CreatedAt: g.CreatedAt,
-			UpdatedAt: g.UpdatedAt,
-		}
-	}
-	return nil
-}
-
-func (s *server) addGoal(target tmuxTarget, summary string) error {
-	summary = strings.TrimSpace(summary)
-	if summary == "" {
-		return fmt.Errorf("goal summary required")
-	}
-	target = normalizeNoteTargetNames(target)
-	if strings.TrimSpace(target.SessionID) == "" {
-		return fmt.Errorf("session required for goal")
-	}
-	now := time.Now()
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	g := &goalRecord{
-		ID:        s.newGoalIDLocked(now),
-		SessionID: target.SessionID,
-		Session:   target.SessionName,
-		Summary:   summary,
-		Completed: false,
-		CreatedAt: now,
-		UpdatedAt: now,
-	}
-	s.goals[g.ID] = g
-	return s.saveGoalsLocked()
-}
-
-func (s *server) toggleGoalCompletion(id string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	g, ok := s.goals[id]
-	if !ok {
-		return fmt.Errorf("goal not found")
-	}
-	g.Completed = !g.Completed
-	g.UpdatedAt = time.Now()
-	return s.saveGoalsLocked()
-}
-
-func (s *server) deleteGoal(id string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if _, ok := s.goals[id]; !ok {
-		return fmt.Errorf("goal not found")
-	}
-	delete(s.goals, id)
-	return s.saveGoalsLocked()
-}
-
-func (s *server) newNoteIDLocked(now time.Time) string {
-	counter := atomic.AddUint64(&s.noteCounter, 1)
-	return fmt.Sprintf("%x-%x", now.UnixNano(), counter)
-}
-
-func (s *server) newGoalIDLocked(now time.Time) string {
-	counter := atomic.AddUint64(&s.goalCounter, 1)
-	return fmt.Sprintf("%x-%x", now.UnixNano(), counter)
-}
-
-func normalizeNoteTargetNames(target tmuxTarget) tmuxTarget {
-	if strings.TrimSpace(target.SessionName) == "" {
-		target.SessionName = target.SessionID
-	}
-	if strings.TrimSpace(target.WindowName) == "" {
-		target.WindowName = target.WindowID
+	if strings.TrimSpace(target.WindowName) == strings.TrimSpace(target.WindowID) {
+		target.WindowName = ""
 	}
 	return target
 }
 
-func (s *server) notesForState() ([]ipc.Note, []ipc.Note) {
+func mergeTaskNamesFromTarget(task *taskRecord, target tmuxTarget) {
+	if task == nil {
+		return
+	}
+	if sessionName := strings.TrimSpace(target.SessionName); sessionName != "" {
+		task.SessionName = sessionName
+	}
+	if windowName := strings.TrimSpace(target.WindowName); windowName != "" {
+		task.WindowName = windowName
+	}
+}
+
+func (s *server) loadSettings() error {
+	data, err := os.ReadFile(s.settingsPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	var stored storedSettings
+	if err := json.Unmarshal(data, &stored); err != nil {
+		return err
+	}
+	if stored.NotificationsEnabled != nil {
+		s.mu.Lock()
+		s.notificationsEnabled = *stored.NotificationsEnabled
+		s.mu.Unlock()
+	}
+	return nil
+}
+
+func (s *server) saveSettingsLocked() error {
+	if err := os.MkdirAll(filepath.Dir(s.settingsPath), 0o755); err != nil {
+		return err
+	}
+	enabled := s.notificationsEnabled
+	data, err := json.MarshalIndent(storedSettings{NotificationsEnabled: &enabled}, "", "  ")
+	if err != nil {
+		return err
+	}
+	tmp := s.settingsPath + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, s.settingsPath)
+}
+
+func (s *server) notificationsAreEnabled() bool {
 	s.mu.Lock()
-	records := make([]*noteRecord, 0, len(s.notes))
-	for _, n := range s.notes {
-		records = append(records, n)
+	defer s.mu.Unlock()
+	return s.notificationsEnabled
+}
+
+func (s *server) toggleNotifications() (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.notificationsEnabled = !s.notificationsEnabled
+	if err := s.saveSettingsLocked(); err != nil {
+		return false, err
 	}
-	s.mu.Unlock()
-
-	active := make([]ipc.Note, 0, len(records))
-	archived := make([]ipc.Note, 0, len(records))
-
-	for _, n := range records {
-		copy := ipc.Note{
-			ID:        n.ID,
-			Scope:     n.Scope,
-			SessionID: n.SessionID,
-			Session:   n.Session,
-			WindowID:  n.WindowID,
-			Window:    n.Window,
-			Pane:      n.PaneID,
-			Summary:   n.Summary,
-			Completed: n.Completed,
-			Archived:  n.Archived,
-			CreatedAt: n.CreatedAt.Format(time.RFC3339),
-		}
-		if n.ArchivedAt != nil {
-			copy.ArchivedAt = n.ArchivedAt.Format(time.RFC3339)
-		}
-		if n.Archived {
-			archived = append(archived, copy)
-		} else {
-			active = append(active, copy)
-		}
-	}
-
-	return active, archived
+	return s.notificationsEnabled, nil
 }
 
 func (s *server) notifyResponded(target tmuxTarget) {
+	target = s.fillTargetNamesFromTask(target)
 	summary := strings.TrimSpace(s.summaryForTask(target.SessionID, target.WindowID, target.PaneID))
 	if summary == "" {
 		summary = "Task marked complete"
 	}
+	title := notificationTitleForTarget(target)
 	action := notificationActionForTarget(target)
-	if err := sendSystemNotification("Tracker", summary, action); err != nil {
+	if err := sendSystemNotification(title, summary, action); err != nil {
 		log.Printf("notification error: %v", err)
 	}
+}
+
+func (s *server) fillTargetNamesFromTask(target tmuxTarget) tmuxTarget {
+	target = normalizeTargetNames(target)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if task, ok := s.tasks[taskKey(target.SessionID, target.WindowID, target.PaneID)]; ok {
+		if strings.TrimSpace(target.SessionName) == "" {
+			target.SessionName = strings.TrimSpace(task.SessionName)
+		}
+		if strings.TrimSpace(target.WindowName) == "" {
+			target.WindowName = strings.TrimSpace(task.WindowName)
+		}
+	}
+	return target
+}
+
+func notificationTitleForTarget(target tmuxTarget) string {
+	target = normalizeTargetNames(target)
+	session := strings.TrimSpace(target.SessionName)
+	if session != "" {
+		session = stripSessionIndexPrefix(session)
+	}
+	if session == "" {
+		session = strings.TrimSpace(target.SessionID)
+	}
+	window := strings.TrimSpace(target.WindowName)
+	if window == "" {
+		window = strings.TrimSpace(target.WindowID)
+	}
+
+	if session != "" && window != "" {
+		return session + " - " + window
+	}
+	if session != "" {
+		return session
+	}
+	if window != "" {
+		return window
+	}
+	return "Tracker"
+}
+
+func stripSessionIndexPrefix(name string) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return ""
+	}
+
+	i := 0
+	for i < len(name) && name[i] >= '0' && name[i] <= '9' {
+		i++
+	}
+	if i == 0 {
+		return name
+	}
+
+	j := i
+	for j < len(name) && name[j] == ' ' {
+		j++
+	}
+	if j >= len(name) || name[j] != '-' {
+		return name
+	}
+
+	j++
+	for j < len(name) && name[j] == ' ' {
+		j++
+	}
+
+	trimmed := strings.TrimSpace(name[j:])
+	if trimmed == "" {
+		return name
+	}
+	return trimmed
 }
 
 func (s *server) summaryForTask(sessionID, windowID, paneID string) string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if t, ok := s.tasks[taskKey(sessionID, windowID, paneID)]; ok {
-		if note := strings.TrimSpace(t.CompletionNote); note != "" {
+		note := strings.TrimSpace(t.CompletionNote)
+		summary := strings.TrimSpace(t.Summary)
+		if note != "" && !isGenericCompletionNote(note) {
 			return note
 		}
-		if summary := strings.TrimSpace(t.Summary); summary != "" {
+		if summary != "" {
 			return summary
+		}
+		if note != "" {
+			return note
 		}
 	}
 	return ""
 }
 
-func (s *server) focusTask(client string, target tmuxTarget) error {
-	client = strings.TrimSpace(client)
-	if client == "" {
-		return fmt.Errorf("client required for focus_task")
+func isGenericCompletionNote(note string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(note))
+	normalized = strings.Trim(normalized, ".!?,;:-_()[]{}\"'` ")
+	if normalized == "" {
+		return true
 	}
-	if target.SessionID == "" || target.WindowID == "" {
-		return fmt.Errorf("session and window required for focus_task")
-	}
-	if err := runTmux("switch-client", "-c", client, "-t", target.SessionID); err != nil {
-		return err
-	}
-	if err := runTmux("select-window", "-t", target.WindowID); err != nil {
-		return err
-	}
-	if err := runTmux("select-pane", "-t", target.PaneID); err != nil {
-		return err
-	}
-	return s.hide()
-}
-
-func (s *server) focusGoal(client string, sessionID string) error {
-	client = strings.TrimSpace(client)
-	if client == "" {
-		return fmt.Errorf("client required for goal_focus")
-	}
-	sessionID = strings.TrimSpace(sessionID)
-	if sessionID == "" {
-		return fmt.Errorf("session id required for goal_focus")
-	}
-	if err := runTmux("switch-client", "-c", client, "-t", sessionID); err != nil {
-		return err
-	}
-	return s.hide()
-}
-
-func (s *server) toggle() error {
-	s.mu.Lock()
-	visible := s.visible
-	s.mu.Unlock()
-	if visible {
-		return s.hide()
-	}
-	return s.show()
-}
-
-func (s *server) show() error {
-	s.mu.Lock()
-	s.visible = true
-	s.mu.Unlock()
-	return s.openOnClients(false)
-}
-
-func (s *server) hide() error {
-	s.mu.Lock()
-	s.visible = false
-	s.mu.Unlock()
-	return s.closeOnClients()
-}
-
-func (s *server) refresh() error {
-	s.mu.Lock()
-	visible := s.visible
-	s.mu.Unlock()
-	if !visible {
-		return nil
-	}
-	return s.openOnClients(true)
-}
-
-func (s *server) moveLeft() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	switch s.pos {
-	case posTopRight:
-		s.pos = posTopLeft
-	case posBottomRight:
-		s.pos = posBottomLeft
-	case posCenter:
-		s.pos = posTopLeft
+	switch normalized {
+	case "done", "complete", "completed", "finished", "fixed", "resolved", "ok", "okay", "success", "successful", "all set", "all good", "implemented", "updated", "shipped":
+		return true
 	default:
-		return nil
+		return false
 	}
-	s.broadcastStateAsync()
-	s.asyncRefresh()
-	return nil
-}
-
-func (s *server) moveRight() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	switch s.pos {
-	case posTopLeft:
-		s.pos = posTopRight
-	case posBottomLeft:
-		s.pos = posBottomRight
-	case posCenter:
-		s.pos = posTopRight
-	default:
-		return nil
-	}
-	s.broadcastStateAsync()
-	s.asyncRefresh()
-	return nil
-}
-
-func (s *server) moveUp() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	switch s.pos {
-	case posBottomLeft:
-		s.pos = posTopLeft
-	case posBottomRight:
-		s.pos = posTopRight
-	case posCenter:
-		s.pos = posTopRight
-	default:
-		return nil
-	}
-	s.broadcastStateAsync()
-	s.asyncRefresh()
-	return nil
-}
-
-func (s *server) moveDown() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	switch s.pos {
-	case posTopLeft:
-		s.pos = posBottomLeft
-	case posTopRight:
-		s.pos = posBottomRight
-	case posCenter:
-		s.pos = posBottomRight
-	default:
-		return nil
-	}
-	s.broadcastStateAsync()
-	s.asyncRefresh()
-	return nil
-}
-
-func (s *server) center() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.pos == posCenter {
-		return nil
-	}
-	s.pos = posCenter
-	s.broadcastStateAsync()
-	s.asyncRefresh()
-	return nil
-}
-
-func (s *server) asyncRefresh() {
-	go func() {
-		if err := s.refresh(); err != nil {
-			log.Printf("refresh error: %v", err)
-		}
-	}()
 }
 
 func (s *server) broadcastStateAsync() {
@@ -1072,131 +549,6 @@ func (s *server) statusRefreshAsync() {
 	}()
 }
 
-func (s *server) openOnClients(refresh bool) error {
-	clients, err := listClients()
-	if err != nil {
-		return err
-	}
-	for _, client := range clients {
-		client := client
-		go func() {
-			if refresh {
-				if err := runTmux("display-popup", "-C", "-c", client); err != nil {
-					log.Printf("tracker: close popup %s failed: %v", client, err)
-				}
-			}
-			if err := s.openPopup(client); err != nil {
-				log.Printf("tracker: open popup %s failed: %v", client, err)
-			}
-		}()
-	}
-	return nil
-}
-
-func (s *server) closeOnClients() error {
-	clients, err := listClients()
-	if err != nil {
-		return err
-	}
-	for _, client := range clients {
-		if err := runTmux("display-popup", "-C", "-c", client); err != nil {
-			log.Printf("close popup %s: %v", client, err)
-		}
-	}
-	return nil
-}
-
-func (s *server) openPopup(client string) error {
-	origin := ""
-	if ctx, err := tmuxDisplay(client, "#{session_name}:::#{session_id}:::#{window_name}:::#{window_id}:::#{pane_id}"); err == nil {
-		origin = strings.TrimSpace(ctx)
-	}
-	width, height := s.popupSize()
-	x, y, err := s.popupPosition(client, width, height)
-	if err != nil {
-		return err
-	}
-	args := []string{
-		"display-popup",
-		"-E",
-		"-c", client,
-		"-w", strconv.Itoa(width),
-		"-h", strconv.Itoa(height),
-		"-x", strconv.Itoa(x),
-		"-y", strconv.Itoa(y),
-	}
-	bin, err := trackerClientBinary()
-	if err != nil {
-		return err
-	}
-	args = append(args, bin, "ui", "--client", client)
-	if origin != "" {
-		parts := strings.Split(origin, ":::")
-		if len(parts) == 5 {
-			args = append(args,
-				"--origin-session", parts[0],
-				"--origin-session-id", parts[1],
-				"--origin-window", parts[2],
-				"--origin-window-id", parts[3],
-				"--origin-pane", parts[4],
-			)
-		}
-	}
-	return runTmux(args...)
-}
-
-func (s *server) popupSize() (int, int) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.width, s.height
-}
-
-func (s *server) popupPosition(client string, width, height int) (int, int, error) {
-	cols, rows, err := clientSize(client)
-	if err != nil {
-		return 0, 0, err
-	}
-	s.mu.Lock()
-	pos := s.pos
-	s.mu.Unlock()
-
-	if width >= cols {
-		width = cols - 2
-	}
-	if height >= rows {
-		height = rows - 1
-	}
-
-	var x, y int
-	switch pos {
-	case posTopRight:
-		x = cols - width
-		y = 0
-	case posTopLeft:
-		x = 0
-		y = 0
-	case posBottomLeft:
-		x = 0
-		y = rows - height
-	case posBottomRight:
-		x = cols - width
-		y = rows - height
-	case posCenter:
-		x = (cols - width) / 2
-		y = (rows - height) / 2
-	default:
-		x = cols - width
-		y = 0
-	}
-	if x < 0 {
-		x = 0
-	}
-	if y < 0 {
-		y = 0
-	}
-	return x, y, nil
-}
-
 func (s *server) sendState(enc *json.Encoder) {
 	env := s.buildStateEnvelope()
 	if env == nil {
@@ -1221,14 +573,10 @@ func (s *server) sendStateTo(sub *uiSubscriber) error {
 
 func (s *server) buildStateEnvelope() *ipc.Envelope {
 	s.mu.Lock()
-	visible := s.visible
-	pos := s.pos
 	copies := make([]*taskRecord, 0, len(s.tasks))
-	taskKeys := make([]string, 0, len(s.tasks))
-	for key, task := range s.tasks {
+	for _, task := range s.tasks {
 		copy := *task
 		copies = append(copies, &copy)
-		taskKeys = append(taskKeys, key)
 	}
 	s.mu.Unlock()
 
@@ -1251,27 +599,47 @@ func (s *server) buildStateEnvelope() *ipc.Envelope {
 		if duration < 0 {
 			duration = 0
 		}
-		var names [2]string
-		if cached, ok := nameCache[t.WindowID]; ok {
-			if cached[0] == "" && cached[1] == "" {
-				continue
+		sessionName := strings.TrimSpace(t.SessionName)
+		windowName := strings.TrimSpace(t.WindowName)
+		if sessionName == strings.TrimSpace(t.SessionID) {
+			sessionName = ""
+		}
+		if windowName == strings.TrimSpace(t.WindowID) {
+			windowName = ""
+		}
+		if sessionName == "" || windowName == "" {
+			if cached, ok := nameCache[t.WindowID]; ok {
+				if sessionName == "" {
+					sessionName = cached[0]
+				}
+				if windowName == "" {
+					windowName = cached[1]
+				}
+			} else {
+				sessName, winName, err := tmuxNamesForWindow(t.WindowID)
+				if err == nil {
+					nameCache[t.WindowID] = [2]string{sessName, winName}
+					if sessionName == "" {
+						sessionName = sessName
+					}
+					if windowName == "" {
+						windowName = winName
+					}
+				}
 			}
-			names = cached
-		} else {
-			sessName, winName, err := tmuxNamesForWindow(t.WindowID)
-			if err != nil || (sessName == "" && winName == "") {
-				nameCache[t.WindowID] = [2]string{"", ""}
-				continue
-			}
-			names = [2]string{sessName, winName}
-			nameCache[t.WindowID] = names
+		}
+		if sessionName == "" {
+			sessionName = t.SessionID
+		}
+		if windowName == "" {
+			windowName = t.WindowID
 		}
 
 		tasks = append(tasks, ipc.Task{
 			SessionID:       t.SessionID,
-			Session:         names[0],
+			Session:         sessionName,
 			WindowID:        t.WindowID,
-			Window:          names[1],
+			Window:          windowName,
 			Pane:            t.Pane,
 			Status:          t.Status,
 			Summary:         t.Summary,
@@ -1283,47 +651,11 @@ func (s *server) buildStateEnvelope() *ipc.Envelope {
 		})
 	}
 
-	activeNotes, archived := s.notesForState()
-
-	s.mu.Lock()
-	goalCopies := make([]*goalRecord, 0, len(s.goals))
-	for _, g := range s.goals {
-		copy := *g
-		goalCopies = append(goalCopies, &copy)
-	}
-	s.mu.Unlock()
-
-	goals := make([]ipc.Goal, 0, len(goalCopies))
-	for _, g := range goalCopies {
-		created := ""
-		updated := ""
-		if !g.CreatedAt.IsZero() {
-			created = g.CreatedAt.Format(time.RFC3339)
-		}
-		if !g.UpdatedAt.IsZero() {
-			updated = g.UpdatedAt.Format(time.RFC3339)
-		}
-		goals = append(goals, ipc.Goal{
-			ID:        g.ID,
-			SessionID: g.SessionID,
-			Session:   g.Session,
-			Summary:   g.Summary,
-			Completed: g.Completed,
-			CreatedAt: created,
-			UpdatedAt: updated,
-		})
-	}
-
-	msg := stateSummary(tasks, activeNotes, archived)
+	msg := stateSummary(tasks)
 	return &ipc.Envelope{
-		Kind:     "state",
-		Visible:  &visible,
-		Position: string(pos),
-		Message:  msg,
-		Tasks:    tasks,
-		Notes:    activeNotes,
-		Archived: archived,
-		Goals:    goals,
+		Kind:    "state",
+		Message: msg,
+		Tasks:   tasks,
 	}
 }
 
@@ -1352,11 +684,18 @@ func notificationActionForTarget(target tmuxTarget) *notificationAction {
 		return nil
 	}
 	cmd := fmt.Sprintf("tmux switch-client -t %s && tmux select-window -t %s && tmux select-pane -t %s",
-		strconv.Quote(session), strconv.Quote(window), strconv.Quote(pane))
+		shellQuote(session), shellQuote(window), shellQuote(pane))
 	return &notificationAction{
 		Command:     "sh -lc " + strconv.Quote(cmd),
-		ActivateApp: "com.apple.Terminal",
+		ActivateApp: "com.googlecode.iterm2",
 	}
+}
+
+func shellQuote(value string) string {
+	if value == "" {
+		return "''"
+	}
+	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
 }
 
 func sendSystemNotification(title, message string, action *notificationAction) error {
@@ -1444,26 +783,6 @@ func tmuxOutput(args ...string) (string, error) {
 	return string(output), nil
 }
 
-func clientSize(client string) (int, int, error) {
-	colsStr, err := tmuxDisplay(client, "#{client_width}")
-	if err != nil {
-		return 0, 0, err
-	}
-	rowsStr, err := tmuxDisplay(client, "#{client_height}")
-	if err != nil {
-		return 0, 0, err
-	}
-	cols, err := strconv.Atoi(strings.TrimSpace(colsStr))
-	if err != nil {
-		return 0, 0, err
-	}
-	rows, err := strconv.Atoi(strings.TrimSpace(rowsStr))
-	if err != nil {
-		return 0, 0, err
-	}
-	return cols, rows, nil
-}
-
 func tmuxDisplay(client, format string) (string, error) {
 	cmd := exec.Command("tmux", "display-message", "-p", "-c", client, format)
 	output, err := cmd.CombinedOutput()
@@ -1490,18 +809,6 @@ func listClients() ([]string, error) {
 	return clients, nil
 }
 
-func trackerClientBinary() (string, error) {
-	base := filepath.Join(os.Getenv("HOME"), ".config", "agent-tracker", "bin", "tracker-client")
-	if info, err := os.Stat(base); err == nil && !info.IsDir() {
-		return base, nil
-	}
-	path, err := exec.LookPath("tracker-client")
-	if err != nil {
-		return "", fmt.Errorf("tracker-client binary not found")
-	}
-	return path, nil
-}
-
 func socketPath() string {
 	if dir := os.Getenv("XDG_RUNTIME_DIR"); dir != "" {
 		return filepath.Join(dir, "agent-tracker.sock")
@@ -1509,14 +816,9 @@ func socketPath() string {
 	return filepath.Join(os.TempDir(), "agent-tracker.sock")
 }
 
-func notesStorePath() string {
+func settingsStorePath() string {
 	base := filepath.Join(os.Getenv("HOME"), ".config", "agent-tracker", "run")
-	return filepath.Join(base, "notes.json")
-}
-
-func goalsStorePath() string {
-	base := filepath.Join(os.Getenv("HOME"), ".config", "agent-tracker", "run")
-	return filepath.Join(base, "goals.json")
+	return filepath.Join(base, "settings.json")
 }
 
 func taskKey(sessionID, windowID, paneID string) string {
@@ -1524,13 +826,13 @@ func taskKey(sessionID, windowID, paneID string) string {
 }
 
 func requireSessionWindow(env ipc.Envelope) (tmuxTarget, error) {
-	ctx := tmuxTarget{
+	ctx := normalizeTargetNames(tmuxTarget{
 		SessionName: strings.TrimSpace(env.Session),
 		SessionID:   strings.TrimSpace(env.SessionID),
 		WindowName:  strings.TrimSpace(env.Window),
 		WindowID:    strings.TrimSpace(env.WindowID),
 		PaneID:      strings.TrimSpace(env.Pane),
-	}
+	})
 
 	fetchOrder := []string{}
 	if ctx.PaneID != "" {
@@ -1561,7 +863,7 @@ func requireSessionWindow(env ipc.Envelope) (tmuxTarget, error) {
 
 	if ctx.SessionName == "" || ctx.WindowName == "" {
 		if info, err := detectTmuxTarget(ctx.WindowID); err == nil {
-			ctx = ctx.merge(info)
+			ctx = ctx.merge(normalizeTargetNames(info))
 		}
 	}
 
@@ -1598,17 +900,23 @@ func (t tmuxTarget) merge(other tmuxTarget) tmuxTarget {
 	if t.PaneID == "" {
 		t.PaneID = other.PaneID
 	}
+	if t.WindowIndex == "" {
+		t.WindowIndex = other.WindowIndex
+	}
+	if t.PaneIndex == "" {
+		t.PaneIndex = other.PaneIndex
+	}
 	return t
 }
 
 func detectTmuxTarget(target string) (tmuxTarget, error) {
-	format := "#{session_name}:::#{session_id}:::#{window_name}:::#{window_id}:::#{pane_id}"
+	format := "#{session_name}:::#{session_id}:::#{window_name}:::#{window_id}:::#{pane_id}:::#{window_index}:::#{pane_index}"
 	output, err := tmuxQuery(strings.TrimSpace(target), format)
 	if err != nil {
 		return tmuxTarget{}, err
 	}
 	parts := strings.Split(strings.TrimSpace(output), ":::")
-	if len(parts) != 5 {
+	if len(parts) != 7 {
 		return tmuxTarget{}, fmt.Errorf("unexpected tmux response: %s", strings.TrimSpace(output))
 	}
 	return tmuxTarget{
@@ -1617,6 +925,8 @@ func detectTmuxTarget(target string) (tmuxTarget, error) {
 		WindowName:  strings.TrimSpace(parts[2]),
 		WindowID:    strings.TrimSpace(parts[3]),
 		PaneID:      strings.TrimSpace(parts[4]),
+		WindowIndex: strings.TrimSpace(parts[5]),
+		PaneIndex:   strings.TrimSpace(parts[6]),
 	}, nil
 }
 
@@ -1658,7 +968,7 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
-func stateSummary(tasks []ipc.Task, notes []ipc.Note, archived []ipc.Note) string {
+func stateSummary(tasks []ipc.Task) string {
 	inProgress := 0
 	waiting := 0
 	for _, t := range tasks {
@@ -1671,11 +981,5 @@ func stateSummary(tasks []ipc.Task, notes []ipc.Note, archived []ipc.Note) strin
 			}
 		}
 	}
-	noteCount := len(notes)
-	archivedCount := len(archived)
-	notePart := fmt.Sprintf("Notes %d", noteCount)
-	if archivedCount > 0 {
-		notePart = fmt.Sprintf("%s (+%d archived)", notePart, archivedCount)
-	}
-	return fmt.Sprintf("Active %d · Waiting %d · %s · %s", inProgress, waiting, notePart, time.Now().Format(time.Kitchen))
+	return fmt.Sprintf("Active %d · Waiting %d · %s", inProgress, waiting, time.Now().Format(time.Kitchen))
 }

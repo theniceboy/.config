@@ -3,16 +3,11 @@ set -euo pipefail
 
 current_session_id="${1:-}"
 current_session_name="${2:-}"
+term_width="${3:-}"
+status_bg="${4:-}"
 
-# Single tmux call to get all needed info
-IFS=$'\t' read -r detect_session_id detect_session_name term_width status_bg < <(
-  tmux display-message -p '#{session_id}	#{session_name}	#{client_width}	#{status-bg}' 2>/dev/null || echo ""
-)
-
-[[ -z "$current_session_id" ]] && current_session_id="$detect_session_id"
-[[ -z "$current_session_name" ]] && current_session_name="$detect_session_name"
 [[ -z "$status_bg" || "$status_bg" == "default" ]] && status_bg=black
-term_width="${term_width:-100}"
+[[ ! "$term_width" =~ ^[0-9]+$ ]] && term_width=100
 
 inactive_bg="#373b41"
 inactive_fg="#c5c8c6"
@@ -52,15 +47,14 @@ extract_index() {
 
 
 
+
 sessions=$(tmux list-sessions -F '#{session_id}::#{session_name}' 2>/dev/null || true)
 if [[ -z "$sessions" ]]; then
   exit 0
 fi
 
-# Refresh tracker cache (fast - skips if recent)
 "$HOME/.config/tmux/tmux-status/tracker_cache.sh" 2>/dev/null || true
 
-# Read from cache
 CACHE_FILE="/tmp/tmux-tracker-cache.json"
 tracker_state=""
 if [[ -f "$CACHE_FILE" ]]; then
@@ -69,42 +63,40 @@ fi
 
 get_session_icon() {
   local sid="$1"
+  local has_bell=0 has_watch=0
 
-  # Check for manual @watching on any window in this session
-  local watching_win
-  watching_win=$(tmux list-windows -t "$sid" -F '#{@watching}' 2>/dev/null | grep -m1 '^1$' || true)
-
-  # Check for manual @unread on any window in this session
   local unread_win
   unread_win=$(tmux list-windows -t "$sid" -F '#{@unread}' 2>/dev/null | grep -m1 '^1$' || true)
+  [[ -n "$unread_win" ]] && has_bell=1
 
-  if [[ -n "$unread_win" ]]; then
+  local watching_win
+  watching_win=$(tmux list-windows -t "$sid" -F '#{@watching}' 2>/dev/null | grep -m1 '^1$' || true)
+  [[ -n "$watching_win" ]] && has_watch=1
+
+  if [[ -n "$tracker_state" ]]; then
+    local result
+    result=$(echo "$tracker_state" | jq -r --arg sid "$sid" '
+      .tasks // [] | .[] | select(.session_id == $sid) |
+      if .status == "completed" and .acknowledged != true then "waiting"
+      elif .status == "in_progress" then "in_progress"
+      else empty end
+    ' 2>/dev/null | head -1 || true)
+    case "$result" in
+      waiting) has_bell=1 ;;
+      in_progress) has_watch=1 ;;
+    esac
+  fi
+
+  if (( has_bell )); then
     printf '🔔'
-    return
-  fi
-  if [[ -n "$watching_win" ]]; then
+  elif (( has_watch )); then
     printf '⏳'
-    return
   fi
-
-  [[ -z "$tracker_state" ]] && return
-  local result
-  result=$(echo "$tracker_state" | jq -r --arg sid "$sid" '
-    .tasks // [] | .[] | select(.session_id == $sid) |
-    if .status == "in_progress" then "in_progress"
-    elif .status == "completed" and .acknowledged != true then "waiting"
-    else empty end
-  ' 2>/dev/null | head -1 || true)
-  case "$result" in
-    in_progress) printf '⏳' ;;
-    waiting) printf '🔔' ;;
-  esac
 }
 
 rendered=""
 prev_bg=""
 current_session_id_norm=$(normalize_session_id "$current_session_id")
-current_session_trimmed=$(trim_label "$current_session_name")
 while IFS= read -r entry; do
   [[ -z "$entry" ]] && continue
   session_id="${entry%%::*}"
@@ -116,7 +108,7 @@ while IFS= read -r entry; do
   segment_fg="$inactive_fg"
   trimmed_name=$(trim_label "$name")
   is_current=0
-  if [[ "$session_id" == "$current_session_id" || "$session_id_norm" == "$current_session_id_norm" || "$trimmed_name" == "$current_session_trimmed" ]]; then
+  if [[ "$session_id" == "$current_session_id" || "$session_id_norm" == "$current_session_id_norm" ]]; then
     is_current=1
     segment_bg="$active_bg"
     segment_fg="$active_fg"
@@ -124,7 +116,7 @@ while IFS= read -r entry; do
 
   if (( is_narrow == 1 )); then
     if (( is_current == 1 )); then
-      label="$trimmed_name"  # active: show TITLE (trim N-)
+      label="$trimmed_name"
     else
       idx=$(extract_index "$name")
       if [[ -n "$idx" ]]; then
@@ -134,7 +126,7 @@ while IFS= read -r entry; do
       fi
     fi
   else
-    label="$trimmed_name"      # wide: current behavior (TITLE everywhere)
+    label="$trimmed_name"
   fi
   if (( ${#label} > max_width )); then
     label="${label:0:max_width-1}…"

@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$HOME/.config/agent-tracker"
+BIN="$ROOT/bin/agent"
+
+if [[ ! -x "$BIN" ]]; then
+  echo "agent binary not found at $BIN; run ~/.config/agent-tracker/install.sh first" >&2
+  exit 1
+fi
+
+exec "$BIN" "$@"

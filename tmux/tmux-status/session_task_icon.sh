@@ -4,10 +4,10 @@ set -euo pipefail
 session_id="$1"
 [[ -z "$session_id" ]] && exit 0
 
-tracker_client="$HOME/.config/agent-tracker/bin/tracker-client"
-[[ ! -x "$tracker_client" ]] && exit 0
+agent_bin="$HOME/.config/agent-tracker/bin/agent"
+[[ ! -x "$agent_bin" ]] && exit 0
 
-state=$("$tracker_client" state 2>/dev/null || true)
+state=$("$agent_bin" tracker state 2>/dev/null || true)
 [[ -z "$state" ]] && exit 0
 
 # Check for in_progress or unacknowledged completed tasks in this session

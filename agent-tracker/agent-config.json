@@ -1,0 +1,27 @@
+{
+  "keys": {
+    "move_left": "n",
+    "move_right": "i",
+    "move_up": "u",
+    "move_down": "e",
+    "edit": "Enter",
+    "cancel": "Escape",
+    "add_todo": "a",
+    "toggle_todo": "x",
+    "destroy": "D",
+    "confirm": "y",
+    "back": "Escape",
+    "delete_todo": "d",
+    "help": "?",
+    "focus_ai": "M-a",
+    "focus_git": "M-g",
+    "focus_dashboard": "M-s",
+    "focus_run": "M-r"
+  },
+  "devices": [
+    "web-server",
+    "ipm",
+    "opm",
+    "macos"
+  ]
+}

@@ -1,37 +1,37 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-window_id="$1"
+window_id="${1:-}"
+unread="${2:-0}"
+watching="${3:-0}"
 [[ -z "$window_id" ]] && exit 0
 
-# Check manual @watching flag
-watching=$(tmux show -wv -t "$window_id" @watching 2>/dev/null || true)
-if [[ "$watching" == "1" ]]; then
-  printf '⏳'
-  exit 0
-fi
+has_bell=0
+has_watch=0
 
-# Check manual @unread flag
-unread=$(tmux show -wv -t "$window_id" @unread 2>/dev/null || true)
-if [[ "$unread" == "1" ]]; then
-  printf '🔔'
-  exit 0
-fi
+[[ "$unread" == "1" ]] && has_bell=1
+
+[[ "$watching" == "1" ]] && has_watch=1
 
 CACHE_FILE="/tmp/tmux-tracker-cache.json"
-[[ ! -f "$CACHE_FILE" ]] && exit 0
+if [[ -f "$CACHE_FILE" ]]; then
+  state=$(cat "$CACHE_FILE" 2>/dev/null || true)
+  if [[ -n "$state" ]]; then
+    result=$(echo "$state" | jq -r --arg wid "$window_id" '
+      .tasks // [] | .[] | select(.window_id == $wid) |
+      if .status == "completed" and .acknowledged != true then "waiting"
+      elif .status == "in_progress" then "in_progress"
+      else empty end
+    ' 2>/dev/null | head -1 || true)
+    case "$result" in
+      waiting) has_bell=1 ;;
+      in_progress) has_watch=1 ;;
+    esac
+  fi
+fi
 
-state=$(cat "$CACHE_FILE" 2>/dev/null || true)
-[[ -z "$state" ]] && exit 0
-
-result=$(echo "$state" | jq -r --arg wid "$window_id" '
-  .tasks // [] | .[] | select(.window_id == $wid) |
-  if .status == "in_progress" then "in_progress"
-  elif .status == "completed" and .acknowledged != true then "waiting"
-  else empty end
-' 2>/dev/null | head -1 || true)
-
-case "$result" in
-  in_progress) printf '⏳' ;;
-  waiting) printf '🔔' ;;
-esac
+if (( has_bell )); then
+  printf '🔔'
+elif (( has_watch )); then
+  printf '⏳'
+fi

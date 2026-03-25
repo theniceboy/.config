@@ -6,20 +6,16 @@ window_id="$2"
 
 [[ -z "$pane_id" || -z "$window_id" ]] && exit 1
 
-shells="bash zsh fish sh dash ksh tcsh csh"
+pane_pid=$(tmux display-message -p -t "$pane_id" '#{pane_pid}' 2>/dev/null || true)
+[[ -z "$pane_pid" ]] && exit 0
 
-is_shell() {
-  local cmd="$1"
-  for s in $shells; do
-    [[ "$cmd" == "$s" ]] && return 0
-  done
-  return 1
-}
+pane_shell=$(ps -o comm= -p "$pane_pid" 2>/dev/null | sed 's|.*/||; s/^-//')
+[[ -z "$pane_shell" ]] && exit 0
 
 current_cmd=$(tmux display-message -p -t "$pane_id" '#{pane_current_command}' 2>/dev/null || true)
 [[ -z "$current_cmd" ]] && exit 0
 
-if is_shell "$current_cmd"; then
+if [[ "$current_cmd" == "$pane_shell" ]]; then
   exit 0
 fi
 
@@ -31,7 +27,7 @@ while true; do
   watching=$(tmux show -wv -t "$window_id" @watching 2>/dev/null || true)
   [[ "$watching" != "1" ]] && exit 0
   cmd=$(tmux display-message -p -t "$pane_id" '#{pane_current_command}' 2>/dev/null || true)
-  if [[ -z "$cmd" ]] || is_shell "$cmd"; then
+  if [[ -z "$cmd" || "$cmd" == "$pane_shell" ]]; then
     break
   fi
 done

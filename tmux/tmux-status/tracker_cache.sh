@@ -4,7 +4,7 @@ set -euo pipefail
 CACHE_FILE="/tmp/tmux-tracker-cache.json"
 CACHE_MAX_AGE=1
 
-tracker_client="$HOME/.config/agent-tracker/bin/tracker-client"
+agent_bin="$HOME/.config/agent-tracker/bin/agent"
 
 # Check if cache is fresh enough
 if [[ -f "$CACHE_FILE" ]]; then
@@ -25,8 +25,8 @@ if ! mkdir "$LOCK_DIR" 2>/dev/null; then
 fi
 trap 'rmdir "$LOCK_DIR" 2>/dev/null || true' EXIT
 
-if [[ -x "$tracker_client" ]]; then
-  "$tracker_client" state 2>/dev/null > "$CACHE_FILE.tmp" && mv "$CACHE_FILE.tmp" "$CACHE_FILE"
+if [[ -x "$agent_bin" ]]; then
+  "$agent_bin" tracker state 2>/dev/null > "$CACHE_FILE.tmp" && mv "$CACHE_FILE.tmp" "$CACHE_FILE"
 else
   echo '{}' > "$CACHE_FILE"
 fi

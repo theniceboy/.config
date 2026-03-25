@@ -145,6 +145,7 @@ def _generate():
 
     pane_mem: dict[str, float] = {}
     window_mem: dict[str, float] = {}
+    session_mem: dict[str, float] = {}
 
     for pane in panes:
         desc = get_descendants(pane["pane_pid"], children_map)
@@ -154,13 +155,15 @@ def _generate():
 
         wkey = f"{pane['session']}:{pane['window_idx']}"
         window_mem[wkey] = window_mem.get(wkey, 0) + total
+        session_mem[pane["session"]] = session_mem.get(pane["session"], 0) + total
 
     total_tmux = sum(pane_mem.values())
 
     pane_fmt = {k: fmt(v) for k, v in pane_mem.items()}
     window_fmt = {k: fmt(v) for k, v in window_mem.items()}
+    session_fmt = {k: fmt(v) for k, v in session_mem.items()}
 
-    data = {"ts": time.time(), "pane": pane_fmt, "window": window_fmt, "total": fmt(total_tmux)}
+    data = {"ts": time.time(), "pane": pane_fmt, "window": window_fmt, "session": session_fmt, "total": fmt(total_tmux)}
     tmp = CACHE_FILE + ".tmp"
     with open(tmp, "w") as f:
         json.dump(data, f)

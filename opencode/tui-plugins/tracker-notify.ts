@@ -1,10 +1,13 @@
-import { appendFileSync } from "fs";
+import { appendFileSync, mkdirSync, renameSync, writeFileSync } from "fs";
 
 const NOTIFY_BIN = "/usr/bin/python3";
 const NOTIFY_SCRIPT = "/Users/david/.config/codex/notify.py";
 const MAX_SUMMARY_CHARS = 600;
 const TRACKER_BIN = "/Users/david/.config/agent-tracker/bin/tracker-client";
 const LOG_FILE = "/tmp/tracker-notify-debug.log";
+const STATE_ROOT = process.env.XDG_STATE_HOME || `${process.env.HOME || ""}/.local/state`;
+const OP_STATE_DIR = `${STATE_ROOT}/op`;
+const TMUX_BINS = [process.env.TMUX_BIN, "/opt/homebrew/bin/tmux", "tmux"].filter(Boolean);
 
 const log = (msg: string, data?: any) => {
 	const timestamp = new Date().toISOString();
@@ -17,6 +20,11 @@ const log = (msg: string, data?: any) => {
 };
 
 export const TrackerNotifyPlugin = async ({ client, directory, $ }) => {
+	const trackerNotifyEnabled = process.env.OP_TRACKER_NOTIFY === "1";
+	if (!trackerNotifyEnabled) {
+		return {};
+	}
+
 	// Only run within tmux (TMUX_PANE must be set)
 	const TMUX_PANE = process.env.TMUX_PANE;
 	log("Plugin loading, TMUX_PANE:", TMUX_PANE);
@@ -29,23 +37,60 @@ export const TrackerNotifyPlugin = async ({ client, directory, $ }) => {
 	let tmuxContext = null;
 	const resolveTmuxContext = async () => {
 		if (tmuxContext) return tmuxContext;
-		try {
-			const result = await $`tmux display-message -p -t ${TMUX_PANE} "#{session_id}:::#{window_id}:::#{pane_id}"`.quiet();
-			const parts = result.stdout.trim().split(":::");
-			if (parts.length === 3) {
-				tmuxContext = {
-					sessionId: parts[0],
-					windowId: parts[1],
-					paneId: parts[2],
-				};
+		for (const tmuxBin of TMUX_BINS) {
+			try {
+				const output = await $`${tmuxBin} display-message -p -t ${TMUX_PANE} "#{session_id}:::#{window_id}:::#{pane_id}:::#{session_name}:::#{window_index}:::#{pane_index}"`.text();
+				const parts = output.trim().split(":::");
+				if (parts.length === 6) {
+					tmuxContext = {
+						sessionId: parts[0],
+						windowId: parts[1],
+						paneId: parts[2],
+						sessionName: parts[3],
+						windowIndex: parts[4],
+						paneIndex: parts[5],
+					};
+					break;
+				}
+			} catch {
+				// continue
 			}
-		} catch {
-			// Fallback: use TMUX_PANE directly
+		}
+		if (!tmuxContext) {
 			tmuxContext = { paneId: TMUX_PANE };
 		}
 		return tmuxContext;
 	};
 	await resolveTmuxContext();
+
+	const sanitizeKey = (value = "") => value.replace(/[^A-Za-z0-9_]/g, "_");
+	const paneLocator = () => {
+		if (!tmuxContext?.sessionName || !tmuxContext?.windowIndex || !tmuxContext?.paneIndex) {
+			return "";
+		}
+		return `${tmuxContext.sessionName}:${tmuxContext.windowIndex}.${tmuxContext.paneIndex}`;
+	};
+	const persistPaneSessionMap = async (sessionID) => {
+		const locator = paneLocator();
+		if (!sessionID || !locator) return;
+		const stateFile = `${OP_STATE_DIR}/loc_${sanitizeKey(locator)}`;
+		try {
+			mkdirSync(OP_STATE_DIR, { recursive: true });
+			const tmpPath = `${stateFile}.tmp`;
+			writeFileSync(tmpPath, `${sessionID}\n`, "utf8");
+			renameSync(tmpPath, stateFile);
+		} catch (error) {
+			log("failed to persist pane session", { locator, error: String(error) });
+		}
+	};
+	const eventSessionID = (event) => {
+		return (
+			event?.properties?.sessionID ||
+			event?.properties?.session?.id ||
+			event?.properties?.info?.id ||
+			""
+		);
+	};
 
 	let taskActive = false;
 	let currentSessionID = null;
@@ -195,22 +240,27 @@ export const TrackerNotifyPlugin = async ({ client, directory, $ }) => {
 				}
 			}
 
-		if (event?.type !== "session.status") return;
+			if (event?.type !== "session.updated" && event?.type !== "session.status") return;
 
-		const sessionID = event?.properties?.sessionID;
-		const status = event?.properties?.status;
-		if (!sessionID || !status) return;
+			const sessionID = eventSessionID(event);
+			if (!sessionID) return;
 
-		// Check if this is a subagent session
-		const session = await client.session.get({ path: { id: sessionID } }).catch(() => null);
-		const parentID = session?.data?.parentID;
-		
-		// Skip subagent sessions (they have a parentID)
-		if (parentID) {
-			return;
-		}
+			// Check if this is a subagent session
+			const session = await client.session.get({ path: { id: sessionID } }).catch(() => null);
+			const parentID = session?.data?.parentID;
 
-		if (status.type === "busy" && !taskActive) {
+			// Skip subagent sessions (they have a parentID)
+			if (parentID) {
+				return;
+			}
+
+			await persistPaneSessionMap(sessionID);
+			if (event?.type !== "session.status") return;
+
+			const status = event?.properties?.status;
+			if (!status) return;
+
+			if (status.type === "busy" && !taskActive) {
 				// Use captured message first, then fall back to API
 				let text = lastUserMessage;
 				if (!text) {

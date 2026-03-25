@@ -4,10 +4,14 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT"
 
-go build -o bin/tracker-client ./cmd/tracker-client
+if ! command -v go >/dev/null 2>&1 && [[ -x /opt/homebrew/bin/go ]]; then
+	export PATH="/opt/homebrew/bin:$PATH"
+fi
 
 go build -o bin/tracker-server ./cmd/tracker-server
 
 go build -o bin/tracker-mcp ./cmd/tracker-mcp
 
-echo "Built tracker client, server, and MCP binaries into bin/"
+go build -o bin/agent ./cmd/agent
+
+echo "Built tracker server, MCP, and agent binaries into bin/"

@@ -91,3 +91,5 @@ agent-tracker/run
 !starship-tmux.toml
 
 !/opencode/
+/agent-tracker/bin/agent
+/agent-tracker/tracker-server

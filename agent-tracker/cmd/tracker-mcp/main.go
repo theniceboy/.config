@@ -105,9 +105,7 @@ func main() {
 		}
 		env := ipc.Envelope{
 			Command:   "start_task",
-			Session:   target.SessionID,
 			SessionID: target.SessionID,
-			Window:    target.WindowID,
 			WindowID:  target.WindowID,
 			Pane:      target.PaneID,
 			Summary:   summary,

@@ -13,5 +13,5 @@ op() {
     source "$common" || return 1
   fi
 
-  _op_run op "$@"
+  OP_TRACKER_NOTIFY=1 _op_run op "$@"
 }

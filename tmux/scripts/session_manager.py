@@ -120,6 +120,26 @@ def command_move(direction: str) -> None:
     apply_order(sessions)
 
 
+def command_insert_right(anchor_id: str, moving_id: str) -> None:
+    if not anchor_id or not moving_id or anchor_id == moving_id:
+        command_ensure()
+        return
+
+    sessions = list_sessions()
+    indices = {session["id"]: idx for idx, session in enumerate(sessions)}
+    if anchor_id not in indices or moving_id not in indices:
+        command_ensure()
+        return
+
+    moving_session = sessions.pop(indices[moving_id])
+    anchor_pos = next((idx for idx, session in enumerate(sessions) if session["id"] == anchor_id), None)
+    if anchor_pos is None:
+        sessions.append(moving_session)
+    else:
+        sessions.insert(anchor_pos + 1, moving_session)
+    apply_order(sessions)
+
+
 def command_ensure() -> None:
     sessions = list_sessions()
     if sessions:
@@ -161,6 +181,8 @@ def main(argv: List[str]) -> None:
         command_rename(argv[2])
     elif command == "move" and len(argv) >= 3:
         command_move(argv[2])
+    elif command == "insert-right" and len(argv) >= 4:
+        command_insert_right(argv[2], argv[3])
     elif command == "ensure":
         command_ensure()
     elif command == "created":

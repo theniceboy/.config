@@ -204,6 +204,21 @@ func (s *server) handleCommand(env ipc.Envelope) error {
 		s.broadcastStateAsync()
 		s.statusRefreshAsync()
 		return nil
+	case "update_task":
+		target, err := requireSessionWindow(env)
+		if err != nil {
+			return err
+		}
+		summary := firstNonEmpty(env.Summary, env.Message)
+		if summary == "" {
+			return fmt.Errorf("update_task requires summary")
+		}
+		if err := s.updateTaskSummary(target, summary); err != nil {
+			return err
+		}
+		s.broadcastStateAsync()
+		s.statusRefreshAsync()
+		return nil
 	case "notifications_toggle":
 		enabled, err := s.toggleNotifications()
 		if err != nil {
@@ -255,16 +270,64 @@ func (s *server) startTask(target tmuxTarget, summary string) error {
 	now := time.Now()
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.tasks[taskKey(target.SessionID, target.WindowID, target.PaneID)] = &taskRecord{
-		SessionID:    target.SessionID,
-		SessionName:  strings.TrimSpace(target.SessionName),
-		WindowID:     target.WindowID,
-		WindowName:   strings.TrimSpace(target.WindowName),
-		Pane:         target.PaneID,
-		Summary:      summary,
-		StartedAt:    now,
-		Status:       statusInProgress,
-		Acknowledged: true,
+	key := taskKey(target.SessionID, target.WindowID, target.PaneID)
+	t, ok := s.tasks[key]
+	if !ok {
+		s.tasks[key] = &taskRecord{
+			SessionID:    target.SessionID,
+			SessionName:  strings.TrimSpace(target.SessionName),
+			WindowID:     target.WindowID,
+			WindowName:   strings.TrimSpace(target.WindowName),
+			Pane:         target.PaneID,
+			Summary:      summary,
+			StartedAt:    now,
+			Status:       statusInProgress,
+			Acknowledged: true,
+		}
+		return nil
+	}
+	mergeTaskNamesFromTarget(t, target)
+	if !(t.Status == statusInProgress && strings.TrimSpace(t.Summary) != "") {
+		t.Summary = summary
+	}
+	t.StartedAt = now
+	t.Status = statusInProgress
+	t.CompletedAt = nil
+	t.CompletionNote = ""
+	t.Acknowledged = true
+	return nil
+}
+
+func (s *server) updateTaskSummary(target tmuxTarget, summary string) error {
+	if target.SessionID == "" || target.WindowID == "" {
+		return fmt.Errorf("cannot update task: missing session or window ID")
+	}
+	target = normalizeTargetNames(target)
+	now := time.Now()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	key := taskKey(target.SessionID, target.WindowID, target.PaneID)
+	t, ok := s.tasks[key]
+	if !ok {
+		t = &taskRecord{
+			SessionID:    target.SessionID,
+			SessionName:  strings.TrimSpace(target.SessionName),
+			WindowID:     target.WindowID,
+			WindowName:   strings.TrimSpace(target.WindowName),
+			Pane:         target.PaneID,
+			StartedAt:    now,
+			Status:       statusInProgress,
+			Acknowledged: true,
+		}
+		s.tasks[key] = t
+	}
+	mergeTaskNamesFromTarget(t, target)
+	t.Summary = summary
+	if t.Status == "" {
+		t.Status = statusInProgress
+	}
+	if t.StartedAt.IsZero() {
+		t.StartedAt = now
 	}
 	return nil
 }

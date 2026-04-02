@@ -4,6 +4,23 @@
 - When migrating or refactoring code, do not leave legacy code. Remove all deprecated or unused code.
 - Put change reasoning in your plan/final message — not in code.
 
+## Work Summary
+
+- `set_work_summary` is mandatory protocol, not a suggestion.
+- Call `set_work_summary` at least once at the start of every busy turn before any substantive tool call, code change, research step, or substantive user-facing response.
+- Prefer calling it with both fields: `set_work_summary({ theme: "...", now: "..." })`.
+- `theme` answers: what is this pane about overall? Keep it stable across many turns.
+- `now` answers: what are you about to do next? Update it whenever the next concrete step changes.
+- Keep both labels concrete and under 48 characters.
+- Since the summary line has dedicated space, prefer richer phrases that help a forgetful human re-orient instantly.
+- Good `theme` examples: `Tmux status summary workflow`, `Agent tracker integration`, `Flutter auth onboarding`.
+- Good `now` examples: `Patch summary enforcement`, `Read restore path handling`, `Wait for user reply`.
+- Bad labels: `Working`, `Coding`, `Debugging`, `Researching`, `Task`, `Fixing stuff`.
+- Bad `now` phrasing: `Debugging summary enforcement`, `Reading restore path handling`, `Waiting on user reply`.
+- If you are blocked or waiting, keep the `theme` and change `now`, for example `Wait for user reply` or `Wait for tests`.
+- If the labels are missing or stale, stop and update them first.
+- Repeating the same `theme` across turns is acceptable when the overall mission has not changed.
+
 ---------
 
 ## Adaptive Burst Workflow

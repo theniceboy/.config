@@ -20,6 +20,7 @@ const (
 	paletteModeTodos
 	paletteModeActivity
 	paletteModeDevices
+	paletteModeStatusRight
 	paletteModeTracker
 )
 
@@ -44,9 +45,8 @@ const (
 	paletteActionPromptStartAgent paletteActionKind = iota
 	paletteActionOpenActivityMonitor
 	paletteActionConfirmDestroy
-	paletteActionToggleTodo
 	paletteActionReloadTmuxConfig
-	paletteActionToggleMemoryDisplay
+	paletteActionOpenStatusRight
 	paletteActionOpenSnippets
 	paletteActionOpenTodos
 	paletteActionOpenDevices
@@ -54,13 +54,12 @@ const (
 )
 
 type paletteAction struct {
-	Section   string
-	Title     string
-	Subtitle  string
-	Keywords  []string
-	Kind      paletteActionKind
-	RepoRoot  string
-	TodoIndex int
+	Section  string
+	Title    string
+	Subtitle string
+	Keywords []string
+	Kind     paletteActionKind
+	RepoRoot string
 }
 
 type paletteResultKind int

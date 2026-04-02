@@ -27,37 +27,35 @@ type registry struct {
 }
 
 type agentRecord struct {
-	ID              string       `json:"id"`
-	Name            string       `json:"name"`
-	RepoRoot        string       `json:"repo_root"`
-	WorkspaceRoot   string       `json:"workspace_root"`
-	RepoCopyPath    string       `json:"repo_copy_path"`
-	Branch          string       `json:"branch"`
-	SourceBranch    string       `json:"source_branch,omitempty"`
-	KeepWorktree    bool         `json:"keep_worktree,omitempty"`
-	Runtime         string       `json:"runtime,omitempty"`
-	Device          string       `json:"device,omitempty"`
-	FeatureConfig   string       `json:"feature_config,omitempty"`
-	RunLogPath      string       `json:"run_log_path,omitempty"`
-	Port            int          `json:"port,omitempty"`
-	URL             string       `json:"url,omitempty"`
-	BrowserEnabled  bool         `json:"browser_enabled,omitempty"`
-	TmuxSessionName string       `json:"tmux_session_name,omitempty"`
-	TmuxSessionID   string       `json:"tmux_session_id,omitempty"`
-	TmuxWindowID    string       `json:"tmux_window_id,omitempty"`
-	Panes           agentPanes   `json:"panes"`
-	Dashboard       dashboardDoc `json:"dashboard"`
-	CreatedAt       time.Time    `json:"created_at"`
-	UpdatedAt       time.Time    `json:"updated_at"`
-	LastFocusedAt   *time.Time   `json:"last_focused_at,omitempty"`
-	LaunchWindowID  string       `json:"-"`
+	ID              string     `json:"id"`
+	Name            string     `json:"name"`
+	RepoRoot        string     `json:"repo_root"`
+	WorkspaceRoot   string     `json:"workspace_root"`
+	RepoCopyPath    string     `json:"repo_copy_path"`
+	Branch          string     `json:"branch"`
+	SourceBranch    string     `json:"source_branch,omitempty"`
+	KeepWorktree    bool       `json:"keep_worktree,omitempty"`
+	Runtime         string     `json:"runtime,omitempty"`
+	Device          string     `json:"device,omitempty"`
+	FeatureConfig   string     `json:"feature_config,omitempty"`
+	RunLogPath      string     `json:"run_log_path,omitempty"`
+	Port            int        `json:"port,omitempty"`
+	URL             string     `json:"url,omitempty"`
+	BrowserEnabled  bool       `json:"browser_enabled,omitempty"`
+	TmuxSessionName string     `json:"tmux_session_name,omitempty"`
+	TmuxSessionID   string     `json:"tmux_session_id,omitempty"`
+	TmuxWindowID    string     `json:"tmux_window_id,omitempty"`
+	Panes           agentPanes `json:"panes"`
+	CreatedAt       time.Time  `json:"created_at"`
+	UpdatedAt       time.Time  `json:"updated_at"`
+	LastFocusedAt   *time.Time `json:"last_focused_at,omitempty"`
+	LaunchWindowID  string     `json:"-"`
 }
 
 type agentPanes struct {
-	AI        string `json:"ai,omitempty"`
-	Git       string `json:"git,omitempty"`
-	Run       string `json:"run,omitempty"`
-	Dashboard string `json:"dashboard,omitempty"`
+	AI  string `json:"ai,omitempty"`
+	Git string `json:"git,omitempty"`
+	Run string `json:"run,omitempty"`
 }
 
 type agentStartOptions struct {
@@ -65,20 +63,21 @@ type agentStartOptions struct {
 	KeepWorktree bool
 }
 
-type dashboardDoc struct {
-	Todos       []todoItem `json:"todos"`
-	Notes       string     `json:"notes"`
-	CurrentTask string     `json:"current_task"`
-}
-
-type todoItem struct {
-	Title string `json:"title"`
-	Done  bool   `json:"done"`
-}
-
 type appConfig struct {
-	Keys    keyConfig `json:"keys"`
-	Devices []string  `json:"devices,omitempty"`
+	Keys        keyConfig          `json:"keys"`
+	Devices     []string           `json:"devices,omitempty"`
+	StatusRight *statusRightConfig `json:"status_right,omitempty"`
+}
+
+type statusRightConfig struct {
+	CPU          *bool `json:"cpu,omitempty"`
+	Network      *bool `json:"network,omitempty"`
+	Memory       *bool `json:"memory,omitempty"`
+	MemoryTotals *bool `json:"memory_totals,omitempty"`
+	Agent        *bool `json:"agent,omitempty"`
+	Notes        *bool `json:"notes,omitempty"`
+	FlashMoe     *bool `json:"flash_moe,omitempty"`
+	Host         *bool `json:"host,omitempty"`
 }
 
 type keyConfig struct {
@@ -97,7 +96,6 @@ type keyConfig struct {
 	Help       string `json:"help"`
 	FocusAI    string `json:"focus_ai"`
 	FocusGit   string `json:"focus_git"`
-	FocusDash  string `json:"focus_dashboard"`
 	FocusRun   string `json:"focus_run"`
 }
 
@@ -130,7 +128,7 @@ func main() {
 
 func run(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: agent <start|resume|list|destroy|init|config|setup|dashboard|tmux|tracker|browser|feature>")
+		return fmt.Errorf("usage: agent <start|resume|list|destroy|init|config|setup|tmux|tracker|browser|feature>")
 	}
 	switch args[0] {
 	case "start":
@@ -147,8 +145,6 @@ func run(args []string) error {
 		return runConfig(args[1:])
 	case "setup":
 		return runSetup(args[1:])
-	case "dashboard":
-		return runDashboard(args[1:])
 	case "palette":
 		return runPalette(args[1:])
 	case "tmux":
@@ -1006,7 +1002,7 @@ func destroyRequiresExplicitConfirm(record *agentRecord) (bool, error) {
 
 func runTmuxCommand(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: agent tmux <on-focus|focus|palette>")
+		return fmt.Errorf("usage: agent tmux <on-focus|focus|palette|right-status>")
 	}
 	switch args[0] {
 	case "on-focus":
@@ -1015,6 +1011,8 @@ func runTmuxCommand(args []string) error {
 		return runTmuxFocus(args[1:])
 	case "palette":
 		return runTmuxPalette(args[1:])
+	case "right-status":
+		return runTmuxRightStatus(args[1:])
 	default:
 		return fmt.Errorf("unknown tmux subcommand: %s", args[0])
 	}
@@ -1185,7 +1183,7 @@ func runTmuxFocus(args []string) error {
 		return err
 	}
 	if fs.NArg() == 0 {
-		return fmt.Errorf("usage: agent tmux focus <ai|git|dashboard|run>")
+		return fmt.Errorf("usage: agent tmux focus <ai|git|run>")
 	}
 	role := strings.ToLower(fs.Arg(0))
 	ctx, err := detectCurrentAgentFromTmux(windowID)
@@ -1206,8 +1204,6 @@ func runTmuxFocus(args []string) error {
 		target = record.Panes.AI
 	case "git":
 		target = record.Panes.Git
-	case "dashboard":
-		return openDashboardPopup(record.ID)
 	case "run":
 		target = record.Panes.Run
 	default:
@@ -1217,19 +1213,6 @@ func runTmuxFocus(args []string) error {
 		return fmt.Errorf("pane not found for role: %s", role)
 	}
 	return runTmux("select-pane", "-t", target)
-}
-
-func openDashboardPopup(agentID string) error {
-	agentID = strings.TrimSpace(agentID)
-	if agentID == "" {
-		return fmt.Errorf("agent id is required")
-	}
-	exe, err := os.Executable()
-	if err != nil {
-		return err
-	}
-	cmd := fmt.Sprintf("%s dashboard --agent-id %s", shellQuote(exe), shellQuote(agentID))
-	return runTmux("display-popup", "-E", "-w", "78%", "-h", "80%", "-T", "dashboard", cmd)
 }
 
 func runTmuxPalette(args []string) error {
@@ -2660,7 +2643,6 @@ func loadAppConfig() appConfig {
 		Help:       "?",
 		FocusAI:    "M-a",
 		FocusGit:   "M-g",
-		FocusDash:  "M-s",
 		FocusRun:   "M-r",
 	}}
 	data, err := os.ReadFile(configPath())

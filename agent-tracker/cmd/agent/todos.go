@@ -132,9 +132,6 @@ func bootstrapTmuxTodoStore() (*tmuxTodoStore, error) {
 	if err := importLegacyYamlTodos(store); err != nil {
 		return nil, err
 	}
-	if err := importLegacyDashboardTodos(store); err != nil {
-		return nil, err
-	}
 	if err := saveTmuxTodoStore(store); err != nil {
 		return nil, err
 	}
@@ -230,32 +227,6 @@ func importLegacyYamlTodos(store *tmuxTodoStore) error {
 		}
 		for _, item := range list.Todos {
 			appendUniqueTodo(store, scope, scopeID, item)
-		}
-	}
-	return nil
-}
-
-func importLegacyDashboardTodos(store *tmuxTodoStore) error {
-	reg, err := loadRegistry()
-	if err != nil {
-		return err
-	}
-	for _, record := range reg.Agents {
-		if record == nil {
-			continue
-		}
-		scope := todoScopeGlobal
-		scopeID := "global"
-		switch {
-		case strings.TrimSpace(record.TmuxWindowID) != "":
-			scope = todoScopeWindow
-			scopeID = strings.TrimSpace(record.TmuxWindowID)
-		case strings.TrimSpace(record.TmuxSessionID) != "":
-			scope = todoScopeSession
-			scopeID = strings.TrimSpace(record.TmuxSessionID)
-		}
-		for _, todo := range record.Dashboard.Todos {
-			appendUniqueTodo(store, scope, scopeID, tmuxTodoItem{Title: todo.Title, Done: todo.Done, Priority: 2})
 		}
 	}
 	return nil

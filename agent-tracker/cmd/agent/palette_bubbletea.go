@@ -55,6 +55,7 @@ type paletteModel struct {
 	todo     *todoPanelModel
 	activity *activityMonitorBT
 	devices  *devicePanelModel
+	status   *statusRightPanelModel
 	tracker  *trackerPanelModel
 }
 
@@ -329,15 +330,6 @@ func (r *paletteRuntime) persistRecord(update func(*agentRecord) error) error {
 }
 
 func (r *paletteRuntime) buildActions() []paletteAction {
-	memoryDisplayEnabled := paletteMemoryDisplayEnabled()
-	memoryTitle := "Hide memory display"
-	memorySubtitle := "Hide bottom-right tmux memory stats"
-	memoryKeywords := []string{"tmux", "memory", "status", "status-right", "hide", "bottom-right"}
-	if !memoryDisplayEnabled {
-		memoryTitle = "Show memory display"
-		memorySubtitle = "Show bottom-right tmux memory stats"
-		memoryKeywords = []string{"tmux", "memory", "status", "status-right", "show", "bottom-right"}
-	}
 	actions := []paletteAction{
 		{
 			Section:  "Agent",
@@ -402,10 +394,10 @@ func (r *paletteRuntime) buildActions() []paletteAction {
 		},
 		paletteAction{
 			Section:  "System",
-			Title:    memoryTitle,
-			Subtitle: memorySubtitle,
-			Keywords: memoryKeywords,
-			Kind:     paletteActionToggleMemoryDisplay,
+			Title:    "Bottom-right status",
+			Subtitle: "Open control center for tmux right-side status modules",
+			Keywords: []string{"tmux", "status", "status-right", "bottom-right", "control", "center", "istat", "cpu", "network", "memory", "notes", "host", "flash"},
+			Kind:     paletteActionOpenStatusRight,
 		},
 	)
 	if strings.TrimSpace(r.agentID) == "" {
@@ -413,20 +405,6 @@ func (r *paletteRuntime) buildActions() []paletteAction {
 	}
 	if r.record == nil {
 		return actions
-	}
-	for idx, todo := range r.record.Dashboard.Todos {
-		status := "open"
-		if todo.Done {
-			status = "done"
-		}
-		actions = append(actions, paletteAction{
-			Section:   "Agent",
-			Title:     fmt.Sprintf("Toggle todo: %s", todo.Title),
-			Subtitle:  fmt.Sprintf("Mark todo %s", status),
-			Keywords:  []string{"agent", "todo", "toggle", status, todo.Title},
-			Kind:      paletteActionToggleTodo,
-			TodoIndex: idx,
-		})
 	}
 	return actions
 }
@@ -568,15 +546,6 @@ func (r *paletteRuntime) execute(result paletteResult) (bool, string, error) {
 	action := result.Action
 	text := strings.TrimSpace(result.Input)
 	switch action.Kind {
-	case paletteActionToggleTodo:
-		err := r.persistRecord(func(record *agentRecord) error {
-			if action.TodoIndex < 0 || action.TodoIndex >= len(record.Dashboard.Todos) {
-				return fmt.Errorf("todo no longer exists")
-			}
-			record.Dashboard.Todos[action.TodoIndex].Done = !record.Dashboard.Todos[action.TodoIndex].Done
-			return nil
-		})
-		return false, "", err
 	case paletteActionPromptStartAgent:
 		if err := r.runAgentStart(action.RepoRoot, text, result.Device, result.KeepWorktree); err != nil {
 			return true, "", err
@@ -598,35 +567,59 @@ func (r *paletteRuntime) execute(result paletteResult) (bool, string, error) {
 		return false, "", nil
 	case paletteActionReloadTmuxConfig:
 		return false, "", paletteTmuxRunner("source-file", os.Getenv("HOME")+"/.config/.tmux.conf")
-	case paletteActionToggleMemoryDisplay:
-		return false, "", togglePaletteMemoryDisplay()
 	default:
 		return false, "", nil
 	}
 }
 
-func paletteMemoryDisplayEnabled() bool {
-	out, err := paletteTmuxOutput("show-environment", "-g", "TMUX_STATUS_MEMORY")
-	if err != nil {
-		return true
+func statusRightModuleLabel(module string) string {
+	switch module {
+	case statusRightModuleCPU:
+		return "CPU"
+	case statusRightModuleNetwork:
+		return "Network"
+	case statusRightModuleMemory:
+		return "Memory"
+	case statusRightModuleMemoryTotals:
+		return "Tmux Memory"
+	case statusRightModuleAgent:
+		return "Agent"
+	case statusRightModuleNotes:
+		return "Notes"
+	case statusRightModuleFlashMoe:
+		return "Flash-MoE"
+	case statusRightModuleHost:
+		return "Host"
+	default:
+		return module
 	}
-	line := strings.TrimSpace(out)
-	if strings.HasPrefix(line, "TMUX_STATUS_MEMORY=") {
-		value := strings.TrimSpace(strings.TrimPrefix(line, "TMUX_STATUS_MEMORY="))
-		switch strings.ToLower(value) {
-		case "0", "false", "off", "no":
-			return false
-		}
-	}
-	return true
 }
 
-func togglePaletteMemoryDisplay() error {
-	value := "0"
-	if !paletteMemoryDisplayEnabled() {
-		value = "1"
+func statusRightModuleDescription(module string) string {
+	switch module {
+	case statusRightModuleCPU:
+		return "CPU usage"
+	case statusRightModuleNetwork:
+		return "network throughput"
+	case statusRightModuleMemory:
+		return "pane memory stats"
+	case statusRightModuleMemoryTotals:
+		return "window, session, and total tmux memory"
+	case statusRightModuleAgent:
+		return "active agent device"
+	case statusRightModuleNotes:
+		return "todo count"
+	case statusRightModuleFlashMoe:
+		return "Flash-MoE status"
+	case statusRightModuleHost:
+		return "hostname"
+	default:
+		return module
 	}
-	if err := paletteTmuxRunner("set-environment", "-g", "TMUX_STATUS_MEMORY", value); err != nil {
+}
+
+func togglePaletteStatusRightModule(module string) error {
+	if err := toggleStatusRightModule(module); err != nil {
 		return err
 	}
 	return paletteTmuxRunner("refresh-client", "-S")
@@ -650,6 +643,9 @@ func newPaletteModel(runtime *paletteRuntime, state paletteUIState) *paletteMode
 	}
 	if state.Mode == paletteModeDevices {
 		model.openDevicesPanel()
+	}
+	if state.Mode == paletteModeStatusRight {
+		model.openStatusRightPanel()
 	}
 	if state.Mode == paletteModeTracker {
 		_, _ = model.openTrackerPanel()
@@ -731,6 +727,19 @@ func (m *paletteModel) openDevicesPanel() {
 	m.state.ShowAltHints = false
 }
 
+func (m *paletteModel) openStatusRightPanel() {
+	if m.status == nil {
+		m.status = newStatusRightPanelModel()
+	} else {
+		m.status.reload()
+		m.status.requestBack = false
+	}
+	m.status.showAltHints = false
+	m.state.Mode = paletteModeStatusRight
+	m.state.Message = ""
+	m.state.ShowAltHints = false
+}
+
 func (m *paletteModel) openTrackerPanel() (tea.Cmd, error) {
 	if m.tracker == nil {
 		m.tracker = newTrackerPanelModel(m.runtime)
@@ -765,8 +774,12 @@ func (m *paletteModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.tracker.width = msg.Width
 			m.tracker.height = msg.Height
 		}
+		if m.status != nil {
+			m.status.width = msg.Width
+			m.status.height = msg.Height
+		}
 	case tea.KeyMsg:
-		if m.state.Mode != paletteModeActivity && m.state.Mode != paletteModeTodos && m.state.Mode != paletteModeDevices && m.state.Mode != paletteModeTracker {
+		if m.state.Mode != paletteModeActivity && m.state.Mode != paletteModeTodos && m.state.Mode != paletteModeDevices && m.state.Mode != paletteModeStatusRight && m.state.Mode != paletteModeTracker {
 			if isAltFooterToggleKey(msg) {
 				m.state.ShowAltHints = !m.state.ShowAltHints
 				return m, nil
@@ -838,6 +851,22 @@ func (m *paletteModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.devices.requestBack = false
 				m.state.Mode = paletteModeList
 				m.state.Message = m.devices.currentStatus()
+				return m, nil
+			}
+			return m, cmd
+		}
+		if m.state.Mode == paletteModeStatusRight {
+			if m.status == nil {
+				m.openStatusRightPanel()
+			}
+			model, cmd := m.status.Update(msg)
+			if updated, ok := model.(*statusRightPanelModel); ok {
+				m.status = updated
+			}
+			if m.status.requestBack {
+				m.status.requestBack = false
+				m.state.Mode = paletteModeList
+				m.state.Message = m.status.currentStatus()
 				return m, nil
 			}
 			return m, cmd
@@ -914,6 +943,19 @@ func (m *paletteModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.devices.requestBack = false
 			m.state.Mode = paletteModeList
 			m.state.Message = m.devices.currentStatus()
+			return m, nil
+		}
+		return m, cmd
+	}
+	if m.state.Mode == paletteModeStatusRight && m.status != nil {
+		model, cmd := m.status.Update(msg)
+		if updated, ok := model.(*statusRightPanelModel); ok {
+			m.status = updated
+		}
+		if m.status.requestBack {
+			m.status.requestBack = false
+			m.state.Mode = paletteModeList
+			m.state.Message = m.status.currentStatus()
 			return m, nil
 		}
 		return m, cmd
@@ -1051,6 +1093,9 @@ func (m *paletteModel) selectAction(action paletteAction) (tea.Model, tea.Cmd) {
 		return m, nil
 	case paletteActionOpenDevices:
 		m.openDevicesPanel()
+		return m, nil
+	case paletteActionOpenStatusRight:
+		m.openStatusRightPanel()
 		return m, nil
 	default:
 		m.state.Mode = paletteModeList
@@ -1376,6 +1421,14 @@ func (m *paletteModel) View() string {
 		}
 		return styles.muted.Render("Device panel unavailable")
 	}
+	if m.state.Mode == paletteModeStatusRight {
+		if m.status != nil {
+			m.status.width = width
+			m.status.height = height
+			return m.status.render(styles, width, height)
+		}
+		return styles.muted.Render("Status panel unavailable")
+	}
 	if m.state.Mode == paletteModeTracker {
 		if m.tracker != nil {
 			m.tracker.width = width
@@ -1421,10 +1474,10 @@ func (m *paletteModel) renderListView(styles paletteStyles, width, height int) s
 	)
 	contentHeight := maxInt(8, height-7)
 	listWidth := maxInt(34, width*48/100)
-	dashboardWidth := maxInt(28, width-listWidth-3)
+	sidebarWidth := maxInt(28, width-listWidth-3)
 	list := m.renderActions(styles, actions, listWidth, contentHeight)
-	dashboard := m.renderDashboard(styles, dashboardWidth, contentHeight)
-	body := lipgloss.JoinHorizontal(lipgloss.Top, list, strings.Repeat(" ", 3), dashboard)
+	sidebar := m.renderSidebar(styles, sidebarWidth, contentHeight)
+	body := lipgloss.JoinHorizontal(lipgloss.Top, list, strings.Repeat(" ", 3), sidebar)
 	footer := renderPaletteFooter(styles, width, m.state.Message, m.state.ShowAltHints)
 	view := lipgloss.JoinVertical(lipgloss.Left, header, "", filterLine, "", body, "", footer)
 	return lipgloss.NewStyle().Width(width).Height(height).Padding(0, 1).Render(view)
@@ -1486,9 +1539,9 @@ func (m *paletteModel) renderActions(styles paletteStyles, actions []paletteActi
 	return lipgloss.NewStyle().Width(width).Height(height).Render(content)
 }
 
-func (m *paletteModel) renderDashboard(styles paletteStyles, width, height int) string {
+func (m *paletteModel) renderSidebar(styles paletteStyles, width, height int) string {
 	lines := []string{}
-	trackerContext, trackerAgent, trackerBootstrap := m.runtime.dashboardTrackerStatus()
+	trackerContext, trackerAgent, trackerBootstrap := m.runtime.sidebarTrackerStatus()
 	lines = append(lines, styles.panelTitle.Render("Tracker Status"))
 	lines = append(lines, renderPaletteStat(styles, "Context", trackerContext, width, 9))
 	lines = append(lines, renderPaletteStat(styles, "Agent", trackerAgent, width, 9))
@@ -1496,7 +1549,7 @@ func (m *paletteModel) renderDashboard(styles paletteStyles, width, height int) 
 	lines = append(lines, "")
 	lines = append(lines, styles.panelTitle.Render("Todo Preview"))
 	previewLimit := clampInt((height-6)/4, 1, 3)
-	sections := m.runtime.dashboardTodoPreviewSections()
+	sections := m.runtime.sidebarTodoPreviewSections()
 	for idx, section := range sections {
 		if idx > 0 {
 			lines = append(lines, "")
@@ -1507,7 +1560,7 @@ func (m *paletteModel) renderDashboard(styles paletteStyles, width, height int) 
 	return lipgloss.NewStyle().Width(width).Height(height).Render(content)
 }
 
-func (r *paletteRuntime) dashboardTrackerStatus() (contextSummary, agentSummary, bootstrapSummary string) {
+func (r *paletteRuntime) sidebarTrackerStatus() (contextSummary, agentSummary, bootstrapSummary string) {
 	contextParts := []string{}
 	if r.currentSessionName != "" {
 		contextParts = append(contextParts, r.currentSessionName)
@@ -1540,7 +1593,7 @@ func (r *paletteRuntime) dashboardTrackerStatus() (contextSummary, agentSummary,
 	return contextSummary, agentSummary, bootstrapSummary
 }
 
-func (r *paletteRuntime) dashboardTodoPreviewSections() []paletteTodoPreviewSection {
+func (r *paletteRuntime) sidebarTodoPreviewSections() []paletteTodoPreviewSection {
 	sections := []paletteTodoPreviewSection{}
 	store, err := loadTmuxTodoStore()
 	windowID := strings.TrimSpace(r.windowID)
@@ -1560,17 +1613,6 @@ func (r *paletteRuntime) dashboardTodoPreviewSections() []paletteTodoPreviewSect
 			Items: paletteTmuxTodoPreviewItems(todoItemsForScope(store, todoScopeGlobal, "")),
 			Empty: "No global todos",
 		})
-	}
-	if r.record != nil {
-		section := paletteTodoPreviewSection{
-			Title: "Dashboard",
-			Items: paletteAgentTodoPreviewItems(r.record.Dashboard.Todos),
-			Empty: "No dashboard todos",
-		}
-		if currentTask := firstPaletteLine(r.record.Dashboard.CurrentTask); currentTask != "" {
-			section.Lead = "Task: " + currentTask
-		}
-		sections = append(sections, section)
 	}
 	return sections
 }
@@ -2124,18 +2166,6 @@ func paletteTmuxTodoPreviewItems(items []tmuxTodoItem) []paletteTodoPreviewItem 
 			continue
 		}
 		rows = append(rows, paletteTodoPreviewItem{Title: title, Done: item.Done})
-	}
-	return rows
-}
-
-func paletteAgentTodoPreviewItems(todos []todoItem) []paletteTodoPreviewItem {
-	rows := make([]paletteTodoPreviewItem, 0, len(todos))
-	for _, todo := range todos {
-		title := firstPaletteLine(todo.Title)
-		if title == "" || todo.Done {
-			continue
-		}
-		rows = append(rows, paletteTodoPreviewItem{Title: title, Done: todo.Done})
 	}
 	return rows
 }

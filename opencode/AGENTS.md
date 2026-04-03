@@ -7,7 +7,8 @@
 ## Work Summary
 
 - `set_work_summary` is mandatory protocol, not a suggestion.
-- Call `set_work_summary` at least once at the start of every busy turn before any substantive tool call, code change, research step, or substantive user-facing response.
+- It is fine to inspect first. You may use exploratory tools like search, read, task, web, or read-only shell commands before calling `set_work_summary`.
+- Call `set_work_summary` once you have enough context to label the work accurately, and always before edits, patches, or other committed actions.
 - Prefer calling it with both fields: `set_work_summary({ theme: "...", now: "..." })`.
 - `theme` answers: what is this pane about overall? Keep it stable across many turns.
 - `now` answers: what are you about to do next? Update it whenever the next concrete step changes.

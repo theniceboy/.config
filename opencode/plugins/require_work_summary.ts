@@ -5,6 +5,21 @@ type TurnState = {
 }
 
 const states = new Map<string, TurnState>()
+const exploratoryTools = new Set([
+	"bash",
+	"read",
+	"glob",
+	"grep",
+	"task",
+	"question",
+	"webfetch",
+	"web_google_search",
+	"web_website_fetch",
+	"web_website_search",
+	"web_website_outline",
+	"web_website_extract_section",
+	"web_website_extract_pricing",
+])
 
 function sessionState(sessionID: string) {
 	let state = states.get(sessionID)
@@ -24,17 +39,13 @@ function eventSessionID(event: any) {
 	).trim()
 }
 
+function isExploratoryTool(tool: string) {
+	return exploratoryTools.has(tool)
+}
+
 export const RequireWorkSummaryPlugin: Plugin = async () => {
 	return {
 		"chat.message": async (input: any) => {
-			const sessionID = String(input?.sessionID || "").trim()
-			if (!sessionID) {
-				return
-			}
-			sessionState(sessionID).summaryCalled = false
-		},
-
-		"command.execute.before": async (input: any) => {
 			const sessionID = String(input?.sessionID || "").trim()
 			if (!sessionID) {
 				return
@@ -58,9 +69,13 @@ export const RequireWorkSummaryPlugin: Plugin = async () => {
 				return
 			}
 
+			if (isExploratoryTool(tool)) {
+				return
+			}
+
 			if (!state.summaryCalled) {
 				throw new Error(
-					"Call set_work_summary first with a specific theme and next-step now label before using other tools.",
+					"Exploration tools can run first, but call set_work_summary before edits or other committed actions.",
 				)
 			}
 		},

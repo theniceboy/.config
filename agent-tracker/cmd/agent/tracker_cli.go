@@ -67,7 +67,7 @@ func runTrackerCommand(args []string) error {
 	}
 	command := strings.TrimSpace(rest[0])
 	switch command {
-	case "start_task", "finish_task", "update_task", "acknowledge", "delete_task":
+	case "start_task", "finish_task", "update_task", "acknowledge", "delete_task", "notify":
 		ctx, err := resolveTrackerContext(env.Session, env.SessionID, env.Window, env.WindowID, env.Pane)
 		if err != nil {
 			return err

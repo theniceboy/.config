@@ -1339,15 +1339,24 @@ func activeAgentWindowID(record *agentRecord) string {
 	return windowID
 }
 
-func launchAgentLayout(record *agentRecord) error {
+func launchAgentLayout(record *agentRecord) (err error) {
+	previousWindowID := currentTmuxWindowID()
+	cleanupWindow := false
+	windowID := ""
 	windowID, sessionID, sessionName, attachAfter, err := createWindow(record.Name, record.RepoCopyPath, record.LaunchWindowID)
 	if err != nil {
 		return err
 	}
-
-	if err := runTmux("select-window", "-t", windowID); err != nil {
-		return err
-	}
+	cleanupWindow = true
+	defer func() {
+		if err == nil || !cleanupWindow || strings.TrimSpace(windowID) == "" {
+			return
+		}
+		_ = runTmux("kill-window", "-t", windowID)
+		if strings.TrimSpace(previousWindowID) != "" {
+			_ = runTmux("select-window", "-t", previousWindowID)
+		}
+	}()
 	topPane, err := currentPane(windowID)
 	if err != nil {
 		return err
@@ -1400,12 +1409,20 @@ func launchAgentLayout(record *agentRecord) error {
 			return err
 		}
 	}
+	if attachAfter && canAttachTmux() {
+		if err := runTmux("attach-session", "-t", sessionID); err != nil {
+			return err
+		}
+		cleanupWindow = false
+		return nil
+	}
+	if err := runTmux("select-window", "-t", windowID); err != nil {
+		return err
+	}
 	if err := runTmux("select-pane", "-t", aiPane); err != nil {
 		return err
 	}
-	if attachAfter && canAttachTmux() {
-		return runTmux("attach-session", "-t", sessionID)
-	}
+	cleanupWindow = false
 	return nil
 }
 

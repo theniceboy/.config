@@ -15,14 +15,14 @@
     "help": "?",
     "focus_ai": "M-a",
     "focus_git": "M-g",
-    "focus_dashboard": "M-s",
     "focus_run": "M-r"
   },
   "devices": [
     "web-server",
     "ipm",
     "opm",
-    "macos"
+    "macos",
+    "ipp"
   ],
   "status_right": {
     "cpu": false,

@@ -15,6 +15,14 @@ pane_shell=$(ps -o comm= -p "$pane_pid" 2>/dev/null | sed 's|.*/||; s/^-//')
 current_cmd=$(tmux display-message -p -t "$pane_id" '#{pane_current_command}' 2>/dev/null || true)
 [[ -z "$current_cmd" ]] && exit 0
 
+notify_completion() {
+  local tracker_bin message
+  tracker_bin="$HOME/.config/agent-tracker/bin/agent"
+  [[ -x "$tracker_bin" ]] || return 0
+  message="${current_cmd} finished"
+  "$tracker_bin" tracker command -window-id "$window_id" -pane "$pane_id" -summary "$message" notify >/dev/null 2>&1 || true
+}
+
 if [[ "$current_cmd" == "$pane_shell" ]]; then
   exit 0
 fi
@@ -35,3 +43,4 @@ done
 tmux set -wu -t "$window_id" @watching 2>/dev/null || true
 tmux set -w -t "$window_id" @unread 1 2>/dev/null || true
 tmux refresh-client -S
+notify_completion

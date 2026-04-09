@@ -204,6 +204,21 @@ func (s *server) handleCommand(env ipc.Envelope) error {
 		s.broadcastStateAsync()
 		s.statusRefreshAsync()
 		return nil
+	case "notify":
+		target, err := requireSessionWindow(env)
+		if err != nil {
+			return err
+		}
+		message := firstNonEmpty(env.Summary, env.Message)
+		if message == "" {
+			return fmt.Errorf("notify requires summary")
+		}
+		if s.notificationsAreEnabled() {
+			if err := sendSystemNotification(notificationTitleForTarget(target), message, notificationActionForTarget(target)); err != nil {
+				return err
+			}
+		}
+		return nil
 	case "update_task":
 		target, err := requireSessionWindow(env)
 		if err != nil {

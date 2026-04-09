@@ -1,4 +1,4 @@
-import { appendFileSync, mkdirSync, renameSync, writeFileSync } from "fs";
+import { appendFileSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "fs";
 
 const NOTIFY_BIN = "/usr/bin/python3";
 const NOTIFY_SCRIPT = "/Users/david/.config/codex/notify.py";
@@ -8,6 +8,7 @@ const LOG_FILE = "/tmp/tracker-notify-debug.log";
 const STATE_ROOT = process.env.XDG_STATE_HOME || `${process.env.HOME || ""}/.local/state`;
 const OP_STATE_DIR = `${STATE_ROOT}/op`;
 const TMUX_BINS = [process.env.TMUX_BIN, "/opt/homebrew/bin/tmux", "tmux"].filter(Boolean);
+const TMUX_QUESTION_OPTION = "@op_question_pending";
 
 const log = (msg: string, data?: any) => {
 	const timestamp = new Date().toISOString();
@@ -70,17 +71,30 @@ export const TrackerNotifyPlugin = async ({ client, directory, $ }) => {
 		}
 		return `${tmuxContext.sessionName}:${tmuxContext.windowIndex}.${tmuxContext.paneIndex}`;
 	};
-	const persistPaneSessionMap = async (sessionID) => {
+	const paneSessionStateFile = () => {
 		const locator = paneLocator();
-		if (!sessionID || !locator) return;
-		const stateFile = `${OP_STATE_DIR}/loc_${sanitizeKey(locator)}`;
+		if (!locator) return "";
+		return `${OP_STATE_DIR}/loc_${sanitizeKey(locator)}`;
+	};
+	const persistPaneSessionMap = async (sessionID) => {
+		const stateFile = paneSessionStateFile();
+		if (!sessionID || !stateFile) return;
 		try {
 			mkdirSync(OP_STATE_DIR, { recursive: true });
 			const tmpPath = `${stateFile}.tmp`;
 			writeFileSync(tmpPath, `${sessionID}\n`, "utf8");
 			renameSync(tmpPath, stateFile);
 		} catch (error) {
-			log("failed to persist pane session", { locator, error: String(error) });
+			log("failed to persist pane session", { stateFile, error: String(error) });
+		}
+	};
+	const loadPersistedPaneSessionID = () => {
+		const stateFile = paneSessionStateFile();
+		if (!stateFile) return "";
+		try {
+			return readFileSync(stateFile, "utf8").trim();
+		} catch {
+			return "";
 		}
 	};
 	const eventSessionID = (event) => {
@@ -95,6 +109,60 @@ export const TrackerNotifyPlugin = async ({ client, directory, $ }) => {
 	let taskActive = false;
 	let currentSessionID = null;
 	let lastUserMessage = "";
+	let rootSessionID = loadPersistedPaneSessionID();
+	let questionPending: boolean | null = null;
+
+	const setTmuxPaneOption = async (option, value: string | null) => {
+		if (!tmuxContext?.paneId) return;
+		for (const tmuxBin of TMUX_BINS) {
+			const cmd =
+				value === null
+					? await $`${tmuxBin} set-option -p -u -t ${tmuxContext.paneId} ${option}`.nothrow()
+					: await $`${tmuxBin} set-option -p -t ${tmuxContext.paneId} ${option} ${value}`.nothrow();
+			if (cmd?.exitCode === 0) {
+				return;
+			}
+		}
+	};
+
+	const applyQuestionPending = async (pending: boolean) => {
+		if (questionPending === pending) return;
+		questionPending = pending;
+		await setTmuxPaneOption(TMUX_QUESTION_OPTION, pending ? "1" : null);
+	};
+
+	const listPendingQuestions = async () => {
+		try {
+			const response = await client.question.list({ directory });
+			if (Array.isArray(response?.data)) {
+				return response.data;
+			}
+			if (Array.isArray(response)) {
+				return response;
+			}
+		} catch {
+			// ignore
+		}
+		return [];
+	};
+
+	const syncPendingQuestionState = async (sessionID = rootSessionID) => {
+		const effectiveSessionID = sessionID || loadPersistedPaneSessionID();
+		if (!effectiveSessionID) {
+			return;
+		}
+		rootSessionID = effectiveSessionID;
+		const pending = (await listPendingQuestions()).some(
+			(question) => question?.sessionID === effectiveSessionID,
+		);
+		await applyQuestionPending(pending);
+	};
+
+	if (rootSessionID) {
+		await syncPendingQuestionState(rootSessionID);
+	} else {
+		await applyQuestionPending(false);
+	}
 
 	const trackerReady = async () => {
 		const check = await $`test -x ${TRACKER_BIN}`.nothrow();
@@ -208,6 +276,10 @@ export const TrackerNotifyPlugin = async ({ client, directory, $ }) => {
 	return {
 		"tool.execute.before": async (input, output) => {
 			if (input.tool === "question") {
+				if (!rootSessionID && input?.sessionID) {
+					rootSessionID = input.sessionID;
+				}
+				await applyQuestionPending(true);
 				log("Question tool called:", {
 					questions: output.args?.questions || "no questions",
 					timestamp: new Date().toISOString()
@@ -216,6 +288,16 @@ export const TrackerNotifyPlugin = async ({ client, directory, $ }) => {
 		},
 		
 		event: async ({ event }) => {
+			if (event?.type === "question.asked") {
+				await applyQuestionPending(true);
+				return;
+			}
+
+			if (event?.type === "question.replied" || event?.type === "question.rejected") {
+				const sessionID = event?.properties?.sessionID || rootSessionID;
+				await syncPendingQuestionState(sessionID);
+				return;
+			}
 			
 			// Track message roles from message.updated events
 			if (event?.type === "message.updated") {
@@ -254,7 +336,12 @@ export const TrackerNotifyPlugin = async ({ client, directory, $ }) => {
 				return;
 			}
 
+			const sessionChanged = sessionID !== rootSessionID;
+			rootSessionID = sessionID;
 			await persistPaneSessionMap(sessionID);
+			if (sessionChanged) {
+				await syncPendingQuestionState(sessionID);
+			}
 			if (event?.type !== "session.status") return;
 
 			const status = event?.properties?.status;

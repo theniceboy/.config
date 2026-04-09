@@ -8,10 +8,14 @@ watching="${3:-0}"
 
 has_bell=0
 has_watch=0
+has_question=0
 
 [[ "$unread" == "1" ]] && has_bell=1
 
 [[ "$watching" == "1" ]] && has_watch=1
+
+question_pane=$(tmux list-panes -t "$window_id" -F '#{@op_question_pending}' 2>/dev/null | grep -F -m1 -x '1' || true)
+[[ -n "$question_pane" ]] && has_question=1
 
 CACHE_FILE="/tmp/tmux-tracker-cache.json"
 if [[ -f "$CACHE_FILE" ]]; then
@@ -30,7 +34,9 @@ if [[ -f "$CACHE_FILE" ]]; then
   fi
 fi
 
-if (( has_bell )); then
+if (( has_question )); then
+  printf '❓'
+elif (( has_bell )); then
   printf '🔔'
 elif (( has_watch )); then
   printf '⏳'

@@ -61,9 +61,15 @@ if [[ -f "$CACHE_FILE" ]]; then
   tracker_state=$(cat "$CACHE_FILE" 2>/dev/null || true)
 fi
 
+question_state=$(tmux list-panes -a -F '#{session_id}::#{@op_question_pending}' 2>/dev/null || true)
+
 get_session_icon() {
   local sid="$1"
-  local has_bell=0 has_watch=0
+  local has_question=0 has_bell=0 has_watch=0
+
+  local question_pane
+  question_pane=$(grep -F -m1 -x "${sid}::1" <<< "$question_state" || true)
+  [[ -n "$question_pane" ]] && has_question=1
 
   local unread_win
   unread_win=$(tmux list-windows -t "$sid" -F '#{@unread}' 2>/dev/null | grep -m1 '^1$' || true)
@@ -87,7 +93,9 @@ get_session_icon() {
     esac
   fi
 
-  if (( has_bell )); then
+  if (( has_question )); then
+    printf '❓'
+  elif (( has_bell )); then
     printf '🔔'
   elif (( has_watch )); then
     printf '⏳'

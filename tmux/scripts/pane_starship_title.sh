@@ -61,11 +61,12 @@ load_option() {
   printf '%s' "$value"
 }
 
-clear_work_labels() {
+clear_opencode_state() {
   [[ -n "$pane_id" ]] || return 0
   tmux set-option -p -u -t "$pane_id" @op_work_theme 2>/dev/null || true
   tmux set-option -p -u -t "$pane_id" @op_work_now 2>/dev/null || true
   tmux set-option -p -u -t "$pane_id" @op_work_summary 2>/dev/null || true
+  tmux set-option -p -u -t "$pane_id" @op_question_pending 2>/dev/null || true
 }
 
 opencode_active() {
@@ -102,10 +103,11 @@ if [[ -z "$theme" ]]; then
   theme=$(load_option "@op_work_summary")
 fi
 now=$(load_option "@op_work_now")
+question_pending=$(load_option "@op_question_pending")
 
 if ! opencode_active; then
-  if [[ -n "$theme" || -n "$now" ]]; then
-    clear_work_labels
+  if [[ -n "$theme" || -n "$now" || -n "$question_pending" ]]; then
+    clear_opencode_state
   fi
   printf '%s' "$title"
   exit 0

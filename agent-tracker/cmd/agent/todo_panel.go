@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os/exec"
+	"sort"
 	"strings"
 	"time"
 
@@ -21,12 +22,23 @@ const (
 	todoPanelModeConfirmDelete
 )
 
+type todoPanelPane int
+
+const (
+	todoPanelPaneWindow todoPanelPane = iota
+	todoPanelPaneAllWindows
+	todoPanelPaneGlobal
+)
+
 type todoPanelModel struct {
 	entries         []tmuxTodoEntry
-	focusedScope    todoScope
+	focusedPane     todoPanelPane
+	lastWindowPane  todoPanelPane
 	selectedWindow  int
+	selectedAllWin  int
 	selectedGlobal  int
 	windowOffset    int
+	allWinOffset    int
 	globalOffset    int
 	mode            todoPanelMode
 	sessionID       string
@@ -138,7 +150,8 @@ func newTodoPanelModel(sessionID, windowID string) (*todoPanelModel, error) {
 	model := &todoPanelModel{
 		sessionID:       strings.TrimSpace(sessionID),
 		windowID:        strings.TrimSpace(windowID),
-		focusedScope:    todoScopeWindow,
+		focusedPane:     todoPanelPaneWindow,
+		lastWindowPane:  todoPanelPaneWindow,
 		keepVisibleDone: map[string]bool{},
 		styles:          newTodoPanelStyles(),
 		mode:            todoPanelModeList,
@@ -147,12 +160,20 @@ func newTodoPanelModel(sessionID, windowID string) (*todoPanelModel, error) {
 	return model, nil
 }
 
-func collectTodoPanelEntries(currentWindowID string) []tmuxTodoEntry {
+func collectTodoPanelEntries(currentSessionID, currentWindowID string) []tmuxTodoEntry {
 	store, err := loadTmuxTodoStore()
 	if err != nil {
 		return nil
 	}
-	entries := make([]tmuxTodoEntry, 0, len(store.Global)+len(store.Windows[currentWindowID]))
+	windowLabels := todoPanelWindowLabels(currentSessionID)
+	allWindowCount := 0
+	for windowID, items := range store.Windows {
+		if strings.TrimSpace(windowID) == strings.TrimSpace(currentWindowID) {
+			continue
+		}
+		allWindowCount += len(items)
+	}
+	entries := make([]tmuxTodoEntry, 0, len(store.Global)+len(store.Windows[currentWindowID])+allWindowCount)
 	for idx, item := range store.Windows[currentWindowID] {
 		entries = append(entries, tmuxTodoEntry{
 			Title:     item.Title,
@@ -163,7 +184,31 @@ func collectTodoPanelEntries(currentWindowID string) []tmuxTodoEntry {
 			ScopeName: "Window",
 			IsCurrent: true,
 			ItemIndex: idx,
+			PanelPane: todoPanelPaneWindow,
 		})
+	}
+	windowIDs := make([]string, 0, len(store.Windows))
+	for windowID := range store.Windows {
+		if strings.TrimSpace(windowID) == strings.TrimSpace(currentWindowID) {
+			continue
+		}
+		windowIDs = append(windowIDs, windowID)
+	}
+	sort.Strings(windowIDs)
+	for _, windowID := range windowIDs {
+		for idx, item := range store.Windows[windowID] {
+			entries = append(entries, tmuxTodoEntry{
+				Title:     item.Title,
+				Done:      item.Done,
+				Priority:  item.Priority,
+				Scope:     todoScopeWindow,
+				ScopeID:   windowID,
+				ScopeName: "Window",
+				ItemIndex: idx,
+				PanelPane: todoPanelPaneAllWindows,
+				Detail:    windowLabels[windowID],
+			})
+		}
 	}
 	for idx, item := range store.Global {
 		entries = append(entries, tmuxTodoEntry{
@@ -175,15 +220,48 @@ func collectTodoPanelEntries(currentWindowID string) []tmuxTodoEntry {
 			ScopeName: "Global",
 			IsCurrent: true,
 			ItemIndex: idx,
+			PanelPane: todoPanelPaneGlobal,
 		})
 	}
 	return entries
 }
 
 func (m *todoPanelModel) reloadEntries() {
-	m.entries = collectTodoPanelEntries(m.windowID)
+	m.entries = collectTodoPanelEntries(m.sessionID, m.windowID)
 	m.pruneKeepVisibleDone()
 	m.clampSelections()
+}
+
+func todoPanelWindowLabels(currentSessionID string) map[string]string {
+	labels := map[string]string{}
+	out, err := runTmuxOutput("list-windows", "-a", "-F", "#{session_id}\t#{window_id}\t#{session_name}\t#{window_index}\t#{window_name}")
+	if err != nil {
+		return labels
+	}
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		parts := strings.Split(line, "\t")
+		if len(parts) != 5 {
+			continue
+		}
+		sessionID := strings.TrimSpace(parts[0])
+		windowID := strings.TrimSpace(parts[1])
+		sessionName := strings.TrimSpace(parts[2])
+		windowIndex := strings.TrimSpace(parts[3])
+		windowName := strings.TrimSpace(parts[4])
+		label := strings.TrimSpace(strings.TrimSpace(windowIndex+" ") + windowName)
+		if label == "" {
+			label = windowID
+		}
+		if sessionID != strings.TrimSpace(currentSessionID) && sessionName != "" {
+			label = sessionName + " · " + label
+		}
+		labels[windowID] = label
+	}
+	return labels
 }
 
 func (m *todoPanelModel) Init() tea.Cmd {
@@ -235,13 +313,34 @@ func (m *todoPanelModel) updateList(key string) (tea.Model, tea.Cmd) {
 	case "ctrl+e":
 		return m.moveSelectedTodo(1)
 	case "n", "left":
-		m.focusedScope = todoScopeWindow
+		m.setFocusedPane(m.lastWindowPane)
 		m.clampSelections()
 	case "i", "right":
-		m.focusedScope = todoScopeGlobal
+		m.setFocusedPane(todoPanelPaneGlobal)
 		m.clampSelections()
-	case "enter", " ":
-		entry, ok := m.selectedEntry(m.focusedScope)
+	case "tab", "shift+tab":
+		m.toggleWindowPaneFocus()
+		m.clampSelections()
+	case "N":
+		if m.focusedPane == todoPanelPaneGlobal {
+			return m.transferSelectedTodo(todoScopeWindow)
+		}
+	case "I":
+		if m.focusedPane == todoPanelPaneWindow || m.focusedPane == todoPanelPaneAllWindows {
+			return m.transferSelectedTodo(todoScopeGlobal)
+		}
+	case "enter":
+		entry, ok := m.selectedEntry(m.focusedPane)
+		if !ok {
+			return m, nil
+		}
+		if err := focusTodoEntry(entry); err != nil {
+			m.setStatus(err.Error(), 1500*time.Millisecond)
+			return m, nil
+		}
+		return m, tea.Quit
+	case " ":
+		entry, ok := m.selectedEntry(m.focusedPane)
 		if !ok {
 			return m, nil
 		}
@@ -261,9 +360,9 @@ func (m *todoPanelModel) updateList(key string) (tea.Model, tea.Cmd) {
 		m.mode = todoPanelModeAdd
 		m.addText = nil
 		m.addCursor = 0
-		m.addScope = m.focusedScope
+		m.addScope = m.defaultAddScope()
 	case "E":
-		if entry, ok := m.selectedEntry(m.focusedScope); ok {
+		if entry, ok := m.selectedEntry(m.focusedPane); ok {
 			entryCopy := entry
 			m.editEntry = &entryCopy
 			m.mode = todoPanelModeEdit
@@ -272,7 +371,7 @@ func (m *todoPanelModel) updateList(key string) (tea.Model, tea.Cmd) {
 			m.addScope = entry.Scope
 		}
 	case "y":
-		entry, ok := m.selectedEntry(m.focusedScope)
+		entry, ok := m.selectedEntry(m.focusedPane)
 		if !ok {
 			return m, nil
 		}
@@ -282,7 +381,7 @@ func (m *todoPanelModel) updateList(key string) (tea.Model, tea.Cmd) {
 			m.setStatus("Copied todo", 1500*time.Millisecond)
 		}
 	case "d", "x":
-		if entry, ok := m.selectedEntry(m.focusedScope); ok {
+		if entry, ok := m.selectedEntry(m.focusedPane); ok {
 			m.deleteEntry = &entry
 			m.mode = todoPanelModeConfirmDelete
 		}
@@ -314,9 +413,10 @@ func (m *todoPanelModel) updateAdd(key string) (tea.Model, tea.Cmd) {
 		if err := addTmuxTodo(m.addScope, scopeID, title); err != nil {
 			m.setStatus(err.Error(), 1500*time.Millisecond)
 		} else {
-			m.focusedScope = m.addScope
 			m.reloadEntries()
-			m.setSelectedIndex(m.addScope, maxInt(0, len(m.visibleEntries(m.addScope))-1))
+			targetPane := m.paneForScope(m.addScope)
+			m.setFocusedPane(targetPane)
+			m.setSelectedIndex(targetPane, maxInt(0, len(m.visibleEntries(targetPane))-1))
 		}
 		m.mode = todoPanelModeList
 		return m, nil
@@ -360,9 +460,10 @@ func (m *todoPanelModel) updateEdit(key string) (tea.Model, tea.Cmd) {
 		if err := updateTmuxTodoTitleByIndex(m.editEntry.Scope, m.editEntry.ScopeID, m.editEntry.ItemIndex, title); err != nil {
 			m.setStatus(err.Error(), 1500*time.Millisecond)
 		} else {
-			selected := m.selectedIndex(m.focusedScope)
+			focusedPane := m.focusedPane
+			selected := m.selectedIndex(focusedPane)
 			m.reloadEntries()
-			m.setSelectedIndex(m.focusedScope, selected)
+			m.setSelectedIndex(focusedPane, selected)
 		}
 		m.editEntry = nil
 		m.mode = todoPanelModeList
@@ -373,7 +474,7 @@ func (m *todoPanelModel) updateEdit(key string) (tea.Model, tea.Cmd) {
 }
 
 func (m *todoPanelModel) setSelectedPriority(priority int) (tea.Model, tea.Cmd) {
-	entry, ok := m.selectedEntry(m.focusedScope)
+	entry, ok := m.selectedEntry(m.focusedPane)
 	if !ok {
 		return m, nil
 	}
@@ -381,15 +482,20 @@ func (m *todoPanelModel) setSelectedPriority(priority int) (tea.Model, tea.Cmd) 
 		m.setStatus(err.Error(), 1500*time.Millisecond)
 		return m, nil
 	}
-	selected := m.selectedIndex(m.focusedScope)
+	focusedPane := m.focusedPane
+	selected := m.selectedIndex(focusedPane)
 	m.reloadEntries()
-	m.setSelectedIndex(m.focusedScope, selected)
+	m.setSelectedIndex(focusedPane, selected)
 	return m, nil
 }
 
 func (m *todoPanelModel) moveSelectedTodo(delta int) (tea.Model, tea.Cmd) {
-	entries := m.visibleEntries(m.focusedScope)
-	selected := m.selectedIndex(m.focusedScope)
+	if m.focusedPane == todoPanelPaneAllWindows {
+		m.setStatus("Reorder unavailable in all windows", 1500*time.Millisecond)
+		return m, nil
+	}
+	entries := m.visibleEntries(m.focusedPane)
+	selected := m.selectedIndex(m.focusedPane)
 	if len(entries) == 0 || selected < 0 || selected >= len(entries) {
 		return m, nil
 	}
@@ -404,7 +510,52 @@ func (m *todoPanelModel) moveSelectedTodo(delta int) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.reloadEntries()
-	m.setSelectedIndex(m.focusedScope, target)
+	m.setSelectedIndex(m.focusedPane, target)
+	return m, nil
+}
+
+func (m *todoPanelModel) transferSelectedTodo(targetScope todoScope) (tea.Model, tea.Cmd) {
+	entry, ok := m.selectedEntry(m.focusedPane)
+	if !ok {
+		return m, nil
+	}
+	if entry.Scope == targetScope {
+		return m, nil
+	}
+	targetScopeID := m.scopeID(targetScope)
+	if targetScope == todoScopeWindow && strings.TrimSpace(targetScopeID) == "" {
+		m.setStatus("window todo scope unavailable", 1500*time.Millisecond)
+		return m, nil
+	}
+	sourcePane := m.focusedPane
+	targetPane := m.paneForScope(targetScope)
+	sourceSelected := m.selectedIndex(sourcePane)
+	targetItemIndex := len(m.allEntries(targetPane))
+	if err := moveTmuxTodoToScopeByIndex(entry.Scope, entry.ScopeID, entry.ItemIndex, targetScope, targetScopeID); err != nil {
+		m.setStatus(err.Error(), 1500*time.Millisecond)
+		return m, nil
+	}
+	m.reloadEntries()
+	if entry.Done && !m.showCompleted {
+		movedEntry := entry
+		movedEntry.Scope = targetScope
+		movedEntry.ScopeID = targetScopeID
+		movedEntry.ItemIndex = targetItemIndex
+		movedEntry.PanelPane = targetPane
+		m.keepVisibleDone[todoEntryKey(movedEntry)] = true
+	}
+	m.setSelectedIndex(sourcePane, sourceSelected)
+	targetSelected := 0
+	for idx, candidate := range m.visibleEntries(targetPane) {
+		if candidate.Scope == targetScope && candidate.ScopeID == targetScopeID && candidate.ItemIndex == targetItemIndex {
+			targetSelected = idx
+			break
+		}
+	}
+	m.setSelectedIndex(targetPane, targetSelected)
+	m.clampSelections()
+	m.setFocusedPane(targetPane)
+	m.setStatus(fmt.Sprintf("Moved todo to %s", strings.ToLower(todoScopeLabel(targetScope))), 1500*time.Millisecond)
 	return m, nil
 }
 
@@ -432,7 +583,7 @@ func (m *todoPanelModel) updateConfirmDelete(key string) (tea.Model, tea.Cmd) {
 func (m *todoPanelModel) View() string {
 	w := m.width
 	h := m.height
-	if w < 52 || h < 12 {
+	if w < 52 || h < 14 {
 		return m.styles.title.Render("Window too small")
 	}
 
@@ -463,15 +614,25 @@ func (m *todoPanelModel) renderList(w, h int) string {
 		completedLabel = "shown"
 	}
 	headerLine := m.styles.title.Render(fmt.Sprintf("Todo Panel  %d open  %d done", openCount, doneCount))
-	metaLine := m.styles.meta.Render(fmt.Sprintf("Window %d  Global %d  Completed %s", len(m.visibleEntries(todoScopeWindow)), len(m.visibleEntries(todoScopeGlobal)), completedLabel))
+	metaLine := m.styles.meta.Render(fmt.Sprintf("Window %d  All Windows %d  Global %d  Completed %s", len(m.visibleEntries(todoPanelPaneWindow)), len(m.visibleEntries(todoPanelPaneAllWindows)), len(m.visibleEntries(todoPanelPaneGlobal)), completedLabel))
 
 	contentH := h - 4
 	leftW := maxInt(24, (w-1)/2)
 	rightW := maxInt(24, w-leftW-1)
+	upperLeftH := maxInt(4, (contentH-1)/2)
+	lowerLeftH := maxInt(4, contentH-upperLeftH-1)
+	if upperLeftH+lowerLeftH+1 > contentH {
+		lowerLeftH = maxInt(1, contentH-upperLeftH-1)
+	}
+	leftColumn := lipgloss.JoinVertical(lipgloss.Left,
+		lipgloss.NewStyle().Width(leftW).Height(upperLeftH).Render(m.renderPane(todoPanelPaneWindow, leftW, upperLeftH)),
+		m.renderHorizontalDivider(leftW),
+		lipgloss.NewStyle().Width(leftW).Height(lowerLeftH).Render(m.renderPane(todoPanelPaneAllWindows, leftW, lowerLeftH)),
+	)
 	body := lipgloss.JoinHorizontal(lipgloss.Top,
-		lipgloss.NewStyle().Width(leftW).Height(contentH).Render(m.renderColumn(todoScopeWindow, leftW, contentH)),
+		lipgloss.NewStyle().Width(leftW).Height(contentH).Render(leftColumn),
 		m.renderDivider(contentH),
-		lipgloss.NewStyle().Width(rightW).Height(contentH).Render(m.renderColumn(todoScopeGlobal, rightW, contentH)),
+		lipgloss.NewStyle().Width(rightW).Height(contentH).Render(m.renderPane(todoPanelPaneGlobal, rightW, contentH)),
 	)
 	footer := m.renderFooter(w)
 
@@ -485,40 +646,35 @@ func (m *todoPanelModel) renderList(w, h int) string {
 	return lipgloss.NewStyle().Width(w).Height(h).Padding(0, 1).Render(view)
 }
 
-func (m *todoPanelModel) renderColumn(scope todoScope, width, height int) string {
-	entries := m.visibleEntries(scope)
-	selected := m.selectedIndex(scope)
+func (m *todoPanelModel) renderPane(pane todoPanelPane, width, height int) string {
+	entries := m.visibleEntries(pane)
+	selected := m.selectedIndex(pane)
 	labelStyle := m.styles.mutedLabel
-	if m.focusedScope == scope {
+	if m.focusedPane == pane {
 		labelStyle = m.styles.currentLabel
 	}
-	label := labelStyle.Render(todoScopeLabel(scope))
+	label := labelStyle.Render(todoPanelPaneLabel(pane))
 	header := lipgloss.JoinHorizontal(lipgloss.Left, label, " ", m.styles.meta.Render(fmt.Sprintf("%d items", len(entries))))
 	lines := []string{header, ""}
 	if len(entries) == 0 {
-		message := "No open todos"
-		if m.showCompleted {
-			message = "No todos"
-		}
+		message, hint := m.emptyPaneState(pane)
 		lines = append(lines, m.styles.itemMuted.Width(width).Render(message))
-		if !m.showCompleted && len(m.scopeEntries(scope)) > 0 {
-			lines = append(lines, m.styles.subtle.Width(width).Render("Press c to show completed todos."))
-		} else {
-			lines = append(lines, m.styles.subtle.Width(width).Render("Press a to add a todo here."))
+		if hint != "" {
+			lines = append(lines, m.styles.subtle.Width(width).Render(hint))
 		}
 		return lipgloss.NewStyle().Width(width).Height(height).Render(strings.Join(lines, "\n"))
 	}
 
 	visibleRows := maxInt(1, height-2)
-	offset := stableListOffset(m.selectedOffset(scope), selected, visibleRows, len(entries))
-	m.setSelectedOffset(scope, offset)
+	offset := stableListOffset(m.selectedOffset(pane), selected, visibleRows, len(entries))
+	m.setSelectedOffset(pane, offset)
 	usedRows := 0
 	for idx := offset; usedRows < visibleRows; idx++ {
 		if idx >= len(entries) {
 			break
 		}
 		entry := entries[idx]
-		isSelected := m.focusedScope == scope && idx == selected
+		isSelected := m.focusedPane == pane && idx == selected
 		entryLines := m.renderTodoEntryLines(entry, width, isSelected)
 		remaining := visibleRows - usedRows
 		if len(entryLines) > remaining {
@@ -570,6 +726,18 @@ func (m *todoPanelModel) renderTodoEntryLines(entry tmuxTodoEntry, width int, is
 	for _, line := range titleLines[1:] {
 		padding := maxInt(0, innerWidth-prefixWidth-lipgloss.Width(line))
 		rowLines = append(rowLines, boxStyle.Render(continuationPrefix+titleStyle.Render(line)+fillStyle.Render(strings.Repeat(" ", padding))))
+	}
+	if detail := strings.TrimSpace(entry.Detail); detail != "" {
+		metaStyle := m.styles.itemMeta
+		if entry.Done {
+			metaStyle = metaStyle.Foreground(lipgloss.Color("242"))
+		}
+		if isSelected {
+			metaStyle = metaStyle.Background(lipgloss.Color("238")).Foreground(lipgloss.Color("247"))
+		}
+		detail = truncate(detail, maxInt(8, innerWidth-prefixWidth))
+		padding := maxInt(0, innerWidth-prefixWidth-lipgloss.Width(detail))
+		rowLines = append(rowLines, boxStyle.Render(continuationPrefix+metaStyle.Render(detail)+fillStyle.Render(strings.Repeat(" ", padding))))
 	}
 	return rowLines
 }
@@ -630,11 +798,11 @@ func (m *todoPanelModel) renderFooter(w int) string {
 		)
 	} else {
 		footer = pickRenderedShortcutFooter(contentWidth, renderSegments,
-			[][2]string{{"u/e", "move"}, {"Ctrl-U/E", "reorder"}, {"n/i", "column"}, {"Space", "toggle"}, {"a", "add"}, {"E", "edit"}, {"y", "copy"}, {"d", "delete"}, {"1/2/3", "priority"}, {"c", "completed"}, {"Esc", "close"}, {footerHintToggleKey, "more"}},
-			[][2]string{{"u/e", "move"}, {"Ctrl-U/E", "reorder"}, {"n/i", "col"}, {"Space", "toggle"}, {"a", "add"}, {"E", "edit"}, {"y", "copy"}, {"d", "del"}, {"c", "done"}, {"Esc", "close"}, {footerHintToggleKey, "more"}},
-			[][2]string{{"u/e", "move"}, {"Ctrl-U/E", "reorder"}, {"n/i", "col"}, {"Space", "toggle"}, {"a", "add"}, {"E", "edit"}, {"y", "copy"}, {"d", "del"}, {"Esc", "close"}, {footerHintToggleKey, "more"}},
-			[][2]string{{"u/e", "move"}, {"n/i", "col"}, {"Space", "toggle"}, {"a", "add"}, {"E", "edit"}, {"y", "copy"}, {"d", "del"}, {"Esc", "close"}, {footerHintToggleKey, "more"}},
-			[][2]string{{"u/e", "move"}, {"n/i", "col"}, {"a", "add"}, {"E", "edit"}, {"y", "copy"}, {"d", "del"}, {"Esc", "close"}, {footerHintToggleKey, "more"}},
+			[][2]string{{"u/e", "move"}, {"Enter", "goto"}, {"Ctrl-U/E", "reorder"}, {"n/i", "column"}, {"Tab", "window"}, {"Shift-N/I", "scope"}, {"Space", "toggle"}, {"a", "add"}, {"E", "edit"}, {"y", "copy"}, {"d", "delete"}, {"1/2/3", "priority"}, {"c", "completed"}, {"Esc", "close"}, {footerHintToggleKey, "more"}},
+			[][2]string{{"u/e", "move"}, {"Enter", "goto"}, {"Ctrl-U/E", "reorder"}, {"n/i", "col"}, {"Tab", "win"}, {"N/I", "scope"}, {"Space", "toggle"}, {"a", "add"}, {"E", "edit"}, {"y", "copy"}, {"d", "del"}, {"c", "done"}, {"Esc", "close"}, {footerHintToggleKey, "more"}},
+			[][2]string{{"u/e", "move"}, {"Enter", "goto"}, {"Ctrl-U/E", "reorder"}, {"n/i", "col"}, {"Tab", "win"}, {"N/I", "scope"}, {"Space", "toggle"}, {"a", "add"}, {"E", "edit"}, {"y", "copy"}, {"d", "del"}, {"Esc", "close"}, {footerHintToggleKey, "more"}},
+			[][2]string{{"u/e", "move"}, {"Enter", "goto"}, {"n/i", "col"}, {"Tab", "win"}, {"N/I", "scope"}, {"Space", "toggle"}, {"a", "add"}, {"E", "edit"}, {"y", "copy"}, {"d", "del"}, {"Esc", "close"}, {footerHintToggleKey, "more"}},
+			[][2]string{{"u/e", "move"}, {"Enter", "goto"}, {"n/i", "col"}, {"Tab", "win"}, {"N/I", "scope"}, {"a", "add"}, {"E", "edit"}, {"y", "copy"}, {"d", "del"}, {"Esc", "close"}, {footerHintToggleKey, "more"}},
 			[][2]string{{"Esc", "close"}, {footerHintToggleKey, "more"}},
 		)
 	}
@@ -662,20 +830,20 @@ func (m *todoPanelModel) scopeID(scope todoScope) string {
 	return m.windowID
 }
 
-func (m *todoPanelModel) scopeEntries(scope todoScope) []tmuxTodoEntry {
+func (m *todoPanelModel) allEntries(pane todoPanelPane) []tmuxTodoEntry {
 	entries := make([]tmuxTodoEntry, 0, len(m.entries))
 	for _, entry := range m.entries {
-		if entry.Scope == scope {
+		if entry.PanelPane == pane {
 			entries = append(entries, entry)
 		}
 	}
 	return entries
 }
 
-func (m *todoPanelModel) visibleEntries(scope todoScope) []tmuxTodoEntry {
+func (m *todoPanelModel) visibleEntries(pane todoPanelPane) []tmuxTodoEntry {
 	entries := make([]tmuxTodoEntry, 0, len(m.entries))
 	for _, entry := range m.entries {
-		if entry.Scope != scope {
+		if entry.PanelPane != pane {
 			continue
 		}
 		if entry.Done && !m.showCompleted && !m.keepVisibleDone[todoEntryKey(entry)] {
@@ -686,42 +854,56 @@ func (m *todoPanelModel) visibleEntries(scope todoScope) []tmuxTodoEntry {
 	return entries
 }
 
-func (m *todoPanelModel) selectedIndex(scope todoScope) int {
-	if scope == todoScopeGlobal {
+func (m *todoPanelModel) selectedIndex(pane todoPanelPane) int {
+	switch pane {
+	case todoPanelPaneAllWindows:
+		return m.selectedAllWin
+	case todoPanelPaneGlobal:
 		return m.selectedGlobal
+	default:
+		return m.selectedWindow
 	}
-	return m.selectedWindow
 }
 
-func (m *todoPanelModel) setSelectedIndex(scope todoScope, index int) {
-	if scope == todoScopeGlobal {
+func (m *todoPanelModel) setSelectedIndex(pane todoPanelPane, index int) {
+	switch pane {
+	case todoPanelPaneAllWindows:
+		m.selectedAllWin = index
+	case todoPanelPaneGlobal:
 		m.selectedGlobal = index
-		return
+	default:
+		m.selectedWindow = index
 	}
-	m.selectedWindow = index
 }
 
-func (m *todoPanelModel) selectedOffset(scope todoScope) int {
-	if scope == todoScopeGlobal {
+func (m *todoPanelModel) selectedOffset(pane todoPanelPane) int {
+	switch pane {
+	case todoPanelPaneAllWindows:
+		return m.allWinOffset
+	case todoPanelPaneGlobal:
 		return m.globalOffset
+	default:
+		return m.windowOffset
 	}
-	return m.windowOffset
 }
 
-func (m *todoPanelModel) setSelectedOffset(scope todoScope, offset int) {
-	if scope == todoScopeGlobal {
+func (m *todoPanelModel) setSelectedOffset(pane todoPanelPane, offset int) {
+	switch pane {
+	case todoPanelPaneAllWindows:
+		m.allWinOffset = offset
+	case todoPanelPaneGlobal:
 		m.globalOffset = offset
-		return
+	default:
+		m.windowOffset = offset
 	}
-	m.windowOffset = offset
 }
 
 func (m *todoPanelModel) clampSelections() {
-	for _, scope := range []todoScope{todoScopeWindow, todoScopeGlobal} {
-		entries := m.visibleEntries(scope)
-		selected := m.selectedIndex(scope)
+	for _, pane := range []todoPanelPane{todoPanelPaneWindow, todoPanelPaneAllWindows, todoPanelPaneGlobal} {
+		entries := m.visibleEntries(pane)
+		selected := m.selectedIndex(pane)
 		if len(entries) == 0 {
-			m.setSelectedIndex(scope, 0)
+			m.setSelectedIndex(pane, 0)
 			continue
 		}
 		if selected < 0 {
@@ -730,13 +912,13 @@ func (m *todoPanelModel) clampSelections() {
 		if selected >= len(entries) {
 			selected = len(entries) - 1
 		}
-		m.setSelectedIndex(scope, selected)
+		m.setSelectedIndex(pane, selected)
 	}
 }
 
-func (m *todoPanelModel) selectedEntry(scope todoScope) (tmuxTodoEntry, bool) {
-	entries := m.visibleEntries(scope)
-	selected := m.selectedIndex(scope)
+func (m *todoPanelModel) selectedEntry(pane todoPanelPane) (tmuxTodoEntry, bool) {
+	entries := m.visibleEntries(pane)
+	selected := m.selectedIndex(pane)
 	if len(entries) == 0 || selected < 0 || selected >= len(entries) {
 		return tmuxTodoEntry{}, false
 	}
@@ -744,12 +926,12 @@ func (m *todoPanelModel) selectedEntry(scope todoScope) (tmuxTodoEntry, bool) {
 }
 
 func (m *todoPanelModel) moveSelection(delta int) {
-	entries := m.visibleEntries(m.focusedScope)
+	entries := m.visibleEntries(m.focusedPane)
 	if len(entries) == 0 {
 		return
 	}
-	selected := clampInt(m.selectedIndex(m.focusedScope)+delta, 0, len(entries)-1)
-	m.setSelectedIndex(m.focusedScope, selected)
+	selected := clampInt(m.selectedIndex(m.focusedPane)+delta, 0, len(entries)-1)
+	m.setSelectedIndex(m.focusedPane, selected)
 }
 
 func (m *todoPanelModel) renderDivider(height int) string {
@@ -758,6 +940,73 @@ func (m *todoPanelModel) renderDivider(height int) string {
 		lines[i] = m.styles.divider.Render("│")
 	}
 	return strings.Join(lines, "\n")
+}
+
+func (m *todoPanelModel) renderHorizontalDivider(width int) string {
+	return m.styles.divider.Render(strings.Repeat("─", maxInt(1, width)))
+}
+
+func (m *todoPanelModel) emptyPaneState(pane todoPanelPane) (message, hint string) {
+	if m.showCompleted {
+		switch pane {
+		case todoPanelPaneAllWindows:
+			return "No todos in other windows", ""
+		case todoPanelPaneGlobal:
+			return "No todos", "Press a to add a todo here."
+		default:
+			return "No todos", "Press a to add a todo here."
+		}
+	}
+	if len(m.allEntries(pane)) > 0 {
+		return map[bool]string{true: "No open todos in other windows", false: "No open todos"}[pane == todoPanelPaneAllWindows], "Press c to show completed todos."
+	}
+	if pane == todoPanelPaneAllWindows {
+		return "No todos in other windows", "Tab switches the window panes."
+	}
+	return "No open todos", "Press a to add a todo here."
+}
+
+func (m *todoPanelModel) setFocusedPane(pane todoPanelPane) {
+	m.focusedPane = pane
+	if pane == todoPanelPaneWindow || pane == todoPanelPaneAllWindows {
+		m.lastWindowPane = pane
+	}
+}
+
+func (m *todoPanelModel) toggleWindowPaneFocus() {
+	if m.focusedPane == todoPanelPaneGlobal {
+		return
+	}
+	if m.focusedPane == todoPanelPaneWindow {
+		m.setFocusedPane(todoPanelPaneAllWindows)
+		return
+	}
+	m.setFocusedPane(todoPanelPaneWindow)
+}
+
+func (m *todoPanelModel) defaultAddScope() todoScope {
+	if m.focusedPane == todoPanelPaneGlobal {
+		return todoScopeGlobal
+	}
+	return todoScopeWindow
+}
+
+func (m *todoPanelModel) paneForScope(scope todoScope) todoPanelPane {
+	if scope == todoScopeGlobal {
+		return todoPanelPaneGlobal
+	}
+	return todoPanelPaneWindow
+}
+
+func todoPanelPaneLabel(pane todoPanelPane) string {
+	switch pane {
+	case todoPanelPaneAllWindows:
+		return "ALL WINDOWS"
+	case todoPanelPaneGlobal:
+		return "GLOBAL"
+	default:
+		return "WINDOW"
+	}
 }
 
 func todoEntryKey(entry tmuxTodoEntry) string {
@@ -828,6 +1077,33 @@ func (m *todoPanelModel) currentStatus() string {
 		return ""
 	}
 	return m.status
+}
+
+func focusTodoEntry(entry tmuxTodoEntry) error {
+	switch entry.Scope {
+	case todoScopeGlobal:
+		return fmt.Errorf("global todo has no tmux target")
+	case todoScopeSession:
+		sessionID := strings.TrimSpace(entry.ScopeID)
+		if sessionID == "" {
+			return fmt.Errorf("session todo has no tmux target")
+		}
+		return runTmux("switch-client", "-t", sessionID)
+	case todoScopeWindow:
+		windowID := strings.TrimSpace(entry.ScopeID)
+		if windowID == "" {
+			return fmt.Errorf("window todo has no tmux target")
+		}
+		sessionID, _, err := tmuxSessionForWindow(windowID)
+		if err == nil && strings.TrimSpace(sessionID) != "" {
+			if err := runTmux("switch-client", "-t", strings.TrimSpace(sessionID)); err != nil {
+				return err
+			}
+		}
+		return selectTmuxWindow(windowID)
+	default:
+		return fmt.Errorf("todo has no tmux target")
+	}
 }
 
 func renderTodoInputValue(text []rune, cursor int, styles todoPanelStyles) string {

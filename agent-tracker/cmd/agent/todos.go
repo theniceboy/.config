@@ -49,6 +49,8 @@ type tmuxTodoEntry struct {
 	ScopeName string
 	IsCurrent bool
 	ItemIndex int
+	PanelPane todoPanelPane
+	Detail    string
 }
 
 func tmuxTodoStorePath() string {
@@ -373,6 +375,24 @@ func moveTmuxTodoByIndex(scope todoScope, scopeID string, fromIndex, toIndex int
 	}
 	items[toIndex] = item
 	setTodoItemsForScope(store, scope, scopeID, items)
+	return saveTmuxTodoStore(store)
+}
+
+func moveTmuxTodoToScopeByIndex(scope todoScope, scopeID string, index int, targetScope todoScope, targetScopeID string) error {
+	store, err := loadTmuxTodoStore()
+	if err != nil {
+		return err
+	}
+	items := append([]tmuxTodoItem(nil), todoItemsForScope(store, scope, scopeID)...)
+	if index < 0 || index >= len(items) {
+		return fmt.Errorf("index out of range")
+	}
+	item := items[index]
+	items = append(items[:index], items[index+1:]...)
+	targetItems := append([]tmuxTodoItem(nil), todoItemsForScope(store, targetScope, targetScopeID)...)
+	targetItems = append(targetItems, item)
+	setTodoItemsForScope(store, scope, scopeID, items)
+	setTodoItemsForScope(store, targetScope, targetScopeID, targetItems)
 	return saveTmuxTodoStore(store)
 }
 

@@ -21,7 +21,8 @@ const (
 	statusRightModuleMemory       = "memory"
 	statusRightModuleMemoryTotals = "memory_totals"
 	statusRightModuleAgent        = "agent"
-	statusRightModuleNotes        = "notes"
+	statusRightModuleTodoPreview  = "todo_preview"
+	statusRightModuleTodos        = "todos"
 	statusRightModuleFlashMoe     = "flash_moe"
 	statusRightModuleHost         = "host"
 )
@@ -34,7 +35,7 @@ const (
 	statusIconSession  = ""
 	statusIconTotal    = "󰍛"
 	statusIconAgent    = "󰚩"
-	statusIconNotes    = "󰎚"
+	statusIconTodos    = "󰎚"
 	statusIconFlashMoe = "󱙺"
 )
 
@@ -45,7 +46,8 @@ func statusRightModules() []string {
 		statusRightModuleMemory,
 		statusRightModuleMemoryTotals,
 		statusRightModuleAgent,
-		statusRightModuleNotes,
+		statusRightModuleTodos,
+		statusRightModuleTodoPreview,
 		statusRightModuleFlashMoe,
 		statusRightModuleHost,
 	}
@@ -111,11 +113,14 @@ type statusMemoryCache struct {
 }
 
 type statusTodoCache struct {
-	Windows map[string][]statusTodoItem `json:"windows"`
+	Global   []statusTodoItem            `json:"global"`
+	Sessions map[string][]statusTodoItem `json:"sessions"`
+	Windows  map[string][]statusTodoItem `json:"windows"`
 }
 
 type statusTodoItem struct {
-	Done bool `json:"done"`
+	Title string `json:"title"`
+	Done  bool   `json:"done"`
 }
 
 type statusNetworkCounter struct {
@@ -191,8 +196,8 @@ func renderTmuxRightStatus(args tmuxRightStatusArgs) string {
 			segments = append(segments, statusSegment{FG: "#1d1f21", BG: "#81a1c1", Text: label, Bold: true})
 		}
 	}
-	if statusRightModuleEnabled(statusRightModuleNotes) {
-		if label := loadNotesStatusLabel(args.WindowID); label != "" {
+	if statusRightModuleEnabled(statusRightModuleTodos) {
+		if label := loadTodosStatusLabel(args.WindowID); label != "" {
 			segments = append(segments, statusSegment{FG: "#1d1f21", BG: "#cc6666", Text: label, Bold: true})
 		}
 	}
@@ -535,20 +540,11 @@ func refreshMemoryUsageCache() {
 	_ = statusCommandStart("python3", script)
 }
 
-func loadNotesStatusLabel(windowID string) string {
-	windowID = strings.TrimSpace(windowID)
-	if windowID == "" {
+func loadTodosStatusLabel(windowID string) string {
+	items, ok := statusTodoItemsForWindow(windowID)
+	if !ok {
 		return ""
 	}
-	data, err := os.ReadFile(statusTodoFilePath())
-	if err != nil {
-		return ""
-	}
-	var cache statusTodoCache
-	if err := json.Unmarshal(data, &cache); err != nil {
-		return ""
-	}
-	items := cache.Windows[windowID]
 	count := 0
 	for _, item := range items {
 		if !item.Done {
@@ -558,7 +554,72 @@ func loadNotesStatusLabel(windowID string) string {
 	if count == 0 {
 		return ""
 	}
-	return fmt.Sprintf(" %s %d ", statusIconNotes, count)
+	if !statusRightModuleEnabled(statusRightModuleTodoPreview) {
+		return fmt.Sprintf(" %s %d ", statusIconTodos, count)
+	}
+	title := firstOpenStatusTodoTitle(items)
+	if title != "" {
+		return fmt.Sprintf(" %s %d %s ", statusIconTodos, count, truncate(title, statusTodoMaxChars()))
+	}
+	return fmt.Sprintf(" %s %d ", statusIconTodos, count)
+}
+
+func loadStatusTodoCache() (statusTodoCache, bool) {
+	data, err := os.ReadFile(statusTodoFilePath())
+	if err != nil {
+		return statusTodoCache{}, false
+	}
+	var cache statusTodoCache
+	if err := json.Unmarshal(data, &cache); err != nil {
+		return statusTodoCache{}, false
+	}
+	if cache.Global == nil {
+		cache.Global = []statusTodoItem{}
+	}
+	if cache.Sessions == nil {
+		cache.Sessions = map[string][]statusTodoItem{}
+	}
+	if cache.Windows == nil {
+		cache.Windows = map[string][]statusTodoItem{}
+	}
+	return cache, true
+}
+
+func statusTodoItemsForWindow(windowID string) ([]statusTodoItem, bool) {
+	windowID = strings.TrimSpace(windowID)
+	if windowID == "" {
+		return nil, false
+	}
+	cache, ok := loadStatusTodoCache()
+	if !ok {
+		return nil, false
+	}
+	return cache.Windows[windowID], true
+}
+
+func firstOpenStatusTodoTitle(items []statusTodoItem) string {
+	for _, item := range items {
+		if item.Done {
+			continue
+		}
+		title := strings.Join(strings.Fields(strings.TrimSpace(item.Title)), " ")
+		if title != "" {
+			return title
+		}
+	}
+	return ""
+}
+
+func statusTodoMaxChars() int {
+	value := strings.TrimSpace(os.Getenv("TMUX_TODO_MAX_CHARS"))
+	if value == "" {
+		return 32
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil || parsed < 8 {
+		return 32
+	}
+	return parsed
 }
 
 func loadFlashMoeStatusSegment() (statusSegment, bool) {
@@ -629,7 +690,7 @@ func loadHostStatusLabel() string {
 
 func defaultStatusRightModuleEnabled(module string) bool {
 	switch module {
-	case statusRightModuleCPU, statusRightModuleNetwork, statusRightModuleMemory, statusRightModuleAgent, statusRightModuleNotes, statusRightModuleFlashMoe, statusRightModuleHost:
+	case statusRightModuleCPU, statusRightModuleNetwork, statusRightModuleMemory, statusRightModuleAgent, statusRightModuleTodoPreview, statusRightModuleTodos, statusRightModuleFlashMoe, statusRightModuleHost:
 		return true
 	case statusRightModuleMemoryTotals:
 		return true
@@ -640,7 +701,7 @@ func defaultStatusRightModuleEnabled(module string) bool {
 
 func isValidStatusRightModule(module string) bool {
 	switch module {
-	case statusRightModuleCPU, statusRightModuleNetwork, statusRightModuleMemory, statusRightModuleMemoryTotals, statusRightModuleAgent, statusRightModuleNotes, statusRightModuleFlashMoe, statusRightModuleHost:
+	case statusRightModuleCPU, statusRightModuleNetwork, statusRightModuleMemory, statusRightModuleMemoryTotals, statusRightModuleAgent, statusRightModuleTodoPreview, statusRightModuleTodos, statusRightModuleFlashMoe, statusRightModuleHost:
 		return true
 	default:
 		return false
@@ -670,8 +731,10 @@ func (cfg statusRightConfig) moduleEnabled(module string) bool {
 		return derefBool(cfg.MemoryTotals, defaultStatusRightModuleEnabled(module))
 	case statusRightModuleAgent:
 		return derefBool(cfg.Agent, defaultStatusRightModuleEnabled(module))
-	case statusRightModuleNotes:
-		return derefBool(cfg.Notes, defaultStatusRightModuleEnabled(module))
+	case statusRightModuleTodoPreview:
+		return derefBool(cfg.TodoPreview, defaultStatusRightModuleEnabled(module))
+	case statusRightModuleTodos:
+		return derefBool(cfg.Todos, defaultStatusRightModuleEnabled(module))
 	case statusRightModuleFlashMoe:
 		return derefBool(cfg.FlashMoe, defaultStatusRightModuleEnabled(module))
 	case statusRightModuleHost:
@@ -713,8 +776,10 @@ func (cfg *statusRightConfig) setModuleEnabled(module string, enabled bool) {
 		cfg.MemoryTotals = value
 	case statusRightModuleAgent:
 		cfg.Agent = value
-	case statusRightModuleNotes:
-		cfg.Notes = value
+	case statusRightModuleTodoPreview:
+		cfg.TodoPreview = value
+	case statusRightModuleTodos:
+		cfg.Todos = value
 	case statusRightModuleFlashMoe:
 		cfg.FlashMoe = value
 	case statusRightModuleHost:
@@ -726,7 +791,7 @@ func (cfg *statusRightConfig) isDefault() bool {
 	if cfg == nil {
 		return true
 	}
-	return cfg.CPU == nil && cfg.Network == nil && cfg.Memory == nil && cfg.MemoryTotals == nil && cfg.Agent == nil && cfg.Notes == nil && cfg.FlashMoe == nil && cfg.Host == nil
+	return cfg.CPU == nil && cfg.Network == nil && cfg.Memory == nil && cfg.MemoryTotals == nil && cfg.Agent == nil && cfg.TodoPreview == nil && cfg.Todos == nil && cfg.FlashMoe == nil && cfg.Host == nil
 }
 
 func derefBool(value *bool, fallback bool) bool {

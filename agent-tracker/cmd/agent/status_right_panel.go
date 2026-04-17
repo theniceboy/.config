@@ -10,10 +10,12 @@ import (
 )
 
 type statusRightPanelEntry struct {
-	Module   string
-	Title    string
-	Subtitle string
-	Enabled  bool
+	Module    string
+	Title     string
+	Subtitle  string
+	Enabled   bool
+	Available bool
+	Indented  bool
 }
 
 type statusRightPanelModel struct {
@@ -36,11 +38,19 @@ func newStatusRightPanelModel() *statusRightPanelModel {
 func (m *statusRightPanelModel) reload() {
 	entries := make([]statusRightPanelEntry, 0, len(statusRightModules()))
 	for _, module := range statusRightModules() {
+		available := true
+		indented := false
+		if module == statusRightModuleTodoPreview {
+			available = statusRightModuleEnabled(statusRightModuleTodos)
+			indented = true
+		}
 		entries = append(entries, statusRightPanelEntry{
-			Module:   module,
-			Title:    statusRightModuleLabel(module),
-			Subtitle: capitalizeStatusRightDescription(statusRightModuleDescription(module)),
-			Enabled:  statusRightModuleEnabled(module),
+			Module:    module,
+			Title:     statusRightModuleLabel(module),
+			Subtitle:  capitalizeStatusRightDescription(statusRightModuleDescription(module)),
+			Enabled:   statusRightModuleEnabled(module),
+			Available: available,
+			Indented:  indented,
 		})
 	}
 	m.entries = entries
@@ -90,6 +100,10 @@ func (m *statusRightPanelModel) toggleSelected() {
 	if !ok {
 		return
 	}
+	if !entry.Available {
+		m.setStatus("Enable Todos first", 1500*time.Millisecond)
+		return
+	}
 	if err := togglePaletteStatusRightModule(entry.Module); err != nil {
 		m.setStatus(err.Error(), 1500*time.Millisecond)
 		return
@@ -130,7 +144,7 @@ func (m *statusRightPanelModel) render(styles paletteStyles, width, height int) 
 		styles.meta.Render("Current layout: "+truncate(m.layoutSummary(), maxInt(28, width-2))),
 	)
 
-	lines := []string{styles.meta.Render(fmt.Sprintf("%d modules", len(m.entries))), ""}
+	lines := []string{styles.meta.Render(fmt.Sprintf("%d controls", len(m.entries))), ""}
 	for idx, entry := range m.entries {
 		rowStyle := styles.item.Width(maxInt(24, width-2))
 		titleStyle := styles.itemTitle
@@ -143,6 +157,12 @@ func (m *statusRightPanelModel) render(styles paletteStyles, width, height int) 
 			badgeStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("235")).Background(lipgloss.Color("150")).Padding(0, 1).Bold(true)
 			badgeLabel = "ON"
 		}
+		if !entry.Available {
+			titleStyle = titleStyle.Foreground(lipgloss.Color("245"))
+			metaStyle = metaStyle.Foreground(lipgloss.Color("242"))
+			detailStyle = detailStyle.Foreground(lipgloss.Color("242"))
+			badgeStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("238")).Background(lipgloss.Color("236")).Padding(0, 1).Bold(true)
+		}
 		if idx == m.selected {
 			selectedBG := lipgloss.Color("238")
 			rowStyle = styles.selectedItem.Width(maxInt(24, width-2))
@@ -150,24 +170,41 @@ func (m *statusRightPanelModel) render(styles paletteStyles, width, height int) 
 			metaStyle = styles.selectedSubtle.Background(selectedBG)
 			detailStyle = styles.selectedSubtle.Background(selectedBG)
 			fillStyle = fillStyle.Background(selectedBG)
+			if !entry.Available {
+				titleStyle = titleStyle.Foreground(lipgloss.Color("250"))
+				metaStyle = metaStyle.Foreground(lipgloss.Color("247"))
+				detailStyle = detailStyle.Foreground(lipgloss.Color("247"))
+				badgeStyle = badgeStyle.Background(selectedBG).Foreground(lipgloss.Color("247"))
+			}
 		}
 		badge := badgeStyle.Render(badgeLabel)
 		innerWidth := maxInt(22, width-2)
-		titleText := truncate(entry.Title, maxInt(8, innerWidth-lipgloss.Width(badge)-1))
+		titleText := entry.Title
+		if entry.Indented {
+			titleText = "  " + titleText
+		}
+		titleText = truncate(titleText, maxInt(8, innerWidth-lipgloss.Width(badge)-1))
 		gapWidth := maxInt(1, innerWidth-lipgloss.Width(titleText)-lipgloss.Width(badge))
 		titleRow := lipgloss.JoinHorizontal(lipgloss.Left,
 			titleStyle.Render(titleText),
 			fillStyle.Render(strings.Repeat(" ", gapWidth)),
 			badge,
 		)
-		detail := entry.Subtitle + ". " + statusRightVisibilityText(entry.Enabled)
+		detail := entry.Subtitle + ". " + statusRightVisibilityText(entry.Enabled, entry.Available)
+		if entry.Indented {
+			detail = "  " + detail
+		}
 		detailText := truncate(detail, innerWidth)
 		detailGap := maxInt(0, innerWidth-lipgloss.Width(detailText))
 		detailRow := lipgloss.JoinHorizontal(lipgloss.Left,
 			metaStyle.Render(detailText),
 			fillStyle.Render(strings.Repeat(" ", detailGap)),
 		)
-		orderText := truncate(statusRightOrderHint(entry.Module, entry.Enabled), innerWidth)
+		orderText := statusRightOrderHint(entry.Module, entry.Enabled, entry.Available)
+		if entry.Indented {
+			orderText = "  " + orderText
+		}
+		orderText = truncate(orderText, innerWidth)
 		orderGap := maxInt(0, innerWidth-lipgloss.Width(orderText))
 		orderRow := lipgloss.JoinHorizontal(lipgloss.Left,
 			detailStyle.Render(orderText),
@@ -182,14 +219,29 @@ func (m *statusRightPanelModel) render(styles paletteStyles, width, height int) 
 	return lipgloss.NewStyle().Width(width).Height(height).Padding(0, 1).Render(view)
 }
 
-func statusRightVisibilityText(enabled bool) string {
+func statusRightVisibilityText(enabled, available bool) string {
+	if !available {
+		return "Disabled until Todos is enabled"
+	}
 	if enabled {
 		return "Visible in the tmux bottom-right status"
 	}
 	return "Hidden from the tmux bottom-right status"
 }
 
-func statusRightOrderHint(module string, enabled bool) string {
+func statusRightOrderHint(module string, enabled, available bool) string {
+	if module == statusRightModuleTodoPreview {
+		if !available {
+			if enabled {
+				return "Will appear inside Todos when Todos is re-enabled"
+			}
+			return "Enable Todos to configure this preview"
+		}
+		if enabled {
+			return "Shown inside Todos when Todos is enabled"
+		}
+		return "Hidden inside Todos until re-enabled"
+	}
 	prefix := "Order slot: " + statusRightModuleLabel(module)
 	if enabled {
 		return prefix + " follows the fixed module order"
@@ -200,7 +252,7 @@ func statusRightOrderHint(module string, enabled bool) string {
 func (m *statusRightPanelModel) layoutSummary() string {
 	labels := make([]string, 0, len(m.entries))
 	for _, entry := range m.entries {
-		if entry.Enabled {
+		if entry.Enabled && entry.Module != statusRightModuleTodoPreview {
 			labels = append(labels, entry.Title)
 		}
 	}

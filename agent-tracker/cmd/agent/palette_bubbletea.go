@@ -45,18 +45,19 @@ type paletteRuntime struct {
 }
 
 type paletteModel struct {
-	runtime  *paletteRuntime
-	state    paletteUIState
-	actions  []paletteAction
-	openedAt time.Time
-	width    int
-	height   int
-	result   paletteResult
-	todo     *todoPanelModel
-	activity *activityMonitorBT
-	devices  *devicePanelModel
-	status   *statusRightPanelModel
-	tracker  *trackerPanelModel
+	runtime                 *paletteRuntime
+	state                   paletteUIState
+	actions                 []paletteAction
+	openedAt                time.Time
+	quickSecondaryEscCloses bool
+	width                   int
+	height                  int
+	result                  paletteResult
+	todo                    *todoPanelModel
+	activity                *activityMonitorBT
+	devices                 *devicePanelModel
+	status                  *statusRightPanelModel
+	tracker                 *trackerPanelModel
 }
 
 type paletteStyles struct {
@@ -396,7 +397,7 @@ func (r *paletteRuntime) buildActions() []paletteAction {
 			Section:  "System",
 			Title:    "Bottom-right status",
 			Subtitle: "Open control center for tmux right-side status modules",
-			Keywords: []string{"tmux", "status", "status-right", "bottom-right", "control", "center", "istat", "cpu", "network", "memory", "notes", "host", "flash"},
+			Keywords: []string{"tmux", "status", "status-right", "bottom-right", "control", "center", "istat", "cpu", "network", "memory", "todos", "host", "flash"},
 			Kind:     paletteActionOpenStatusRight,
 		},
 	)
@@ -584,8 +585,10 @@ func statusRightModuleLabel(module string) string {
 		return "Tmux Memory"
 	case statusRightModuleAgent:
 		return "Agent"
-	case statusRightModuleNotes:
-		return "Notes"
+	case statusRightModuleTodoPreview:
+		return "Todo Preview"
+	case statusRightModuleTodos:
+		return "Todos"
 	case statusRightModuleFlashMoe:
 		return "Flash-MoE"
 	case statusRightModuleHost:
@@ -607,7 +610,9 @@ func statusRightModuleDescription(module string) string {
 		return "window, session, and total tmux memory"
 	case statusRightModuleAgent:
 		return "active agent device"
-	case statusRightModuleNotes:
+	case statusRightModuleTodoPreview:
+		return "append the first open window todo to Todos"
+	case statusRightModuleTodos:
 		return "todo count"
 	case statusRightModuleFlashMoe:
 		return "Flash-MoE status"
@@ -657,7 +662,17 @@ func (m *paletteModel) Init() tea.Cmd {
 	return nil
 }
 
+func (m *paletteModel) noteSecondaryPageOpen() {
+	m.quickSecondaryEscCloses = time.Since(m.openedAt) <= 800*time.Millisecond
+}
+
+func (m *paletteModel) closePalette() (tea.Model, tea.Cmd) {
+	m.result = paletteResult{Kind: paletteResultClose, State: m.state}
+	return m, tea.Quit
+}
+
 func (m *paletteModel) openTodosPanel() error {
+	m.noteSecondaryPageOpen()
 	sessionID, windowID := getCurrentTmuxScopeInfo()
 	if m.todo == nil {
 		panel, err := newTodoPanelModel(sessionID, windowID)
@@ -670,7 +685,7 @@ func (m *paletteModel) openTodosPanel() error {
 		m.todo.windowID = strings.TrimSpace(windowID)
 		m.todo.reloadEntries()
 		m.todo.clampSelections()
-		m.todo.focusedScope = todoScopeWindow
+		m.todo.setFocusedPane(todoPanelPaneWindow)
 		m.todo.mode = todoPanelModeList
 	}
 	m.todo.showAltHints = false
@@ -681,6 +696,7 @@ func (m *paletteModel) openTodosPanel() error {
 }
 
 func (m *paletteModel) openSnippetsPanel() {
+	m.noteSecondaryPageOpen()
 	m.state.Mode = paletteModeSnippets
 	m.state.Filter = nil
 	m.state.FilterCursor = 0
@@ -691,6 +707,7 @@ func (m *paletteModel) openSnippetsPanel() {
 }
 
 func (m *paletteModel) openActivityPanel() (tea.Cmd, error) {
+	m.noteSecondaryPageOpen()
 	if m.activity == nil {
 		m.activity = newActivityMonitorModel(m.runtime.windowID, true)
 	} else {
@@ -714,6 +731,7 @@ func (m *paletteModel) openActivityPanel() (tea.Cmd, error) {
 }
 
 func (m *paletteModel) openDevicesPanel() {
+	m.noteSecondaryPageOpen()
 	if m.devices == nil {
 		m.devices = newDevicePanelModel()
 	} else {
@@ -728,6 +746,7 @@ func (m *paletteModel) openDevicesPanel() {
 }
 
 func (m *paletteModel) openStatusRightPanel() {
+	m.noteSecondaryPageOpen()
 	if m.status == nil {
 		m.status = newStatusRightPanelModel()
 	} else {
@@ -741,6 +760,7 @@ func (m *paletteModel) openStatusRightPanel() {
 }
 
 func (m *paletteModel) openTrackerPanel() (tea.Cmd, error) {
+	m.noteSecondaryPageOpen()
 	if m.tracker == nil {
 		m.tracker = newTrackerPanelModel(m.runtime)
 	} else {
@@ -791,8 +811,27 @@ func (m *paletteModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if time.Since(m.openedAt) < 250*time.Millisecond {
 				return m, nil
 			}
-			m.result = paletteResult{Kind: paletteResultClose, State: m.state}
-			return m, tea.Quit
+			return m.closePalette()
+		}
+		if key == "esc" && m.quickSecondaryEscCloses {
+			switch m.state.Mode {
+			case paletteModeTodos:
+				if m.todo != nil && m.todo.mode == todoPanelModeList {
+					return m.closePalette()
+				}
+			case paletteModeActivity:
+				return m.closePalette()
+			case paletteModeDevices:
+				if m.devices != nil && m.devices.mode == devicePanelModeList {
+					return m.closePalette()
+				}
+			case paletteModeStatusRight:
+				return m.closePalette()
+			case paletteModeTracker:
+				return m.closePalette()
+			case paletteModeSnippets:
+				return m.closePalette()
+			}
 		}
 		if m.state.Mode == paletteModeActivity {
 			if m.activity == nil {
@@ -1021,7 +1060,13 @@ func (m *paletteModel) updateList(key string) (tea.Model, tea.Cmd) {
 			m.state.Selected = 0
 			return
 		}
-		m.state.Selected = clampInt(m.state.Selected+delta, 0, len(actions)-1)
+		next := clampInt(m.state.Selected, 0, len(actions)-1) + delta
+		if next < 0 {
+			next = len(actions) - 1
+		} else if next >= len(actions) {
+			next = 0
+		}
+		m.state.Selected = next
 	}
 	switch key {
 	case "ctrl+u", "alt+u", "up":
@@ -1961,7 +2006,7 @@ func (m *paletteModel) filteredActions() []paletteAction {
 	parts := strings.Fields(query)
 	filtered := make([]paletteAction, 0, len(m.actions))
 	for _, action := range m.actions {
-		haystack := strings.ToLower(action.Title + " " + action.Subtitle + " " + strings.Join(action.Keywords, " "))
+		haystack := strings.ToLower(action.Title)
 		matched := true
 		for _, part := range parts {
 			if !strings.Contains(haystack, part) {

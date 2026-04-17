@@ -15,6 +15,12 @@ pane_shell=$(ps -o comm= -p "$pane_pid" 2>/dev/null | sed 's|.*/||; s/^-//')
 current_cmd=$(tmux display-message -p -t "$pane_id" '#{pane_current_command}' 2>/dev/null || true)
 [[ -z "$current_cmd" ]] && exit 0
 
+clear_pane_watch() {
+  tmux set-option -p -u -t "$pane_id" @pane_watching 2>/dev/null || true
+}
+
+trap clear_pane_watch EXIT
+
 notify_completion() {
   local tracker_bin message
   tracker_bin="$HOME/.config/agent-tracker/bin/agent"
@@ -28,6 +34,7 @@ if [[ "$current_cmd" == "$pane_shell" ]]; then
 fi
 
 tmux set -w -t "$window_id" @watching 1 2>/dev/null || true
+tmux set-option -p -t "$pane_id" @pane_watching 1 2>/dev/null || true
 tmux refresh-client -S
 
 while true; do

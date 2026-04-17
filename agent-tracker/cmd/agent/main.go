@@ -75,7 +75,8 @@ type statusRightConfig struct {
 	Memory       *bool `json:"memory,omitempty"`
 	MemoryTotals *bool `json:"memory_totals,omitempty"`
 	Agent        *bool `json:"agent,omitempty"`
-	Notes        *bool `json:"notes,omitempty"`
+	TodoPreview  *bool `json:"todo_preview,omitempty"`
+	Todos        *bool `json:"todos,omitempty"`
 	FlashMoe     *bool `json:"flash_moe,omitempty"`
 	Host         *bool `json:"host,omitempty"`
 }
@@ -2611,7 +2612,17 @@ func loadRegistry() (*registry, error) {
 		return nil, err
 	}
 	if err := json.Unmarshal(data, reg); err != nil {
-		return nil, err
+		fallback := &registry{Agents: map[string]*agentRecord{}}
+		dec := json.NewDecoder(strings.NewReader(string(data)))
+		if decodeErr := dec.Decode(fallback); decodeErr != nil {
+			return nil, err
+		}
+		trailing := strings.TrimSpace(string(data[int(dec.InputOffset()):]))
+		if trailing == "" || strings.Trim(trailing, "}") != "" {
+			return nil, err
+		}
+		reg = fallback
+		_ = saveRegistry(reg)
 	}
 	if reg.Agents == nil {
 		reg.Agents = map[string]*agentRecord{}

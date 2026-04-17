@@ -104,6 +104,11 @@ if [[ -z "$theme" ]]; then
 fi
 now=$(load_option "@op_work_now")
 question_pending=$(load_option "@op_question_pending")
+pane_watching=$(load_option "@pane_watching")
+
+if [[ "$pane_watching" == "1" ]]; then
+  title="⏳ $title"
+fi
 
 if ! opencode_active; then
   if [[ -n "$theme" || -n "$now" || -n "$question_pending" ]]; then
@@ -128,6 +133,11 @@ fi
 if [[ -z "$summary_display" ]]; then
   printf '%s' "$title"
   exit 0
+fi
+
+if [[ "$pane_watching" == "1" ]]; then
+  summary_display="⏳ $summary_display"
+  title=${title#⏳ }
 fi
 
 reserved_width=$((${#summary_display} + 3))

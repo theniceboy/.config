@@ -1,12 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [ $# -ne 1 ]; then
-  tmux display-message "layout command requires direction"
+if [ $# -ne 2 ]; then
+  tmux display-message "layout command requires direction and path"
   exit 1
 fi
 
 dir="$1"
+target_path="$2"
+
+if [[ -z "$target_path" || ! -d "$target_path" ]]; then
+  target_path="$HOME"
+fi
+
+printf -v start_cmd 'cd %q && exec ${SHELL:-/bin/zsh} -l' "$target_path"
 
 run_tmux() {
   local output
@@ -18,23 +25,21 @@ run_tmux() {
 }
 
 pane_count=0
-while IFS='|' read -r pid ptop pleft ppath; do
+while IFS='|' read -r pid ptop pleft; do
   case $pane_count in
     0)
       id1=$pid
       top1=$ptop
       left1=$pleft
-      path1=$ppath
       ;;
     1)
       id2=$pid
       top2=$ptop
       left2=$pleft
-      path2=$ppath
       ;;
   esac
   pane_count=$((pane_count + 1))
-done < <(tmux list-panes -F "#{pane_id}|#{pane_top}|#{pane_left}|#{pane_current_path}")
+done < <(tmux list-panes -F "#{pane_id}|#{pane_top}|#{pane_left}")
 
 if [ "$pane_count" -ne 2 ]; then
   tmux display-message "layout-${dir} expects exactly 2 panes"
@@ -43,26 +48,18 @@ fi
 
 if [ "$top1" -le "$top2" ]; then
   top_id=$id1
-  top_path=$path1
   bottom_id=$id2
-  bottom_path=$path2
 else
   top_id=$id2
-  top_path=$path2
   bottom_id=$id1
-  bottom_path=$path1
 fi
 
 if [ "$left1" -le "$left2" ]; then
   left_id=$id1
-  left_path=$path1
   right_id=$id2
-  right_path=$path2
 else
   left_id=$id2
-  left_path=$path2
   right_id=$id1
-  right_path=$path1
 fi
 
 ensure_horizontal() {
@@ -74,12 +71,12 @@ ensure_horizontal() {
 
 case "$dir" in
   right)
-    new_id=$(run_tmux split-window -P -F '#{pane_id}' -h -c "$top_path" -t "$top_id")
+    new_id=$(run_tmux split-window -P -F '#{pane_id}' -h -c "$target_path" -t "$top_id" "$start_cmd")
     run_tmux join-pane -v -s "$bottom_id" -t "$top_id"
     run_tmux select-pane -t "$new_id"
     ;;
   left)
-    new_id=$(run_tmux split-window -P -F '#{pane_id}' -h -b -c "$top_path" -t "$top_id")
+    new_id=$(run_tmux split-window -P -F '#{pane_id}' -h -b -c "$target_path" -t "$top_id" "$start_cmd")
     run_tmux join-pane -v -s "$bottom_id" -t "$top_id"
     run_tmux select-pane -t "$new_id"
     ;;
@@ -87,7 +84,7 @@ case "$dir" in
     ensure_horizontal
     run_tmux break-pane -d -s "$right_id"
     run_tmux select-pane -t "$left_id"
-    new_id=$(run_tmux split-window -P -F '#{pane_id}' -v -b -c "$left_path" -t "$left_id")
+    new_id=$(run_tmux split-window -P -F '#{pane_id}' -v -b -c "$target_path" -t "$left_id" "$start_cmd")
     run_tmux join-pane -h -s "$right_id" -t "$left_id"
     run_tmux select-pane -t "$new_id"
     ;;
@@ -95,7 +92,7 @@ case "$dir" in
     ensure_horizontal
     run_tmux break-pane -d -s "$right_id"
     run_tmux select-pane -t "$left_id"
-    new_id=$(run_tmux split-window -P -F '#{pane_id}' -v -c "$left_path" -t "$left_id")
+    new_id=$(run_tmux split-window -P -F '#{pane_id}' -v -c "$target_path" -t "$left_id" "$start_cmd")
     run_tmux join-pane -h -s "$right_id" -t "$left_id"
     run_tmux select-pane -t "$new_id"
     ;;

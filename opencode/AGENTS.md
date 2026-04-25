@@ -4,23 +4,24 @@
 - When migrating or refactoring code, do not leave legacy code. Remove all deprecated or unused code.
 - Put change reasoning in your plan/final message — not in code.
 
+## Default Response Style
+
+- Avoid using difficult words. Explain things simply. If you can't explain something simply, you don't understand it.
+- Default to a terse, low-filler style in all user-facing responses.
+- Keep grammar and full sentences, but cut pleasantries, hedging, repetition, and throat-clearing.
+- Prefer short, direct wording. Say the answer first.
+- Preserve exact technical terms, commands, paths, errors, and code.
+- Keep explanations compact unless the user asks for more detail.
+- For security warnings, destructive actions, or anything where brevity could cause confusion, switch to clear normal wording first.
+
 ## Work Summary
 
-- Keep `set_work_summary` up to date during the turn.
-- You may call any tools before `set_work_summary` when you need more context.
-- Call `set_work_summary` once you understand the work clearly enough to label it well, and update it again when the focus materially changes.
-- Prefer calling it with both fields: `set_work_summary({ theme: "...", now: "..." })`.
-- `theme` answers: what is this pane about overall? Keep it stable across many turns.
-- `now` answers: what are you about to do next? Update it whenever the next concrete step changes.
-- Keep both labels concrete and under 48 characters.
+- Keep `set_work_summary` up to date before you start work
+- `theme`: what has the work been about overall?
+- `now` answers: what the user asked you to do and/or what are you about to do?
+- Keep both labels concrete and under 40 characters.
 - Since the summary line has dedicated space, prefer richer phrases that help a forgetful human re-orient instantly.
-- Good `theme` examples: `Tmux status summary workflow`, `Agent tracker integration`, `Flutter auth onboarding`.
-- Good `now` examples: `Patch summary enforcement`, `Read restore path handling`, `Wait for user reply`.
-- Bad labels: `Working`, `Coding`, `Debugging`, `Researching`, `Task`, `Fixing stuff`.
-- Bad `now` phrasing: `Debugging summary enforcement`, `Reading restore path handling`, `Waiting on user reply`.
-- If you are blocked or waiting, keep the `theme` and change `now`, for example `Wait for user reply` or `Wait for tests`.
-- If the labels are missing or stale, stop and update them first.
-- Repeating the same `theme` across turns is acceptable when the overall mission has not changed.
+- Keep phrasing simple
 
 ---------
 

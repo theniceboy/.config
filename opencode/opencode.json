@@ -53,6 +53,16 @@
 				"https://mcp.sentry.dev/mcp"
 			],
 			"enabled": false
+		},
+		"google-maps": {
+			"type": "local",
+			"command": [
+				"npx",
+				"-y",
+				"@cablate/mcp-google-map",
+				"--stdio"
+			],
+			"enabled": false
 		}
 	},
 	"provider": {}

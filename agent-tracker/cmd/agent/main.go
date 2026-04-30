@@ -2,11 +2,14 @@ package main
 
 import (
 	"bufio"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -18,6 +21,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/gorilla/websocket"
 	"gopkg.in/yaml.v3"
 )
 
@@ -107,15 +111,40 @@ type repoConfig struct {
 }
 
 type featureConfig struct {
-	Feature       string `json:"feature"`
-	Port          int    `json:"port,omitempty"`
-	URL           string `json:"url,omitempty"`
-	Device        string `json:"device"`
-	IsFlutter     bool   `json:"is_flutter,omitempty"`
-	Ready         bool   `json:"ready,omitempty"`
-	ShouldOpenTab bool   `json:"should_open_tab,omitempty"`
-	ChromeWindow  int    `json:"chrome_window_index,omitempty"`
-	ChromeTab     int    `json:"chrome_tab_index,omitempty"`
+	Feature   string `json:"feature"`
+	Port      int    `json:"port,omitempty"`
+	URL       string `json:"url,omitempty"`
+	Device    string `json:"device"`
+	IsFlutter bool   `json:"is_flutter,omitempty"`
+	Ready     bool   `json:"ready,omitempty"`
+}
+
+type browserCDPVersionInfo struct {
+	Browser              string `json:"Browser"`
+	WebSocketDebuggerURL string `json:"webSocketDebuggerUrl"`
+}
+
+type browserTarget struct {
+	Description          string `json:"description,omitempty"`
+	DevtoolsFrontendURL  string `json:"devtoolsFrontendUrl,omitempty"`
+	ID                   string `json:"id"`
+	ParentID             string `json:"parentId,omitempty"`
+	Title                string `json:"title,omitempty"`
+	Type                 string `json:"type,omitempty"`
+	URL                  string `json:"url,omitempty"`
+	WebSocketDebuggerURL string `json:"webSocketDebuggerUrl,omitempty"`
+}
+
+type browserCDPEnvelope struct {
+	ID     int              `json:"id,omitempty"`
+	Method string           `json:"method,omitempty"`
+	Params json.RawMessage  `json:"params,omitempty"`
+	Result json.RawMessage  `json:"result,omitempty"`
+	Error  *browserCDPError `json:"error,omitempty"`
+}
+
+type browserCDPError struct {
+	Message string `json:"message,omitempty"`
 }
 
 var featureNamePattern = regexp.MustCompile(`[^a-z0-9._-]+`)
@@ -240,18 +269,17 @@ func runStart(args []string) error {
 		}
 		url = fmt.Sprintf("http://localhost:%d", port)
 		if err := saveFeatureConfig(featureConfigPath, featureConfig{
-			Feature:       feature,
-			Port:          port,
-			URL:           url,
-			Device:        device,
-			IsFlutter:     true,
-			Ready:         false,
-			ShouldOpenTab: false,
+			Feature:   feature,
+			Port:      port,
+			URL:       url,
+			Device:    device,
+			IsFlutter: true,
+			Ready:     false,
 		}); err != nil {
 			return err
 		}
 		if device == "web-server" {
-			if err := ensureChromeAppleEventsEnabled(); err != nil {
+			if _, err := ensureChromeForTestingAvailable(); err != nil {
 				return err
 			}
 		}
@@ -720,7 +748,7 @@ func runResume(args []string) error {
 	}
 	if record.Runtime == "flutter" {
 		if strings.TrimSpace(record.Device) == "web-server" {
-			if err := ensureChromeAppleEventsEnabled(); err != nil {
+			if _, err := ensureChromeForTestingAvailable(); err != nil {
 				return err
 			}
 		}
@@ -1021,31 +1049,114 @@ func runTmuxCommand(args []string) error {
 
 func runBrowserCommand(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: agent browser <open|refresh>")
+		return fmt.Errorf("usage: agent browser <open|refresh|close|screenshot|logs>")
 	}
-	fs := flag.NewFlagSet("agent browser", flag.ContinueOnError)
+	switch args[0] {
+	case "open":
+		return runBrowserOpen(args[1:])
+	case "refresh":
+		return runBrowserRefresh(args[1:])
+	case "close":
+		return runBrowserClose(args[1:])
+	case "screenshot":
+		return runBrowserScreenshot(args[1:])
+	case "logs":
+		return runBrowserLogs(args[1:])
+	default:
+		return fmt.Errorf("unknown browser subcommand: %s", args[0])
+	}
+}
+
+func runBrowserOpen(args []string) error {
+	fs := flag.NewFlagSet("agent browser open", flag.ContinueOnError)
 	var workspace string
 	var allowOpen bool
-	var preserveFocus bool
 	fs.StringVar(&workspace, "workspace", "", "workspace root containing agent.json")
 	fs.BoolVar(&allowOpen, "allow-open", false, "open a new tab if missing")
-	fs.BoolVar(&preserveFocus, "preserve-focus", false, "restore the previously frontmost app after browser changes")
 	fs.SetOutput(os.Stderr)
-	if err := fs.Parse(args[1:]); err != nil {
+	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if strings.TrimSpace(workspace) == "" {
 		return fmt.Errorf("workspace is required")
 	}
 	featurePath := filepath.Join(workspace, "agent.json")
-	switch args[0] {
-	case "open":
-		return syncChromeForFeature(featurePath, allowOpen, preserveFocus)
-	case "refresh":
-		return refreshChromeForFeature(featurePath, preserveFocus)
-	default:
-		return fmt.Errorf("unknown browser subcommand: %s", args[0])
+	return syncChromeForFeature(featurePath, allowOpen)
+}
+
+func runBrowserRefresh(args []string) error {
+	fs := flag.NewFlagSet("agent browser refresh", flag.ContinueOnError)
+	var workspace string
+	fs.StringVar(&workspace, "workspace", "", "workspace root containing agent.json")
+	fs.SetOutput(os.Stderr)
+	if err := fs.Parse(args); err != nil {
+		return err
 	}
+	if strings.TrimSpace(workspace) == "" {
+		return fmt.Errorf("workspace is required")
+	}
+	featurePath := filepath.Join(workspace, "agent.json")
+	return refreshChromeForFeature(featurePath)
+}
+
+func runBrowserClose(args []string) error {
+	fs := flag.NewFlagSet("agent browser close", flag.ContinueOnError)
+	var workspace string
+	fs.StringVar(&workspace, "workspace", "", "workspace root containing agent.json")
+	fs.SetOutput(os.Stderr)
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if strings.TrimSpace(workspace) == "" {
+		return fmt.Errorf("workspace is required")
+	}
+	featurePath := filepath.Join(workspace, "agent.json")
+	return closeBrowserForFeature(featurePath)
+}
+
+func runBrowserScreenshot(args []string) error {
+	fs := flag.NewFlagSet("agent browser screenshot", flag.ContinueOnError)
+	var workspace string
+	var outPath string
+	fs.StringVar(&workspace, "workspace", "", "workspace root containing agent.json")
+	fs.StringVar(&outPath, "out", "", "output path for the screenshot")
+	fs.SetOutput(os.Stderr)
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if strings.TrimSpace(workspace) == "" {
+		return fmt.Errorf("workspace is required")
+	}
+	featurePath := filepath.Join(workspace, "agent.json")
+	if strings.TrimSpace(outPath) == "" {
+		outPath = filepath.Join(os.TempDir(), "agent-browser-active-tab.jpg")
+	}
+	path, err := captureBrowserScreenshot(featurePath, outPath)
+	if err != nil {
+		return err
+	}
+	fmt.Println(path)
+	return nil
+}
+
+func runBrowserLogs(args []string) error {
+	fs := flag.NewFlagSet("agent browser logs", flag.ContinueOnError)
+	var workspace string
+	var durationSeconds int
+	fs.StringVar(&workspace, "workspace", "", "workspace root containing agent.json")
+	fs.IntVar(&durationSeconds, "duration", 5, "seconds to listen for browser console output")
+	fs.SetOutput(os.Stderr)
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if strings.TrimSpace(workspace) == "" {
+		return fmt.Errorf("workspace is required")
+	}
+	if durationSeconds < 1 {
+		durationSeconds = 1
+	}
+	featurePath := filepath.Join(workspace, "agent.json")
+	return streamBrowserLogs(featurePath, time.Duration(durationSeconds)*time.Second, os.Stdout)
 }
 
 func runFeatureCommand(args []string) error {
@@ -1053,12 +1164,10 @@ func runFeatureCommand(args []string) error {
 	var workspace string
 	var device string
 	var readyText string
-	var shouldOpenTabText string
 	var writeScripts bool
 	fs.StringVar(&workspace, "workspace", "", "workspace root containing agent.json")
 	fs.StringVar(&device, "device", "", "set flutter device")
 	fs.StringVar(&readyText, "ready", "", "set ready state (true/false)")
-	fs.StringVar(&shouldOpenTabText, "should-open-tab", "", "set browser-open state (true/false)")
 	fs.BoolVar(&writeScripts, "write-helper-scripts", false, "rewrite generated helper scripts for the workspace")
 	fs.SetOutput(os.Stderr)
 	if err := fs.Parse(args); err != nil {
@@ -1086,13 +1195,6 @@ func runFeatureCommand(args []string) error {
 				return fmt.Errorf("invalid --ready value: %w", err)
 			}
 			cfg.Ready = value
-		}
-		if strings.TrimSpace(shouldOpenTabText) != "" {
-			value, err := strconv.ParseBool(strings.TrimSpace(shouldOpenTabText))
-			if err != nil {
-				return fmt.Errorf("invalid --should-open-tab value: %w", err)
-			}
-			cfg.ShouldOpenTab = value
 		}
 		return nil
 	}); err != nil {
@@ -1145,7 +1247,9 @@ func runTmuxOnFocus(args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	_ = sessionID
+	if !tmuxWindowIsActive(sessionID, windowID) {
+		return nil
+	}
 	ctx, err := detectCurrentAgentFromTmux(windowID)
 	if err != nil {
 		return nil
@@ -1160,6 +1264,9 @@ func runTmuxOnFocus(args []string) error {
 		return nil
 	}
 	if reg.FocusedAgentID == record.ID {
+		if record.BrowserEnabled && tmuxWindowIsActive(sessionID, windowID) {
+			_ = syncChromeForFeature(record.FeatureConfig, true)
+		}
 		return nil
 	}
 	now := time.Now()
@@ -1169,10 +1276,26 @@ func runTmuxOnFocus(args []string) error {
 	if err := saveRegistry(reg); err != nil {
 		return err
 	}
-	if record.BrowserEnabled {
-		_ = syncChromeForFeature(record.FeatureConfig, true, true)
+	if record.BrowserEnabled && tmuxWindowIsActive(sessionID, windowID) {
+		_ = syncChromeForFeature(record.FeatureConfig, true)
 	}
 	return nil
+}
+
+func tmuxWindowIsActive(sessionID, windowID string) bool {
+	windowID = strings.TrimSpace(windowID)
+	if windowID == "" {
+		return true
+	}
+	target := strings.TrimSpace(sessionID)
+	if target == "" {
+		target = windowID
+	}
+	activeWindowID, err := runTmuxOutput("display-message", "-p", "-t", target, "#{window_id}")
+	if err != nil {
+		return false
+	}
+	return strings.TrimSpace(activeWindowID) == windowID
 }
 
 func runTmuxFocus(args []string) error {
@@ -2360,7 +2483,7 @@ if [[ "$device" == "web-server" ]]; then
       if flutter_ready_seen; then
         "$AGENT_BIN" feature --workspace "$DIR" --ready true
         sleep 2
-        "$AGENT_BIN" browser refresh --workspace "$DIR" --preserve-focus >/dev/null 2>&1 || true
+		"$AGENT_BIN" browser refresh --workspace "$DIR" >/dev/null 2>&1 || true
         exit 0
       fi
       sleep 0.1
@@ -2487,14 +2610,14 @@ PY
       exit 0
     fi
     if printf "%s\n" "$newlines" | grep -qi 'Page requires refresh'; then
-      "$AGENT_BIN" browser open --workspace "$WORKSPACE_DIR" --allow-open --preserve-focus >/dev/null 2>&1 || true
-      "$AGENT_BIN" browser refresh --workspace "$WORKSPACE_DIR" --preserve-focus >/dev/null 2>&1 || true
+	      "$AGENT_BIN" browser open --workspace "$WORKSPACE_DIR" --allow-open >/dev/null 2>&1 || true
+	      "$AGENT_BIN" browser refresh --workspace "$WORKSPACE_DIR" >/dev/null 2>&1 || true
       exit 0
     fi
     if printf "%s\n" "$newlines" | grep -qiE 'no client connected|no connected devices|Hot reload rejected'; then
       if [[ "$device" == "web-server" ]]; then
-        "$AGENT_BIN" browser open --workspace "$WORKSPACE_DIR" --allow-open --preserve-focus >/dev/null 2>&1 || true
-        "$AGENT_BIN" browser refresh --workspace "$WORKSPACE_DIR" --preserve-focus >/dev/null 2>&1 || true
+	        "$AGENT_BIN" browser open --workspace "$WORKSPACE_DIR" --allow-open >/dev/null 2>&1 || true
+	        "$AGENT_BIN" browser refresh --workspace "$WORKSPACE_DIR" >/dev/null 2>&1 || true
         restart_server
       fi
       exit 0
@@ -2748,7 +2871,7 @@ func runTmuxOutput(args ...string) (string, error) {
 	return string(out), nil
 }
 
-func syncChromeForFeature(featurePath string, allowOpen bool, preserveFocus bool) error {
+func syncChromeForFeature(featurePath string, allowOpen bool) error {
 	cfg, err := loadFeatureConfig(featurePath)
 	if err != nil {
 		return err
@@ -2756,185 +2879,39 @@ func syncChromeForFeature(featurePath string, allowOpen bool, preserveFocus bool
 	if strings.TrimSpace(cfg.URL) == "" || strings.TrimSpace(cfg.Device) != "web-server" {
 		return nil
 	}
-	if !allowOpen && !preserveFocus {
-		script := `on run argv
-set targetUrl to item 1 of argv
-set windowText to item 2 of argv
-set tabText to item 3 of argv
-tell application "Google Chrome"
-  if windowText is not "" and tabText is not "" then
-    try
-      set targetWindow to window (windowText as integer)
-      set targetTab to tab (tabText as integer) of targetWindow
-      if (URL of targetTab starts with targetUrl) then
-        set active tab index of targetWindow to (tabText as integer)
-        return "reused\n" & windowText & "\n" & tabText
-      end if
-    end try
-  end if
-  set windowCounter to 0
-  repeat with w in windows
-    if mode of w is "normal" then
-      set windowCounter to windowCounter + 1
-      set i to 1
-      repeat with t in tabs of w
-        if (URL of t starts with targetUrl) then
-          set active tab index of w to i
-          return "switched\n" & windowCounter & "\n" & i
-        end if
-        set i to i + 1
-      end repeat
-    end if
-  end repeat
-end tell
-return "none"
-end run`
-		out, err := runAppleScript(script, cfg.URL, strconv.Itoa(cfg.ChromeWindow), strconv.Itoa(cfg.ChromeTab))
-		if err != nil {
-			return err
-		}
-		parts := strings.Split(strings.TrimSpace(out), "\n")
-		if len(parts) >= 3 && parts[0] != "none" {
-			return updateFeatureConfig(featurePath, func(cfg *featureConfig) error {
-				if v, convErr := strconv.Atoi(strings.TrimSpace(parts[1])); convErr == nil {
-					cfg.ChromeWindow = v
-				}
-				if v, convErr := strconv.Atoi(strings.TrimSpace(parts[2])); convErr == nil {
-					cfg.ChromeTab = v
-				}
-				return nil
-			})
-		}
-		return nil
-	}
-	appID, appName := currentFrontApp()
-	script := `on run argv
-set targetUrl to item 1 of argv
-set shouldOpen to item 2 of argv
-set windowText to item 3 of argv
-set tabText to item 4 of argv
-
-tell application "Google Chrome"
-  if windowText is not "" and tabText is not "" then
-    try
-      set targetWindow to window (windowText as integer)
-      set targetTab to tab (tabText as integer) of targetWindow
-      set tabUrl to URL of targetTab
-      if (tabUrl starts with targetUrl) then
-        set active tab index of targetWindow to (tabText as integer)
-        return "reused\n" & windowText & "\n" & tabText
-      end if
-      if shouldOpen is "true" and tabUrl is "chrome-error://chromewebdata/" then
-        set URL of targetTab to targetUrl
-        set active tab index of targetWindow to (tabText as integer)
-        return "reused\n" & windowText & "\n" & tabText
-      end if
-    end try
-  end if
-  set windowCounter to 0
-  repeat with w in windows
-    if mode of w is "normal" then
-      set windowCounter to windowCounter + 1
-      set i to 1
-      repeat with t in tabs of w
-        if (URL of t starts with targetUrl) then
-          set active tab index of w to i
-          return "switched\n" & windowCounter & "\n" & i
-        end if
-        set i to i + 1
-      end repeat
-    end if
-  end repeat
-  if shouldOpen is "true" then
-    set targetWindow to missing value
-    set targetWindowIndex to 0
-    set windowCounter to 0
-    repeat with w in windows
-      if mode of w is "normal" then
-        set windowCounter to windowCounter + 1
-        set targetWindow to w
-        set targetWindowIndex to windowCounter
-        exit repeat
-      end if
-    end repeat
-    if targetWindow is missing value then
-      make new window
-      set targetWindow to window 1
-      set targetWindowIndex to 1
-    end if
-    tell targetWindow to make new tab with properties {URL:targetUrl}
-    tell targetWindow to set active tab index to (count of tabs)
-    return "opened\n" & targetWindowIndex & "\n" & (active tab index of targetWindow)
-  end if
-end tell
-return "none"
-end run`
-	out, err := runAppleScript(script, cfg.URL, strconv.FormatBool(allowOpen), strconv.Itoa(cfg.ChromeWindow), strconv.Itoa(cfg.ChromeTab))
+	version, err := ensureChromeForTestingRunning(cfg.URL)
 	if err != nil {
 		return err
 	}
-	parts := strings.Split(strings.TrimSpace(out), "\n")
-	if preserveFocus && len(parts) >= 1 && strings.TrimSpace(parts[0]) == "opened" && strings.TrimSpace(appName) != "" && appName != "Google Chrome" {
-		_ = restoreFrontApp(appID, appName)
+	match, err := browserTargetForURL(cfg.URL)
+	if err != nil {
+		return err
 	}
-	if len(parts) >= 3 && parts[0] != "none" {
-		return updateFeatureConfig(featurePath, func(cfg *featureConfig) error {
-			if v, convErr := strconv.Atoi(strings.TrimSpace(parts[1])); convErr == nil {
-				cfg.ChromeWindow = v
-			}
-			if v, convErr := strconv.Atoi(strings.TrimSpace(parts[2])); convErr == nil {
-				cfg.ChromeTab = v
-			}
-			return nil
-		})
+	if match != nil {
+		_, err := browserActivateExistingTabByURL(cfg.URL)
+		return err
 	}
-	return nil
-}
-
-func currentFrontApp() (string, string) {
-	nameOut, nameErr := exec.Command("/usr/bin/osascript", "-e", `tell application "System Events" to name of first application process whose frontmost is true`).Output()
-	idOut, idErr := exec.Command("/usr/bin/osascript", "-e", `tell application "System Events" to bundle identifier of first application process whose frontmost is true`).Output()
-	if nameErr != nil && idErr != nil {
-		return "", ""
-	}
-	return strings.TrimSpace(string(idOut)), strings.TrimSpace(string(nameOut))
-}
-
-func restoreFrontApp(appID, appName string) error {
-	if strings.TrimSpace(appName) == "" {
+	if !allowOpen {
 		return nil
 	}
-	script := `on run argv
-set appId to item 1 of argv
-set appName to item 2 of argv
-delay 0.2
-if appId is not "" then
-  try
-    tell application id appId to activate
-  end try
-  try
-    tell application "System Events"
-      set frontmost of first application process whose bundle identifier is appId to true
-    end tell
-    return
-  end try
-end if
-if appName is not "" then
-  try
-    tell application appName to activate
-  end try
-  try
-    tell application "System Events"
-      set frontmost of first application process whose name is appName to true
-    end tell
-  end try
-end if
-end run`
-	cmd := exec.Command("/usr/bin/osascript", "-e", script, appID, appName)
-	return cmd.Run()
+	if _, err := browserCreateTarget(version.WebSocketDebuggerURL, cfg.URL, true); err != nil {
+		return err
+	}
+	return browserActivateLastTab()
 }
 
-func refreshChromeForFeature(featurePath string, preserveFocus bool) error {
+func refreshChromeForFeature(featurePath string) error {
+	cfg, target, err := browserFeatureTarget(featurePath)
+	if err != nil {
+		return err
+	}
+	if cfg == nil || target == nil {
+		return nil
+	}
+	return browserPageReload(target.WebSocketDebuggerURL)
+}
+
+func closeBrowserForFeature(featurePath string) error {
 	cfg, err := loadFeatureConfig(featurePath)
 	if err != nil {
 		return err
@@ -2942,102 +2919,638 @@ func refreshChromeForFeature(featurePath string, preserveFocus bool) error {
 	if strings.TrimSpace(cfg.URL) == "" || strings.TrimSpace(cfg.Device) != "web-server" {
 		return nil
 	}
-	script := `on run argv
-set targetUrl to item 1 of argv
-set portText to item 2 of argv
-set windowText to item 3 of argv
-set tabText to item 4 of argv
-set preserveFocus to item 5 of argv
+	_, err = browserCloseTabsByURL(cfg.URL)
+	return err
+}
 
-tell application "Google Chrome"
-  if windowText is not "" and tabText is not "" then
-    try
-		set targetWindow to window (windowText as integer)
-		set targetTab to tab (tabText as integer) of targetWindow
-		set tabUrl to URL of targetTab
-		if preserveFocus is "true" and tabUrl is not "chrome-error://chromewebdata/" then
-		  tell targetTab to execute javascript "window.location.reload()"
-		else
-		  set URL of targetTab to targetUrl
-		end if
-      if preserveFocus is not "true" then
-        try
-          set active tab index of targetWindow to (tabText as integer)
-        end try
-      end if
-      return
-    end try
-  end if
-  repeat with w in windows
-    if mode of w is "normal" then
-      repeat with t in tabs of w
-	      set tabUrl to URL of t
-	      set tabTitle to title of t
-	      if (tabUrl starts with targetUrl) or (portText is not "" and tabTitle contains ("localhost:" & portText)) or (tabUrl is "chrome-error://chromewebdata/" and active tab index of w is (index of t)) then
-	        if preserveFocus is "true" and tabUrl is not "chrome-error://chromewebdata/" then
-	          tell t to execute javascript "window.location.reload()"
-	        else
-	          set URL of t to targetUrl
-	        end if
-          if preserveFocus is not "true" then
-            set active tab index of w to (index of t)
-          end if
-          return
-        end if
-      end repeat
-    end if
-  end repeat
-end tell
-end run`
-	cmd := exec.Command("/usr/bin/osascript", "-e", script, cfg.URL, strconv.Itoa(cfg.Port), strconv.Itoa(cfg.ChromeWindow), strconv.Itoa(cfg.ChromeTab), strconv.FormatBool(preserveFocus))
-	if err := cmd.Run(); err != nil {
+func captureBrowserScreenshot(featurePath, outPath string) (string, error) {
+	_, target, err := browserFeatureTarget(featurePath)
+	if err != nil {
+		return "", err
+	}
+	if target == nil {
+		return "", fmt.Errorf("browser tab not found for feature")
+	}
+	data, err := browserCaptureScreenshot(target.WebSocketDebuggerURL)
+	if err != nil {
+		return "", err
+	}
+	if err := writeCompressedScreenshot(data, outPath); err != nil {
+		return "", err
+	}
+	return outPath, nil
+}
+
+func streamBrowserLogs(featurePath string, duration time.Duration, writer io.Writer) error {
+	_, target, err := browserFeatureTarget(featurePath)
+	if err != nil {
 		return err
 	}
-	return nil
+	if target == nil {
+		return fmt.Errorf("browser tab not found for feature")
+	}
+	if _, err := fmt.Fprintf(writer, "Listening to %s\n%s\n", firstNonEmpty(strings.TrimSpace(target.Title), "(untitled)"), strings.TrimSpace(target.URL)); err != nil {
+		return err
+	}
+	return browserListenLogs(target.WebSocketDebuggerURL, duration, writer)
 }
 
-type chromePreferences struct {
-	Browser struct {
-		AllowJavaScriptAppleEvents bool `json:"allow_javascript_apple_events"`
-	} `json:"browser"`
-}
-
-func chromePreferencesPath() (string, error) {
+func ensureChromeForTestingAvailable() (string, error) {
+	if runtime.GOOS != "darwin" {
+		return "", fmt.Errorf("Chrome for Testing browser control currently supports macOS only")
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, "Library", "Application Support", "Google", "Chrome", "Default", "Preferences"), nil
+	candidates := []string{}
+	defaultApp := "/Applications/Google Chrome for Testing.app"
+	if dirExists(defaultApp) {
+		candidates = append(candidates, defaultApp)
+	}
+	matches, err := filepath.Glob(filepath.Join(home, "Library", "Caches", "ms-playwright", "chromium-*", "chrome-mac-arm64", "Google Chrome for Testing.app"))
+	if err == nil {
+		candidates = append(candidates, matches...)
+	}
+	sort.Strings(candidates)
+	for i := len(candidates) - 1; i >= 0; i-- {
+		if dirExists(candidates[i]) {
+			return candidates[i], nil
+		}
+	}
+	return "", fmt.Errorf("Chrome for Testing not found; install it with `npx playwright install chromium`")
 }
 
-func chromeAppleEventsEnabled() (bool, error) {
-	if runtime.GOOS != "darwin" {
+func browserFeatureTarget(featurePath string) (*featureConfig, *browserTarget, error) {
+	cfg, err := loadFeatureConfig(featurePath)
+	if err != nil {
+		return nil, nil, err
+	}
+	if strings.TrimSpace(cfg.URL) == "" || strings.TrimSpace(cfg.Device) != "web-server" {
+		return cfg, nil, nil
+	}
+	if _, err := browserCDPVersion(); err != nil {
+		return cfg, nil, nil
+	}
+	target, err := browserTargetForURL(cfg.URL)
+	if err != nil {
+		return nil, nil, err
+	}
+	return cfg, target, nil
+}
+
+func agentBrowserPort() int {
+	for _, envName := range []string{"AGENT_BROWSER_PORT", "AGENT_BROWSER_TEST_PORT"} {
+		value := strings.TrimSpace(os.Getenv(envName))
+		if value == "" {
+			continue
+		}
+		port, err := strconv.Atoi(value)
+		if err == nil && port > 0 {
+			return port
+		}
+	}
+	return 9224
+}
+
+func agentBrowserBaseURL() string {
+	return fmt.Sprintf("http://127.0.0.1:%d", agentBrowserPort())
+}
+
+func agentBrowserProfileDir() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return filepath.Join(os.TempDir(), "agent-tracker-browser-profile")
+	}
+	return filepath.Join(home, ".config", "agent-tracker", "run", "chrome-for-testing-profile")
+}
+
+func browserCDPVersion() (browserCDPVersionInfo, error) {
+	resp, err := http.Get(agentBrowserBaseURL() + "/json/version")
+	if err != nil {
+		return browserCDPVersionInfo{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return browserCDPVersionInfo{}, fmt.Errorf("browser version request failed: %s", resp.Status)
+	}
+	var version browserCDPVersionInfo
+	if err := json.NewDecoder(resp.Body).Decode(&version); err != nil {
+		return browserCDPVersionInfo{}, err
+	}
+	if strings.TrimSpace(version.WebSocketDebuggerURL) == "" {
+		return browserCDPVersionInfo{}, fmt.Errorf("browser websocket debugger URL missing")
+	}
+	return version, nil
+}
+
+func ensureChromeForTestingRunning(initialURL string) (browserCDPVersionInfo, error) {
+	if version, err := browserCDPVersion(); err == nil {
+		return version, nil
+	}
+	appPath, err := ensureChromeForTestingAvailable()
+	if err != nil {
+		return browserCDPVersionInfo{}, err
+	}
+	if err := os.MkdirAll(agentBrowserProfileDir(), 0o755); err != nil {
+		return browserCDPVersionInfo{}, err
+	}
+	sanitizeChromeForTestingProfile()
+	launchURL := "about:blank"
+	cmd := exec.Command(
+		"open", "-g", "-a", appPath, "--args",
+		"--user-data-dir="+agentBrowserProfileDir(),
+		"--remote-debugging-port="+strconv.Itoa(agentBrowserPort()),
+		"--no-first-run",
+		"--disable-default-apps",
+		"--disable-infobars",
+		"--hide-crash-restore-bubble",
+		"--disable-session-crashed-bubble",
+		"--new-window", launchURL,
+	)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		message := strings.TrimSpace(string(out))
+		if message == "" {
+			message = err.Error()
+		}
+		return browserCDPVersionInfo{}, fmt.Errorf("failed to launch Chrome for Testing: %s", message)
+	}
+	deadline := time.Now().Add(8 * time.Second)
+	for time.Now().Before(deadline) {
+		if version, err := browserCDPVersion(); err == nil {
+			return version, nil
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	return browserCDPVersionInfo{}, fmt.Errorf("Chrome for Testing did not expose CDP on port %d", agentBrowserPort())
+}
+
+func sanitizeChromeForTestingProfile() {
+	for _, path := range []string{
+		filepath.Join(agentBrowserProfileDir(), "Default", "Current Session"),
+		filepath.Join(agentBrowserProfileDir(), "Default", "Current Tabs"),
+		filepath.Join(agentBrowserProfileDir(), "Default", "Last Session"),
+		filepath.Join(agentBrowserProfileDir(), "Default", "Last Tabs"),
+	} {
+		_ = os.Remove(path)
+	}
+	sessionDir := filepath.Join(agentBrowserProfileDir(), "Default", "Sessions")
+	if entries, err := os.ReadDir(sessionDir); err == nil {
+		for _, entry := range entries {
+			_ = os.Remove(filepath.Join(sessionDir, entry.Name()))
+		}
+	}
+	for _, path := range []string{
+		filepath.Join(agentBrowserProfileDir(), "Default", "Preferences"),
+		filepath.Join(agentBrowserProfileDir(), "Local State"),
+	} {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		var root map[string]any
+		if err := json.Unmarshal(data, &root); err != nil {
+			continue
+		}
+		profile, ok := root["profile"].(map[string]any)
+		if !ok {
+			continue
+		}
+		changed := false
+		if profile["exit_type"] != "Normal" {
+			profile["exit_type"] = "Normal"
+			changed = true
+		}
+		if profile["exited_cleanly"] != true {
+			profile["exited_cleanly"] = true
+			changed = true
+		}
+		if !changed {
+			continue
+		}
+		encoded, err := json.Marshal(root)
+		if err != nil {
+			continue
+		}
+		_ = os.WriteFile(path, append(encoded, '\n'), 0o644)
+	}
+}
+
+func browserTargets() ([]browserTarget, error) {
+	resp, err := http.Get(agentBrowserBaseURL() + "/json/list")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("browser target list request failed: %s", resp.Status)
+	}
+	var targets []browserTarget
+	if err := json.NewDecoder(resp.Body).Decode(&targets); err != nil {
+		return nil, err
+	}
+	return targets, nil
+}
+
+func browserTargetForURL(targetURL string) (*browserTarget, error) {
+	targetURL = strings.TrimSpace(targetURL)
+	if targetURL == "" {
+		return nil, nil
+	}
+	targets, err := browserTargets()
+	if err != nil {
+		return nil, err
+	}
+	for _, target := range targets {
+		if target.Type != "page" || strings.TrimSpace(target.ParentID) != "" {
+			continue
+		}
+		if strings.HasPrefix(strings.TrimSpace(target.URL), targetURL) {
+			copy := target
+			return &copy, nil
+		}
+	}
+	return nil, nil
+}
+
+func browserActivePageURL() (string, error) {
+	output, err := runAppleScript(`tell application "Google Chrome for Testing"
+if (count of windows) is 0 then return ""
+tell window 1
+  if (count of tabs) is 0 then return ""
+  return URL of active tab
+end tell
+end tell`)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(output), nil
+}
+
+func browserActivateExistingTabByURL(targetURL string) (bool, error) {
+	targetURL = strings.TrimSpace(targetURL)
+	if targetURL == "" {
+		return false, nil
+	}
+	activeURL, err := browserActivePageURL()
+	if err != nil {
+		return false, err
+	}
+	if strings.HasPrefix(activeURL, targetURL) {
 		return true, nil
 	}
-	path, err := chromePreferencesPath()
-	if err != nil {
-		return false, err
+	matched, err := browserActivateTabFromLiveChromeTabs(targetURL)
+	if err != nil || !matched {
+		return matched, err
 	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return false, err
-	}
-	var prefs chromePreferences
-	if err := json.Unmarshal(data, &prefs); err != nil {
-		return false, err
-	}
-	return prefs.Browser.AllowJavaScriptAppleEvents, nil
+	return browserWaitForActivePageURL(targetURL)
 }
 
-func ensureChromeAppleEventsEnabled() error {
-	enabled, err := chromeAppleEventsEnabled()
+func browserActivateTabFromLiveChromeTabs(targetURL string) (bool, error) {
+	tabURLs, err := browserChromeTabURLs()
 	if err != nil {
-		return fmt.Errorf("unable to verify Chrome Apple Events JavaScript permission: %w", err)
+		return false, err
 	}
-	if enabled {
+	if len(tabURLs) == 0 {
+		return false, nil
+	}
+	for i, tabURL := range tabURLs {
+		if !browserURLsMatch(tabURL, targetURL) {
+			continue
+		}
+		return true, browserSetChromeActiveTabIndex(i + 1)
+	}
+	return false, nil
+}
+
+func browserChromeTabURLs() ([]string, error) {
+	output, err := runAppleScript(`tell application "Google Chrome for Testing"
+if (count of windows) is 0 then return ""
+tell window 1
+  set tabURLs to {}
+  repeat with tabIndex from 1 to (count of tabs)
+    set end of tabURLs to URL of tab tabIndex
+  end repeat
+end tell
+end tell
+set AppleScript's text item delimiters to linefeed
+return tabURLs as text`)
+	if err != nil {
+		return nil, err
+	}
+	output = strings.TrimRight(output, "\r\n")
+	if strings.TrimSpace(output) == "" {
+		return nil, nil
+	}
+	urls := []string{}
+	for _, line := range strings.Split(output, "\n") {
+		urls = append(urls, strings.TrimSpace(strings.TrimRight(line, "\r")))
+	}
+	return urls, nil
+}
+
+func browserSetChromeActiveTabIndex(index int) error {
+	if index <= 0 {
 		return nil
 	}
-	return fmt.Errorf("Chrome 'Allow JavaScript from Apple Events' is disabled; enable it in Chrome View > Developer > Allow JavaScript from Apple Events before starting a web-server agent")
+	_, err := runAppleScript(`on run argv
+set tabIndex to (item 1 of argv) as integer
+tell application "Google Chrome for Testing"
+  if (count of windows) is 0 then error "Google Chrome for Testing has no windows"
+  tell window 1
+    if tabIndex > (count of tabs) then error "Chrome tab index is out of range"
+    set active tab index to tabIndex
+  end tell
+end tell
+end run`, strconv.Itoa(index))
+	return err
+}
+
+func browserURLsMatch(a, b string) bool {
+	a = strings.TrimSpace(a)
+	b = strings.TrimSpace(b)
+	if a == "" || b == "" {
+		return false
+	}
+	if browserIsBlankTabURL(a) && browserIsBlankTabURL(b) {
+		return true
+	}
+	return strings.HasPrefix(a, b) || strings.HasPrefix(b, a)
+}
+
+func browserIsBlankTabURL(url string) bool {
+	url = strings.TrimSpace(url)
+	return url == "about:blank" || url == "chrome://newtab/"
+}
+
+func browserWaitForActivePageURL(targetURL string) (bool, error) {
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		activeURL, err := browserActivePageURL()
+		if err != nil {
+			return false, err
+		}
+		if strings.HasPrefix(activeURL, targetURL) {
+			return true, nil
+		}
+		if time.Now().After(deadline) {
+			return false, nil
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+func browserActivateLastTab() error {
+	_, err := runAppleScript(`tell application "Google Chrome for Testing"
+if (count of windows) is 0 then error "Google Chrome for Testing has no windows"
+tell window 1
+  set active tab index to (count of tabs)
+end tell
+end tell`)
+	return err
+}
+
+func browserCloseTabsByURL(targetURL string) (int, error) {
+	targetURL = strings.TrimSpace(targetURL)
+	if targetURL == "" {
+		return 0, nil
+	}
+	targets, err := browserTargets()
+	if err != nil {
+		return 0, err
+	}
+	closed := 0
+	for _, target := range targets {
+		if target.Type != "page" || strings.TrimSpace(target.ParentID) != "" {
+			continue
+		}
+		if strings.HasPrefix(strings.TrimSpace(target.URL), targetURL) {
+			if err := browserCloseTarget(target.ID); err != nil {
+				return closed, err
+			}
+			closed++
+		}
+	}
+	return closed, nil
+}
+
+func browserCDPRequest(wsURL, method string, params any, result any) error {
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	if err := conn.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		return err
+	}
+	if err := conn.WriteJSON(map[string]any{"id": 1, "method": method, "params": params}); err != nil {
+		return err
+	}
+	for {
+		var envelope browserCDPEnvelope
+		if err := conn.ReadJSON(&envelope); err != nil {
+			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+				return fmt.Errorf("browser CDP request timed out")
+			}
+			return err
+		}
+		if envelope.ID != 1 {
+			continue
+		}
+		if envelope.Error != nil {
+			return errors.New(firstNonEmpty(strings.TrimSpace(envelope.Error.Message), "browser CDP request failed"))
+		}
+		if result != nil && len(envelope.Result) > 0 {
+			if err := json.Unmarshal(envelope.Result, result); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+}
+
+func browserCreateTarget(browserWSURL, targetURL string, background bool) (string, error) {
+	var result struct {
+		TargetID string `json:"targetId"`
+	}
+	if err := browserCDPRequest(browserWSURL, "Target.createTarget", map[string]any{
+		"url":        targetURL,
+		"background": background,
+	}, &result); err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(result.TargetID), nil
+}
+
+func browserCloseTarget(targetID string) error {
+	targetID = strings.TrimSpace(targetID)
+	if targetID == "" {
+		return nil
+	}
+	version, err := browserCDPVersion()
+	if err != nil {
+		return err
+	}
+	return browserCDPRequest(version.WebSocketDebuggerURL, "Target.closeTarget", map[string]any{"targetId": targetID}, nil)
+}
+
+func browserPageReload(pageWSURL string) error {
+	return browserCDPRequest(pageWSURL, "Page.reload", map[string]any{}, nil)
+}
+
+func browserCaptureScreenshot(pageWSURL string) ([]byte, error) {
+	var result struct {
+		Data string `json:"data"`
+	}
+	if err := browserCDPRequest(pageWSURL, "Page.captureScreenshot", map[string]any{
+		"format":                "png",
+		"captureBeyondViewport": true,
+	}, &result); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(result.Data) == "" {
+		return nil, fmt.Errorf("browser returned an empty screenshot")
+	}
+	return base64.StdEncoding.DecodeString(result.Data)
+}
+
+func writeCompressedScreenshot(rawPNG []byte, outPath string) error {
+	if strings.TrimSpace(outPath) == "" {
+		return fmt.Errorf("output path is required")
+	}
+	maxSize := 1400
+	quality := 60
+	if value := strings.TrimSpace(os.Getenv("AGENT_BROWSER_SCREENSHOT_MAX")); value != "" {
+		if parsed, err := strconv.Atoi(value); err == nil && parsed > 0 {
+			maxSize = parsed
+		}
+	}
+	if value := strings.TrimSpace(os.Getenv("AGENT_BROWSER_SCREENSHOT_QUALITY")); value != "" {
+		if parsed, err := strconv.Atoi(value); err == nil && parsed > 0 {
+			quality = parsed
+		}
+	}
+	rawFile, err := os.CreateTemp(os.TempDir(), "agent-browser-screenshot-*.png")
+	if err != nil {
+		return err
+	}
+	rawPath := rawFile.Name()
+	defer os.Remove(rawPath)
+	if _, err := rawFile.Write(rawPNG); err != nil {
+		rawFile.Close()
+		return err
+	}
+	if err := rawFile.Close(); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(outPath), 0o755); err != nil {
+		return err
+	}
+	cmd := exec.Command("sips", "-s", "format", "jpeg", "-s", "formatOptions", strconv.Itoa(quality), "-Z", strconv.Itoa(maxSize), rawPath, "--out", outPath)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		message := strings.TrimSpace(string(out))
+		if message == "" {
+			message = err.Error()
+		}
+		return fmt.Errorf("failed to compress screenshot: %s", message)
+	}
+	return nil
+}
+
+func browserListenLogs(pageWSURL string, duration time.Duration, writer io.Writer) error {
+	conn, _, err := websocket.DefaultDialer.Dial(pageWSURL, nil)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	if err := conn.SetReadDeadline(time.Now().Add(duration)); err != nil {
+		return err
+	}
+	if err := conn.WriteJSON(map[string]any{"id": 1, "method": "Runtime.enable", "params": map[string]any{}}); err != nil {
+		return err
+	}
+	if err := conn.WriteJSON(map[string]any{"id": 2, "method": "Log.enable", "params": map[string]any{}}); err != nil {
+		return err
+	}
+	for {
+		var envelope browserCDPEnvelope
+		if err := conn.ReadJSON(&envelope); err != nil {
+			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+				return nil
+			}
+			return err
+		}
+		switch envelope.Method {
+		case "Runtime.consoleAPICalled":
+			var params struct {
+				Type string `json:"type"`
+				Args []struct {
+					Type        string      `json:"type"`
+					Value       interface{} `json:"value,omitempty"`
+					Description string      `json:"description,omitempty"`
+				} `json:"args"`
+			}
+			if err := json.Unmarshal(envelope.Params, &params); err != nil {
+				continue
+			}
+			if _, err := fmt.Fprintf(writer, "[console.%s] %s\n", firstNonEmpty(strings.TrimSpace(params.Type), "log"), browserConsoleArgsText(params.Args)); err != nil {
+				return err
+			}
+		case "Runtime.exceptionThrown":
+			var params struct {
+				ExceptionDetails struct {
+					Text      string `json:"text"`
+					Exception struct {
+						Description string      `json:"description,omitempty"`
+						Value       interface{} `json:"value,omitempty"`
+					} `json:"exception"`
+				} `json:"exceptionDetails"`
+			}
+			if err := json.Unmarshal(envelope.Params, &params); err != nil {
+				continue
+			}
+			text := firstNonEmpty(strings.TrimSpace(params.ExceptionDetails.Text), strings.TrimSpace(params.ExceptionDetails.Exception.Description), fmt.Sprint(params.ExceptionDetails.Exception.Value))
+			if _, err := fmt.Fprintf(writer, "[exception] %s\n", text); err != nil {
+				return err
+			}
+		case "Log.entryAdded":
+			var params struct {
+				Entry struct {
+					Level string `json:"level"`
+					Text  string `json:"text"`
+				} `json:"entry"`
+			}
+			if err := json.Unmarshal(envelope.Params, &params); err != nil {
+				continue
+			}
+			if _, err := fmt.Fprintf(writer, "[log.%s] %s\n", firstNonEmpty(strings.TrimSpace(params.Entry.Level), "info"), strings.TrimSpace(params.Entry.Text)); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func browserConsoleArgsText(args []struct {
+	Type        string      `json:"type"`
+	Value       interface{} `json:"value,omitempty"`
+	Description string      `json:"description,omitempty"`
+}) string {
+	parts := make([]string, 0, len(args))
+	for _, arg := range args {
+		switch {
+		case arg.Value != nil:
+			parts = append(parts, fmt.Sprint(arg.Value))
+		case strings.TrimSpace(arg.Description) != "":
+			parts = append(parts, strings.TrimSpace(arg.Description))
+		case strings.TrimSpace(arg.Type) != "":
+			parts = append(parts, "["+strings.TrimSpace(arg.Type)+"]")
+		default:
+			parts = append(parts, "[unknown]")
+		}
+	}
+	return strings.TrimSpace(strings.Join(parts, " "))
 }
 
 func runAppleScript(script string, args ...string) (string, error) {
@@ -3054,94 +3567,13 @@ func runAppleScript(script string, args ...string) (string, error) {
 	return string(out), nil
 }
 
-func focusChromeTab(url string, openIfMissing bool) error {
-	if strings.TrimSpace(url) == "" {
-		return nil
-	}
-	script := `on run argv
-set targetUrl to item 1 of argv
-set shouldOpen to item 2 of argv
-tell application "System Events"
-  set frontAppName to ""
-  set frontAppID to ""
-  try
-    set frontAppName to name of first application process whose frontmost is true
-    set frontAppID to bundle identifier of first application process whose frontmost is true
-  end try
-end tell
-tell application "Google Chrome"
-  set matchedTab to missing value
-  set matchedWindow to missing value
-  set matchedIndex to 0
-  repeat with w in windows
-    if mode of w is "normal" then
-    set i to 1
-    repeat with t in tabs of w
-      if (URL of t starts with targetUrl) then
-        set matchedTab to t
-        set matchedWindow to w
-        set matchedIndex to i
-        exit repeat
-      end if
-      set i to i + 1
-    end repeat
-    end if
-    if matchedTab is not missing value then exit repeat
-  end repeat
-  if matchedTab is not missing value then
-    set active tab index of matchedWindow to matchedIndex
-  else if shouldOpen is "true" then
-    set targetWindow to missing value
-    repeat with w in windows
-      if mode of w is "normal" then
-        set targetWindow to w
-        exit repeat
-      end if
-    end repeat
-    if targetWindow is missing value then
-      make new window
-      set targetWindow to window 1
-    end if
-    tell targetWindow
-      make new tab with properties {URL:targetUrl}
-      set active tab index to (count of tabs)
-    end tell
-    if frontAppName is not "" and frontAppName is not "Google Chrome" then
-      if frontAppID is not "" then
-        try
-          tell application id frontAppID to activate
-          return
-        end try
-      end if
-      try
-        tell application frontAppName to activate
-      end try
-    end if
-  end if
-end tell
-end run`
-	cmd := exec.Command("osascript", "-e", script, url, strconv.FormatBool(openIfMissing))
-	return cmd.Run()
-}
-
 func closeChromeTab(url string) error {
 	if strings.TrimSpace(url) == "" {
 		return nil
 	}
-	script := `on run argv
-set targetUrl to item 1 of argv
-tell application "Google Chrome"
-  if not running then return
-  repeat with w in windows
-    set i to (count of tabs of w)
-    repeat while i > 0
-      set t to tab i of w
-      if (URL of t starts with targetUrl) then close t
-      set i to i - 1
-    end repeat
-  end repeat
-end tell
-end run`
-	cmd := exec.Command("osascript", "-e", script, url)
-	return cmd.Run()
+	if _, err := browserCDPVersion(); err != nil {
+		return nil
+	}
+	_, err := browserCloseTabsByURL(url)
+	return err
 }

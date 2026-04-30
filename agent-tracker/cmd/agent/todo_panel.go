@@ -356,7 +356,7 @@ func (m *todoPanelModel) updateList(key string) (tea.Model, tea.Cmd) {
 			}
 			m.reloadEntries()
 		}
-	case "a":
+	case "a", "alt+a":
 		m.mode = todoPanelModeAdd
 		m.addText = nil
 		m.addCursor = 0
@@ -798,11 +798,11 @@ func (m *todoPanelModel) renderFooter(w int) string {
 		)
 	} else {
 		footer = pickRenderedShortcutFooter(contentWidth, renderSegments,
-			[][2]string{{"u/e", "move"}, {"Enter", "goto"}, {"Ctrl-U/E", "reorder"}, {"n/i", "column"}, {"Tab", "window"}, {"Shift-N/I", "scope"}, {"Space", "toggle"}, {"a", "add"}, {"E", "edit"}, {"y", "copy"}, {"d", "delete"}, {"1/2/3", "priority"}, {"c", "completed"}, {"Esc", "close"}, {footerHintToggleKey, "more"}},
-			[][2]string{{"u/e", "move"}, {"Enter", "goto"}, {"Ctrl-U/E", "reorder"}, {"n/i", "col"}, {"Tab", "win"}, {"N/I", "scope"}, {"Space", "toggle"}, {"a", "add"}, {"E", "edit"}, {"y", "copy"}, {"d", "del"}, {"c", "done"}, {"Esc", "close"}, {footerHintToggleKey, "more"}},
-			[][2]string{{"u/e", "move"}, {"Enter", "goto"}, {"Ctrl-U/E", "reorder"}, {"n/i", "col"}, {"Tab", "win"}, {"N/I", "scope"}, {"Space", "toggle"}, {"a", "add"}, {"E", "edit"}, {"y", "copy"}, {"d", "del"}, {"Esc", "close"}, {footerHintToggleKey, "more"}},
-			[][2]string{{"u/e", "move"}, {"Enter", "goto"}, {"n/i", "col"}, {"Tab", "win"}, {"N/I", "scope"}, {"Space", "toggle"}, {"a", "add"}, {"E", "edit"}, {"y", "copy"}, {"d", "del"}, {"Esc", "close"}, {footerHintToggleKey, "more"}},
-			[][2]string{{"u/e", "move"}, {"Enter", "goto"}, {"n/i", "col"}, {"Tab", "win"}, {"N/I", "scope"}, {"a", "add"}, {"E", "edit"}, {"y", "copy"}, {"d", "del"}, {"Esc", "close"}, {footerHintToggleKey, "more"}},
+			[][2]string{{"u/e", "move"}, {"Enter", "goto"}, {"Ctrl-U/E", "reorder"}, {"n/i", "column"}, {"Tab", "window"}, {"Shift-N/I", "scope"}, {"Space", "toggle"}, {"a/Alt-A", "add"}, {"E", "edit"}, {"y", "copy"}, {"d", "delete"}, {"1/2/3", "priority"}, {"c", "completed"}, {"Esc", "close"}, {footerHintToggleKey, "more"}},
+			[][2]string{{"u/e", "move"}, {"Enter", "goto"}, {"Ctrl-U/E", "reorder"}, {"n/i", "col"}, {"Tab", "win"}, {"N/I", "scope"}, {"Space", "toggle"}, {"a/Alt-A", "add"}, {"E", "edit"}, {"y", "copy"}, {"d", "del"}, {"c", "done"}, {"Esc", "close"}, {footerHintToggleKey, "more"}},
+			[][2]string{{"u/e", "move"}, {"Enter", "goto"}, {"Ctrl-U/E", "reorder"}, {"n/i", "col"}, {"Tab", "win"}, {"N/I", "scope"}, {"Space", "toggle"}, {"a/Alt-A", "add"}, {"E", "edit"}, {"y", "copy"}, {"d", "del"}, {"Esc", "close"}, {footerHintToggleKey, "more"}},
+			[][2]string{{"u/e", "move"}, {"Enter", "goto"}, {"n/i", "col"}, {"Tab", "win"}, {"N/I", "scope"}, {"Space", "toggle"}, {"a/Alt-A", "add"}, {"E", "edit"}, {"y", "copy"}, {"d", "del"}, {"Esc", "close"}, {footerHintToggleKey, "more"}},
+			[][2]string{{"u/e", "move"}, {"Enter", "goto"}, {"n/i", "col"}, {"Tab", "win"}, {"N/I", "scope"}, {"a/Alt-A", "add"}, {"E", "edit"}, {"y", "copy"}, {"d", "del"}, {"Esc", "close"}, {footerHintToggleKey, "more"}},
 			[][2]string{{"Esc", "close"}, {footerHintToggleKey, "more"}},
 		)
 	}

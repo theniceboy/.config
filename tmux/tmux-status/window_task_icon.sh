@@ -4,13 +4,16 @@ set -euo pipefail
 window_id="${1:-}"
 unread="${2:-0}"
 watching="${3:-0}"
+watch_failed="${4:-0}"
 [[ -z "$window_id" ]] && exit 0
 
 has_bell=0
 has_watch=0
 has_question=0
+has_fail=0
 
 [[ "$unread" == "1" ]] && has_bell=1
+[[ "$unread" == "1" && "$watch_failed" == "1" ]] && has_fail=1
 
 [[ "$watching" == "1" ]] && has_watch=1
 
@@ -36,6 +39,8 @@ fi
 
 if (( has_question )); then
   printf '❓'
+elif (( has_fail )); then
+  printf '❌'
 elif (( has_bell )); then
   printf '🔔'
 elif (( has_watch )); then

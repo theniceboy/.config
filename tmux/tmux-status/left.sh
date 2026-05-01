@@ -65,7 +65,7 @@ question_state=$(tmux list-panes -a -F '#{session_id}::#{@op_question_pending}' 
 
 get_session_icon() {
   local sid="$1"
-  local has_question=0 has_bell=0 has_watch=0
+  local has_question=0 has_bell=0 has_watch=0 has_fail=0
 
   local question_pane
   question_pane=$(grep -F -m1 -x "${sid}::1" <<< "$question_state" || true)
@@ -74,6 +74,10 @@ get_session_icon() {
   local unread_win
   unread_win=$(tmux list-windows -t "$sid" -F '#{@unread}' 2>/dev/null | grep -m1 '^1$' || true)
   [[ -n "$unread_win" ]] && has_bell=1
+
+  local failed_win
+  failed_win=$(tmux list-windows -t "$sid" -F '#{@unread}:#{@watch_failed}' 2>/dev/null | grep -m1 '^1:1$' || true)
+  [[ -n "$failed_win" ]] && has_fail=1
 
   local watching_win
   watching_win=$(tmux list-windows -t "$sid" -F '#{@watching}' 2>/dev/null | grep -m1 '^1$' || true)
@@ -95,6 +99,8 @@ get_session_icon() {
 
   if (( has_question )); then
     printf '❓'
+  elif (( has_fail )); then
+    printf '❌'
   elif (( has_bell )); then
     printf '🔔'
   elif (( has_watch )); then

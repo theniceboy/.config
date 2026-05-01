@@ -17,6 +17,8 @@ current_cmd=$(tmux display-message -p -t "$pane_id" '#{pane_current_command}' 2>
 
 clear_pane_watch() {
   tmux set-option -p -u -t "$pane_id" @pane_watching 2>/dev/null || true
+  tmux set-option -p -u -t "$pane_id" @pane_watch_done 2>/dev/null || true
+  tmux set-option -p -u -t "$pane_id" @pane_watch_exit_status 2>/dev/null || true
 }
 
 trap clear_pane_watch EXIT
@@ -33,21 +35,34 @@ if [[ "$current_cmd" == "$pane_shell" ]]; then
   exit 0
 fi
 
+tmux set -wu -t "$window_id" @unread 2>/dev/null || true
+tmux set -wu -t "$window_id" @watch_failed 2>/dev/null || true
 tmux set -w -t "$window_id" @watching 1 2>/dev/null || true
 tmux set-option -p -t "$pane_id" @pane_watching 1 2>/dev/null || true
+tmux set-option -p -t "$pane_id" @pane_watch_done 0 2>/dev/null || true
+tmux set-option -p -u -t "$pane_id" @pane_watch_exit_status 2>/dev/null || true
 tmux refresh-client -S
 
 while true; do
   sleep 1
   watching=$(tmux show -wv -t "$window_id" @watching 2>/dev/null || true)
   [[ "$watching" != "1" ]] && exit 0
+  watch_done=$(tmux show-options -pv -t "$pane_id" @pane_watch_done 2>/dev/null || true)
+  [[ "$watch_done" == "1" ]] && break
   cmd=$(tmux display-message -p -t "$pane_id" '#{pane_current_command}' 2>/dev/null || true)
   if [[ -z "$cmd" || "$cmd" == "$pane_shell" ]]; then
     break
   fi
 done
 
+exit_status=$(tmux show-options -pv -t "$pane_id" @pane_watch_exit_status 2>/dev/null || true)
+
 tmux set -wu -t "$window_id" @watching 2>/dev/null || true
+if [[ "$exit_status" =~ ^[0-9]+$ && "$exit_status" != "0" ]]; then
+  tmux set -w -t "$window_id" @watch_failed 1 2>/dev/null || true
+else
+  tmux set -wu -t "$window_id" @watch_failed 2>/dev/null || true
+fi
 tmux set -w -t "$window_id" @unread 1 2>/dev/null || true
 tmux refresh-client -S
 notify_completion

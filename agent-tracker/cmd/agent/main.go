@@ -1049,7 +1049,7 @@ func runTmuxCommand(args []string) error {
 
 func runBrowserCommand(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: agent browser <open|refresh|close|screenshot|logs>")
+		return fmt.Errorf("usage: agent browser <open|refresh|close|screenshot|logs|mcp>")
 	}
 	switch args[0] {
 	case "open":
@@ -1062,6 +1062,8 @@ func runBrowserCommand(args []string) error {
 		return runBrowserScreenshot(args[1:])
 	case "logs":
 		return runBrowserLogs(args[1:])
+	case "mcp":
+		return runBrowserMCP(args[1:])
 	default:
 		return fmt.Errorf("unknown browser subcommand: %s", args[0])
 	}
@@ -1077,10 +1079,10 @@ func runBrowserOpen(args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	if strings.TrimSpace(workspace) == "" {
-		return fmt.Errorf("workspace is required")
+	_, featurePath, err := resolveBrowserWorkspace(workspace)
+	if err != nil {
+		return err
 	}
-	featurePath := filepath.Join(workspace, "agent.json")
 	return syncChromeForFeature(featurePath, allowOpen)
 }
 
@@ -1092,10 +1094,10 @@ func runBrowserRefresh(args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	if strings.TrimSpace(workspace) == "" {
-		return fmt.Errorf("workspace is required")
+	_, featurePath, err := resolveBrowserWorkspace(workspace)
+	if err != nil {
+		return err
 	}
-	featurePath := filepath.Join(workspace, "agent.json")
 	return refreshChromeForFeature(featurePath)
 }
 
@@ -1107,10 +1109,10 @@ func runBrowserClose(args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	if strings.TrimSpace(workspace) == "" {
-		return fmt.Errorf("workspace is required")
+	_, featurePath, err := resolveBrowserWorkspace(workspace)
+	if err != nil {
+		return err
 	}
-	featurePath := filepath.Join(workspace, "agent.json")
 	return closeBrowserForFeature(featurePath)
 }
 
@@ -1124,12 +1126,16 @@ func runBrowserScreenshot(args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	if strings.TrimSpace(workspace) == "" {
-		return fmt.Errorf("workspace is required")
+	_, featurePath, err := resolveBrowserWorkspace(workspace)
+	if err != nil {
+		return err
 	}
-	featurePath := filepath.Join(workspace, "agent.json")
 	if strings.TrimSpace(outPath) == "" {
-		outPath = filepath.Join(os.TempDir(), "agent-browser-active-tab.jpg")
+		defaultPath, err := defaultBrowserScreenshotPath(featurePath)
+		if err != nil {
+			return err
+		}
+		outPath = defaultPath
 	}
 	path, err := captureBrowserScreenshot(featurePath, outPath)
 	if err != nil {
@@ -1149,13 +1155,13 @@ func runBrowserLogs(args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	if strings.TrimSpace(workspace) == "" {
-		return fmt.Errorf("workspace is required")
+	_, featurePath, err := resolveBrowserWorkspace(workspace)
+	if err != nil {
+		return err
 	}
 	if durationSeconds < 1 {
 		durationSeconds = 1
 	}
-	featurePath := filepath.Join(workspace, "agent.json")
 	return streamBrowserLogs(featurePath, time.Duration(durationSeconds)*time.Second, os.Stdout)
 }
 
@@ -2924,21 +2930,11 @@ func closeBrowserForFeature(featurePath string) error {
 }
 
 func captureBrowserScreenshot(featurePath, outPath string) (string, error) {
-	_, target, err := browserFeatureTarget(featurePath)
+	result, err := browserActionScreenshot(featurePath, browserScreenshotOptions{OutPath: outPath})
 	if err != nil {
 		return "", err
 	}
-	if target == nil {
-		return "", fmt.Errorf("browser tab not found for feature")
-	}
-	data, err := browserCaptureScreenshot(target.WebSocketDebuggerURL)
-	if err != nil {
-		return "", err
-	}
-	if err := writeCompressedScreenshot(data, outPath); err != nil {
-		return "", err
-	}
-	return outPath, nil
+	return result.Path, nil
 }
 
 func streamBrowserLogs(featurePath string, duration time.Duration, writer io.Writer) error {

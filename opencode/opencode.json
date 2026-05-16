@@ -1,7 +1,8 @@
 {
 	"$schema": "https://opencode.ai/config.json",
 	"autoupdate": true,
-	"small_model": "openai/gpt-5.4-mini",
+	"model": "cliproxy/gpt-5.5",
+	"small_model": "zai-coding-plan/glm-4.7",
 	"agent": {
 		"build": {
 			"color": "#ff79c6"
@@ -30,7 +31,7 @@
 	"permission": {
 		"edit": "allow",
 		"bash": "allow",
-		"webfetch": "allow",
+		"webfetch": "deny",
 		"consult": "deny",
 		"doom_loop": "allow",
 		"external_directory": "allow"
@@ -39,9 +40,9 @@
 		"web": {
 			"type": "local",
 			"command": [
-				"mctrl-mcp",
-				"web"
 			],
+			"type": "remote",
+			"url": "http://dmini:8765/searcher/mcp",
 			"enabled": true
 		},
 		"sentry": {
@@ -65,5 +66,53 @@
 			"enabled": false
 		}
 	},
-	"provider": {}
+	"provider": {
+		"cliproxy": {
+			"api": "openai",
+			"name": "CLIProxyAPI (dmini)",
+			"options": {
+				"apiKey": "sk-dummy",
+				"baseURL": "http://dmini:8317/v1"
+			},
+			"models": {
+				"gpt-5.5": {
+					"name": "gpt-5.5",
+					"tool_call": true,
+					"reasoning": true,
+					"limit": {
+						"context": 200000,
+						"output": 32000
+					}
+				},
+				"gpt-5.4-mini": {
+					"name": "gpt-5.4-mini",
+					"tool_call": true,
+					"reasoning": true,
+					"limit": {
+						"context": 128000,
+						"output": 16384
+					}
+				}
+			}
+		},
+		"rapidmlx": {
+			"api": "openai",
+			"name": "Rapid-MLX Local",
+			"options": {
+				"apiKey": "not-needed",
+				"baseURL": "http://127.0.0.1:8001/v1"
+			},
+			"models": {
+				"default": {
+					"name": "rapid-mlx local",
+					"tool_call": true,
+					"reasoning": true,
+					"limit": {
+						"context": 32768,
+						"output": 8192
+					}
+				}
+			}
+		}
+	}
 }

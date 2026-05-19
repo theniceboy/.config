@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+PINCHTAB_BIN="${PINCHTAB_BIN:-}"
+if [[ -z "$PINCHTAB_BIN" ]]; then
+  PINCHTAB_BIN="$(command -v pinchtab || true)"
+fi
+
+if [[ -z "$PINCHTAB_BIN" ]]; then
+  printf 'pinchtab-up: pinchtab is not on PATH\n' >&2
+  exit 127
+fi
+
+health() {
+  if [[ -n "${PINCHTAB_URL:-}" ]]; then
+    "$PINCHTAB_BIN" --server "$PINCHTAB_URL" health >/dev/null 2>&1
+  else
+    "$PINCHTAB_BIN" health >/dev/null 2>&1
+  fi
+}
+
+wait_for_health() {
+  local timeout="${1:-10}"
+  local deadline=$((SECONDS + timeout))
+
+  until health; do
+    if (( SECONDS >= deadline )); then
+      return 1
+    fi
+    sleep 1
+  done
+}
+
+if health; then
+  printf 'PinchTab is available.\n'
+  exit 0
+fi
+
+if [[ "${PINCHTAB_NO_DAEMON:-}" != "1" ]]; then
+  if [[ ! -f "$HOME/Library/LaunchAgents/com.pinchtab.pinchtab.plist" ]]; then
+    "$PINCHTAB_BIN" daemon install >/dev/null 2>&1 || true
+  fi
+
+  "$PINCHTAB_BIN" daemon start >/dev/null 2>&1 || true
+  if wait_for_health 12; then
+    printf 'PinchTab is available.\n'
+    exit 0
+  fi
+
+  "$PINCHTAB_BIN" daemon restart >/dev/null 2>&1 || true
+  if wait_for_health 18; then
+    printf 'PinchTab is available.\n'
+    exit 0
+  fi
+fi
+
+LOG_DIR="${PINCHTAB_LOG_DIR:-${TMPDIR:-/tmp}}"
+mkdir -p "$LOG_DIR"
+
+nohup "$PINCHTAB_BIN" server >"$LOG_DIR/pinchtab-up.out.log" 2>"$LOG_DIR/pinchtab-up.err.log" &
+
+if wait_for_health 18; then
+  printf 'PinchTab is available.\n'
+  exit 0
+fi
+
+printf 'pinchtab-up: failed to make PinchTab available. Logs: %s/pinchtab-up.err.log\n' "$LOG_DIR" >&2
+exit 1

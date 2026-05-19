@@ -38,12 +38,17 @@
 	},
 	"mcp": {
 		"web": {
-			"type": "local",
-			"command": [
-			],
 			"type": "remote",
 			"url": "http://dmini:8765/searcher/mcp",
 			"enabled": true
+		},
+		"pinchtab": {
+			"type": "local",
+			"command": [
+				"node",
+				"/Users/david/.config/opencode/tool/pinchtab-mcp.mjs"
+			],
+			"enabled": false
 		},
 		"sentry": {
 			"type": "local",

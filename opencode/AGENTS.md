@@ -14,17 +14,6 @@
 - Keep explanations compact unless the user asks for more detail.
 - For security warnings, destructive actions, or anything where brevity could cause confusion, switch to clear normal wording first.
 
-## Work Summary
-
-- Keep `set_work_summary` up to date before you start work
-- `theme`: what has the work been about overall?
-- `now` answers: what the user asked you to do and/or what are you about to do?
-- Keep both labels concrete and under 40 characters.
-- Since the summary line has dedicated space, prefer richer phrases that help a forgetful human re-orient instantly.
-- Keep phrasing simple
-
----------
-
 ## Adaptive Burst Workflow
 
 ### How to Burst

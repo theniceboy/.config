@@ -63,9 +63,6 @@ load_option() {
 
 clear_opencode_state() {
   [[ -n "$pane_id" ]] || return 0
-  tmux set-option -p -u -t "$pane_id" @op_work_theme 2>/dev/null || true
-  tmux set-option -p -u -t "$pane_id" @op_work_now 2>/dev/null || true
-  tmux set-option -p -u -t "$pane_id" @op_work_summary 2>/dev/null || true
   tmux set-option -p -u -t "$pane_id" @op_question_pending 2>/dev/null || true
 }
 
@@ -98,11 +95,6 @@ else
   title=$(fallback)
 fi
 
-theme=$(load_option "@op_work_theme")
-if [[ -z "$theme" ]]; then
-  theme=$(load_option "@op_work_summary")
-fi
-now=$(load_option "@op_work_now")
 question_pending=$(load_option "@op_question_pending")
 pane_watching=$(load_option "@pane_watching")
 
@@ -111,45 +103,11 @@ if [[ "$pane_watching" == "1" ]]; then
 fi
 
 if ! opencode_active; then
-  if [[ -n "$theme" || -n "$now" || -n "$question_pending" ]]; then
+  if [[ -n "$question_pending" ]]; then
     clear_opencode_state
   fi
   printf '%s' "$title"
   exit 0
 fi
 
-summary_display=""
-if [[ -n "$theme" ]]; then
-  summary_display="[$theme]"
-fi
-if [[ -n "$now" ]]; then
-  if [[ -n "$summary_display" ]]; then
-    summary_display="$summary_display  ↳ $now"
-  else
-    summary_display="↳ $now"
-  fi
-fi
-
-if [[ -z "$summary_display" ]]; then
-  printf '%s' "$title"
-  exit 0
-fi
-
-if [[ "$pane_watching" == "1" ]]; then
-  summary_display="⏳ $summary_display"
-  title=${title#⏳ }
-fi
-
-reserved_width=$((${#summary_display} + 3))
-prompt_width=$((width - reserved_width))
-if (( prompt_width < 16 )); then
-  summary_display=$(trim_to_width "$summary_display" "$width")
-  printf '%s' "$summary_display"
-  exit 0
-fi
-
-if command -v starship >/dev/null 2>&1; then
-  title=$(cd "$pane_path" && run_starship "$prompt_width") || title=$(fallback)
-fi
-
-printf '%s · %s' "$summary_display" "$title"
+printf '%s' "$title"

@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Args: <pane_pid> <pane_id> <pane_tty> <pane_title> <pane_width> <pane_path> <pane_cmd>
+# Args: <pane_pid> <pane_tty> <pane_title> <pane_width> <pane_path> <pane_cmd> <pane_watching>
 pid="${1:-}"
-pane_id="${2:-}"
-pane_tty="${3:-}"
-pane_title="${4:-}"
-width="${5:-80}"
-pane_path="${6:-$PWD}"
-pane_cmd="${7:-}"
+pane_tty="${2:-}"
+pane_title="${3:-}"
+width="${4:-80}"
+pane_path="${5:-$PWD}"
+pane_cmd="${6:-}"
+pane_watching="${7:-}"
 ps_line=""
 
 # Best-effort: inherit venv/conda from the pane's process env
@@ -52,20 +52,6 @@ trim_to_width() {
   printf '%s…' "${text:0:$((max - 1))}"
 }
 
-load_option() {
-  local option value
-  option="$1"
-  [[ -n "$pane_id" ]] || return 0
-  value=$(tmux display-message -p -t "$pane_id" "#{${option}}" 2>/dev/null | tr -d '\r\n' || true)
-  value=$(printf '%s' "$value" | perl -0pe 's/\s+/ /g; s/^\s+|\s+$//g')
-  printf '%s' "$value"
-}
-
-clear_opencode_state() {
-  [[ -n "$pane_id" ]] || return 0
-  tmux set-option -p -u -t "$pane_id" @op_question_pending 2>/dev/null || true
-}
-
 opencode_active() {
   local tty_name tty_ps
   [[ "$pane_title" == OC\ \|* ]] && return 0
@@ -95,17 +81,11 @@ else
   title=$(fallback)
 fi
 
-question_pending=$(load_option "@op_question_pending")
-pane_watching=$(load_option "@pane_watching")
-
 if [[ "$pane_watching" == "1" ]]; then
   title="⏳ $title"
 fi
 
 if ! opencode_active; then
-  if [[ -n "$question_pending" ]]; then
-    clear_opencode_state
-  fi
   printf '%s' "$title"
   exit 0
 fi

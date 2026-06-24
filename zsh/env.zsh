@@ -1,3 +1,4 @@
+export HOMEBREW_NO_REQUIRE_TAP_TRUST=1
 export PATH=$HOME/.local/bin:$PATH
 export XDG_CONFIG_HOME=$HOME/.config
 export LOCALBIN=$XDG_CONFIG_HOME/bin

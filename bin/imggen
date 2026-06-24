@@ -1,0 +1,93 @@
+#!/bin/bash
+set -euo pipefail
+
+OPEN=false
+IMAGE_ARGS=()
+PROMPT=""
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --open)
+      OPEN=true
+      shift
+      ;;
+    --image|-i)
+      IMAGE_ARGS+=("$2")
+      shift 2
+      ;;
+    -h|--help)
+      echo "usage: imggen [--open] [--image <path>]... <prompt>" >&2
+      exit 0
+      ;;
+    *)
+      PROMPT="$1"
+      shift
+      ;;
+  esac
+done
+
+if [ -z "$PROMPT" ]; then
+  echo "usage: imggen [--open] [--image <path>]... <prompt>" >&2
+  exit 2
+fi
+
+SCRIPT="$HOME/.config/opencode/tools/codex-imagen/scripts/codex-imagen.mjs"
+TMP=$(mktemp)
+trap 'rm -f "$TMP"' EXIT
+
+if [ ${#IMAGE_ARGS[@]} -gt 0 ]; then
+  printf 'edit image based on this prompt: "%s"' "$PROMPT" > "$TMP"
+else
+  printf 'generate image: "%s"' "$PROMPT" > "$TMP"
+fi
+
+CMD=(node "$SCRIPT" --prompt-file "$TMP" --json --quiet --out-dir /tmp --model gpt-5.5)
+if [ ${#IMAGE_ARGS[@]} -gt 0 ]; then
+  for img in "${IMAGE_ARGS[@]}"; do
+    CMD+=(-i "$img")
+  done
+fi
+
+if [ "${IMGGEN_DEBUG:-}" = "1" ]; then
+  echo "[debug] prompt file: $TMP" >&2
+  echo "[debug] cmd: ${CMD[*]}" >&2
+  OUT=$("${CMD[@]}" 2>&1)
+  echo "[debug] raw output:" >&2
+  echo "$OUT" >&2
+else
+  OUT=$("${CMD[@]}" 2>/dev/null)
+fi
+
+if [ -z "$OUT" ]; then
+  echo "error: no output from codex-imagen (set IMGGEN_DEBUG=1 for details)" >&2
+  exit 1
+fi
+
+PATH_OUT=$(echo "$OUT" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    if d.get('images'):
+        print(d['images'][0]['path'])
+    else:
+        sys.stderr.write('error: no images in response\n')
+        sys.stderr.write(json.dumps(d)[:500] + '\n')
+        sys.exit(1)
+except json.JSONDecodeError as e:
+    sys.stderr.write('error: invalid JSON: ' + str(e) + '\n')
+    sys.stderr.write(sys.stdin.read()[:500] + '\n')
+    sys.exit(1)
+" 2>&1)
+
+if [ $? -ne 0 ]; then
+  echo "error: failed to parse output" >&2
+  echo "$PATH_OUT" >&2
+  exit 1
+fi
+
+if [ -n "$PATH_OUT" ]; then
+  echo "$PATH_OUT"
+  if [ "$OPEN" = true ]; then
+    open "$PATH_OUT"
+  fi
+fi

@@ -105,9 +105,10 @@ type keyConfig struct {
 }
 
 type repoConfig struct {
-	BaseBranch    string   `yaml:"base_branch,omitempty"`
-	CopyIgnore    []string `yaml:"copy_ignore,omitempty"`
-	AgentKeyPaths []string `yaml:"agent_key_paths,omitempty"`
+	BaseBranch      string   `yaml:"base_branch,omitempty"`
+	DefaultDevice   string   `yaml:"default_device,omitempty"`
+	CopyIgnore      []string `yaml:"copy_ignore,omitempty"`
+	AgentKeyPaths   []string `yaml:"agent_key_paths,omitempty"`
 }
 
 type featureConfig struct {
@@ -260,7 +261,7 @@ func runStart(args []string) error {
 		if noDevice {
 			device = ""
 		} else if device == "" {
-			device = "web-server"
+			device = resolveDefaultDevice(repoCfg)
 		}
 		browserEnabled = device == "web-server"
 		port, err = allocatePort(repoRoot, 9100)
@@ -360,6 +361,13 @@ func runInit(args []string) error {
 	}
 	cfg := defaultRepoConfig()
 	cfg.BaseBranch = detectDefaultBaseBranch(repoRoot)
+	if fileExists(filepath.Join(repoRoot, "pubspec.yaml")) {
+		device, err := promptInputWithDefault("Default device", defaultManagedDeviceID)
+		if err != nil {
+			return err
+		}
+		cfg.DefaultDevice = strings.TrimSpace(device)
+	}
 	if err := saveRepoConfig(repoRoot, cfg); err != nil {
 		return err
 	}
@@ -369,7 +377,7 @@ func runInit(args []string) error {
 
 func runConfig(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: agent config <show|set-base-branch|add-ignore|remove-ignore>")
+		return fmt.Errorf("usage: agent config <show|set-base-branch|set-default-device|add-ignore|remove-ignore>")
 	}
 	repoRoot, err := repoRoot()
 	if err != nil {
@@ -403,6 +411,19 @@ func runConfig(args []string) error {
 			return fmt.Errorf("base branch is required")
 		}
 		cfg.BaseBranch = branch
+	case "set-default-device":
+		device := ""
+		if len(args) > 1 {
+			device = strings.TrimSpace(args[1])
+		}
+		if device == "" {
+			device, err = promptInputWithDefault("Default device", cfg.DefaultDevice)
+			if err != nil {
+				return err
+			}
+			device = strings.TrimSpace(device)
+		}
+		cfg.DefaultDevice = device
 	case "add-ignore":
 		values := normalizeIgnoreValues(args[1:])
 		if len(values) == 0 {
@@ -1491,14 +1512,14 @@ func launchAgentLayout(record *agentRecord) (err error) {
 	if err != nil {
 		return err
 	}
-	if err := runTmux("split-window", "-t", topPane, "-h", "-p", "40", "-c", record.WorkspaceRoot); err != nil {
+	if err := runTmux("split-window", "-t", topPane, "-h", "-l", "35%", "-c", record.WorkspaceRoot); err != nil {
 		return err
 	}
 	rightPane, err := currentPane(windowID)
 	if err != nil {
 		return err
 	}
-	if err := runTmux("split-window", "-t", rightPane, "-v", "-p", "35", "-c", record.WorkspaceRoot); err != nil {
+	if err := runTmux("split-window", "-t", rightPane, "-v", "-l", "8", "-c", record.WorkspaceRoot); err != nil {
 		return err
 	}
 	runPane, err := currentPane(windowID)
@@ -1940,13 +1961,24 @@ func loadAgentRecordByWorkspaceRoot(workspaceRoot string) *agentRecord {
 }
 
 func resolveStartSourceBranch(repoRoot string, repoCfg *repoConfig) string {
-	if branch := currentLocalBranch(repoRoot); branch != "" {
-		return branch
-	}
 	if repoCfg != nil && strings.TrimSpace(repoCfg.BaseBranch) != "" {
 		return strings.TrimSpace(repoCfg.BaseBranch)
 	}
+	if branch := currentLocalBranch(repoRoot); branch != "" {
+		return branch
+	}
 	return detectDefaultBaseBranch(repoRoot)
+}
+
+func resolveDefaultDevice(repoCfg *repoConfig) string {
+	if repoCfg != nil && strings.TrimSpace(repoCfg.DefaultDevice) != "" {
+		d := strings.TrimSpace(repoCfg.DefaultDevice)
+		if strings.EqualFold(d, "none") {
+			return ""
+		}
+		return d
+	}
+	return defaultManagedDeviceID
 }
 
 func resolveBootstrapStartOptions(repoRoot string, repoCfg *repoConfig, record *agentRecord) agentStartOptions {
@@ -2465,18 +2497,6 @@ PY
 logfile="$DIR/logs/flutter-$port.log"
 : > "$logfile" 2>/dev/null || true
 
-flutter_ready_seen() {
-  if [[ -n "${TMUX_PANE-}" ]]; then
-    if tmux capture-pane -p -S -200 -t "$TMUX_PANE" 2>/dev/null | grep -qi 'Flutter run key commands\.'; then
-      return 0
-    fi
-  fi
-  if [[ -f "$logfile" ]] && grep -qi 'Flutter run key commands\.' "$logfile" 2>/dev/null; then
-    return 0
-  fi
-  return 1
-}
-
 if [[ -z "$device" ]]; then
   echo "No launch device selected. Run ./ensure-server.sh <device-id> to start Flutter."
   exit 0
@@ -2484,12 +2504,14 @@ fi
 
 if [[ "$device" == "web-server" ]]; then
   (
+    "$AGENT_BIN" browser refresh --workspace "$DIR" >/dev/null 2>&1 || true
+
     deadline=$((SECONDS+300))
     while [ $SECONDS -lt $deadline ]; do
-      if flutter_ready_seen; then
+      if [[ -f "$logfile" ]] && grep -qi 'Flutter run key commands\.' "$logfile" 2>/dev/null; then
         "$AGENT_BIN" feature --workspace "$DIR" --ready true
         sleep 2
-		"$AGENT_BIN" browser refresh --workspace "$DIR" >/dev/null 2>&1 || true
+        "$AGENT_BIN" browser refresh --workspace "$DIR" >/dev/null 2>&1 || true
         exit 0
       fi
       sleep 0.1
@@ -2835,6 +2857,9 @@ func promptInputWithDefault(label, defaultValue string) (string, error) {
 	}
 	value, err := promptInput(fmt.Sprintf("%s [%s]: ", label, defaultValue))
 	if err != nil {
+		if strings.TrimSpace(value) == "" {
+			return defaultValue, nil
+		}
 		return "", err
 	}
 	if strings.TrimSpace(value) == "" {

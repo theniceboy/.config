@@ -45,3 +45,5 @@ export HOMEBREW_DOWNLOAD_CONCURRENCY=auto
 if [ -d "$HOME/Github/mac-ctrl/bin" ] && ! echo ":$PATH:" | grep -q ":$HOME/Github/mac-ctrl/bin:" ; then
   export PATH="$HOME/Github/mac-ctrl/bin:$PATH"
 fi
+
+export PATH="$XDG_CONFIG_HOME/agent-tracker/bin$PATH"

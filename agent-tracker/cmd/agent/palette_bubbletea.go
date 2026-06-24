@@ -422,7 +422,7 @@ func (r *paletteRuntime) runAgentStart(repoRoot, feature, device string, keepWor
 	if feature == "" {
 		return fmt.Errorf("feature name is required")
 	}
-	agentBin := filepath.Join(os.Getenv("HOME"), ".config", "bin", "agent")
+	agentBin := filepath.Join(os.Getenv("HOME"), ".config", "agent-tracker", "bin", "agent")
 	args := buildAgentStartArgs(feature, device, keepWorktree)
 	cmd := exec.Command(agentBin, args...)
 	cmd.Dir = repoRoot
@@ -495,8 +495,22 @@ func startAgentPromptDevices(repoRoot string) ([]string, int) {
 	if len(devices) == 0 {
 		devices = []string{defaultManagedDeviceID}
 	}
-	if repoRoot != "" && fileExists(filepath.Join(repoRoot, "pubspec.yaml")) {
-		return append([]string{paletteNoDeviceOption}, devices...), 1
+	isFlutter := repoRoot != "" && fileExists(filepath.Join(repoRoot, "pubspec.yaml"))
+	if isFlutter {
+		devices = append([]string{paletteNoDeviceOption}, devices...)
+	}
+	repoCfg, _ := loadRepoConfigOrDefault(repoRoot)
+	preferred := resolveDefaultDevice(repoCfg)
+	if isPaletteNoDeviceOption(preferred) || preferred == "" {
+		preferred = paletteNoDeviceOption
+	}
+	for i, d := range devices {
+		if d == preferred {
+			return devices, i
+		}
+	}
+	if isFlutter {
+		return devices, 1
 	}
 	return devices, 0
 }

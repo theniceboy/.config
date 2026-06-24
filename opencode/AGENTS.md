@@ -1,5 +1,5 @@
 # CRITICAL WORKFLOW REQUIREMENT
-- You MUST NOT add comments that describe the change they just made (e.g., “removed”, “legacy”, “cleanup”, “hotfix”, “flag removed”, “temporary workaround”).
+- You MUST NOT add comments that describe the change they just made (e.g., "removed", "legacy", "cleanup", "hotfix", "flag removed", "temporary workaround").
 - Only add comments for genuinely non‑obvious, persistent logic or external invariants. Keep such comments short (max 2 lines).
 - When migrating or refactoring code, do not leave legacy code. Remove all deprecated or unused code.
 - Put change reasoning in your plan/final message — not in code.

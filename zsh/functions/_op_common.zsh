@@ -17,9 +17,8 @@ _op_run() {
 
   local tmp_home
   tmp_home=$(mktemp -d "${TMPDIR:-/tmp}/opencode-home.XXXXXX") || return 1
-  print -u2 "$tag: using temporary OPENCODE_CONFIG_DIR at $tmp_home"
 
-  local cleanup_cmd="print -u2 \"$tag: removing temporary OPENCODE_CONFIG_DIR $tmp_home\"; rm -rf '$tmp_home'"
+  local cleanup_cmd="rm -rf '$tmp_home'"
   trap "$cleanup_cmd" EXIT INT TERM
 
   if ! cp "$base_config" "$tmp_home/opencode.json" >/dev/null 2>&1; then
@@ -29,38 +28,23 @@ _op_run() {
     return 1
   fi
 
-  if command -v jq >/dev/null 2>&1 && command -v curl >/dev/null 2>&1; then
-    local rapid_models_json rapid_model_id rapid_model_limit tmp_config_json tmp_context tmp_output tmp_name
-    rapid_models_json=$(curl -fsS "http://127.0.0.1:8000/v1/models" 2>/dev/null || true)
-    rapid_model_id=$(printf '%s' "$rapid_models_json" | jq -r '.data[0].id // empty' 2>/dev/null || true)
-
-    if [ -n "$rapid_model_id" ] && [ -f "$rapid_model_id/config.json" ]; then
-      tmp_context=$(jq -r '
-        .text_config.max_position_embeddings //
-        .language_model.max_position_embeddings //
-        .language_config.max_position_embeddings //
-        .max_position_embeddings //
-        empty
-      ' "$rapid_model_id/config.json" 2>/dev/null || true)
-
-      if [ -n "$tmp_context" ] && [ "$tmp_context" != "null" ]; then
-        tmp_output=8192
-        tmp_name=${rapid_model_id:t}
-        tmp_config_json="$tmp_home/opencode.json.tmp"
-
-        if jq \
-          --arg name "$tmp_name" \
-          --argjson context "$tmp_context" \
-          --argjson output "$tmp_output" \
-          '
-            .provider.rapidmlx.models.default.name = $name |
-            .provider.rapidmlx.models.default.limit.context = $context |
-            .provider.rapidmlx.models.default.limit.output = $output
-          ' "$tmp_home/opencode.json" > "$tmp_config_json" 2>/dev/null; then
-          mv "$tmp_config_json" "$tmp_home/opencode.json"
-          print -u2 "$tag: synced rapidmlx/default to $tmp_name (context $tmp_context, output $tmp_output)"
-        fi
-      fi
+  local private_config="${SCONFIG_HOME:-$HOME/.sconfig}/opencode/opencode.json"
+  if [ -f "$private_config" ]; then
+    if ! command -v jq >/dev/null 2>&1; then
+      trap - EXIT INT TERM
+      eval "$cleanup_cmd"
+      print -u2 "$tag: jq is required to merge $private_config"
+      return 1
+    fi
+    local merged_config_json="$tmp_home/opencode.json.merged"
+    if jq -s '.[0] * .[1]' "$tmp_home/opencode.json" "$private_config" > "$merged_config_json" 2>/dev/null; then
+      mv "$merged_config_json" "$tmp_home/opencode.json"
+    else
+      rm -f "$merged_config_json"
+      trap - EXIT INT TERM
+      eval "$cleanup_cmd"
+      print -u2 "$tag: failed to merge $private_config"
+      return 1
     fi
   fi
 
@@ -99,17 +83,15 @@ _op_run() {
           .mcp.agent_browser = {
             type: "local",
             command: [$agent_bin, "browser", "mcp", "--workspace", $workspace],
-            environment: {
+            env: {
               AGENT_WORKSPACE: $workspace,
               AGENT_FEATURE: $feature,
               AGENT_BROWSER_URL: $url
             },
-            enabled: true,
-            timeout: 10000
+            enabled: false
           }
         ' "$tmp_home/opencode.json" > "$tmp_config_json" 2>/dev/null; then
         mv "$tmp_config_json" "$tmp_home/opencode.json"
-        print -u2 "$tag: added agent_browser MCP for ${agent_feature:-$agent_workspace}"
       else
         rm -f "$tmp_config_json"
         print -u2 "$tag: failed to add agent_browser MCP for $agent_workspace"
@@ -139,6 +121,18 @@ _op_run() {
     sessions
     logs
     skill
+    node_modules
+    package.json
+    package-lock.json
+    bun.lock
+    tui.json
+    consult.json
+    tui-plugins
+    tool
+    tools
+    tmp
+    agent
+    agents
   )
 
   local name
@@ -168,7 +162,6 @@ _op_run() {
   fi
 
   if [ -d "$base_home/command" ]; then
-    local f
     for f in "$base_home/command"/*.md; do
       [ -f "$f" ] || continue
       cp "$f" "$tmp_home/command/"
@@ -182,7 +175,6 @@ _op_run() {
 
   if [ -n "$project_prompts_dir" ]; then
     local copied_any=0
-    local f
     for f in "$project_prompts_dir"/*.md; do
       [ -f "$f" ] || continue
       copied_any=1
@@ -194,9 +186,6 @@ _op_run() {
         return 1
       fi
     done
-    if (( copied_any )); then
-      print -u2 "$tag: added project prompts from $project_prompts_dir to commands"
-    fi
   fi
 
   OPENCODE_CONFIG_DIR="$tmp_home" \

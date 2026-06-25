@@ -10,7 +10,14 @@
 			"color": "#8be9fd"
 		}
 	},
-	"disabled_providers": ["zen", "cloudflare", "cloudflare-ai-gateway", "cloudflare-workers-ai", "opencode-go", "amazon-bedrock", "ollama-cloud"],
+	"disabled_providers": [
+		"zen",
+		"cloudflare",
+		"cloudflare-ai-gateway",
+		"cloudflare-workers-ai",
+		"amazon-bedrock",
+		"ollama-cloud"
+	],
 	"compaction": {
 		"auto": false
 	},
@@ -77,14 +84,6 @@
 				"--stdio"
 			],
 			"enabled": false
-		},
-		"imagegen": {
-			"type": "local",
-			"command": [
-				"node",
-				"/Users/david/.config/opencode/tool/imagegen-mcp.mjs"
-			],
-			"enabled": true
 		}
 	}
 }

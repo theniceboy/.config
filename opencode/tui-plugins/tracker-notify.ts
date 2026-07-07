@@ -108,6 +108,7 @@ export const TrackerNotifyPlugin = async ({ client, directory, $ }) => {
 
 	let taskActive = false;
 	let currentSessionID = null;
+	let currentPhase = "";
 	let lastUserMessage = "";
 	let rootSessionID = loadPersistedPaneSessionID();
 	let questionPending: boolean | null = null;
@@ -199,8 +200,22 @@ export const TrackerNotifyPlugin = async ({ client, directory, $ }) => {
 		if (!(await trackerReady())) return;
 		taskActive = true;
 		currentSessionID = sessionID;
+		currentPhase = "";
 		const args = buildTrackerArgs();
 		await $`${TRACKER_BIN} command ${args} -summary ${summary} start_task`.nothrow();
+		const agentBin = `${process.env.HOME || ""}/.config/agent-tracker/bin/agent`;
+		if (tmuxContext?.windowId) {
+			await $`${agentBin} goal revive --window ${tmuxContext.windowId} --name ${summary}`.nothrow();
+		}
+	};
+
+	const updatePhase = async (phase: string) => {
+		if (!taskActive) return;
+		if (currentPhase === phase) return;
+		currentPhase = phase;
+		if (!(await trackerReady())) return;
+		const args = buildTrackerArgs();
+		await $`${TRACKER_BIN} command ${args} -phase ${phase} update_phase`.nothrow();
 	};
 
 	const finishTask = async (summary) => {
@@ -208,6 +223,7 @@ export const TrackerNotifyPlugin = async ({ client, directory, $ }) => {
 		if (!(await trackerReady())) return;
 		taskActive = false;
 		currentSessionID = null;
+		currentPhase = "";
 		const args = buildTrackerArgs();
 		await $`${TRACKER_BIN} command ${args} -summary ${summary || "done"} finish_task`.nothrow();
 	};
@@ -280,16 +296,20 @@ export const TrackerNotifyPlugin = async ({ client, directory, $ }) => {
 					rootSessionID = input.sessionID;
 				}
 				await applyQuestionPending(true);
+				await updatePhase("question");
 				log("Question tool called:", {
 					questions: output.args?.questions || "no questions",
 					timestamp: new Date().toISOString()
 				});
+			} else {
+				await updatePhase("tool");
 			}
 		},
 		
 		event: async ({ event }) => {
 			if (event?.type === "question.asked") {
 				await applyQuestionPending(true);
+				await updatePhase("question");
 				return;
 			}
 
@@ -312,12 +332,14 @@ export const TrackerNotifyPlugin = async ({ client, directory, $ }) => {
 				const part = event?.properties?.part;
 				if (part?.type === "text" && part?.text && part?.messageID) {
 					const role = messageRoles.get(part.messageID);
-					// Capture if it's a user message, or if we're not yet in a task (user input comes first)
 					if (role === "user" || (!role && !taskActive)) {
 						const text = part.text?.trim();
 						if (text && text.length > 0) {
 							lastUserMessage = text.slice(0, MAX_SUMMARY_CHARS);
 						}
+					}
+					if (role === "assistant") {
+						await updatePhase("responding");
 					}
 				}
 			}
@@ -348,12 +370,12 @@ export const TrackerNotifyPlugin = async ({ client, directory, $ }) => {
 			if (!status) return;
 
 			if (status.type === "busy" && !taskActive) {
-				// Use captured message first, then fall back to API
 				let text = lastUserMessage;
 				if (!text) {
 					text = await getLastMessageText(sessionID, "user");
 				}
 				await startTask(text || "working...", sessionID);
+				await updatePhase("waiting");
 				lastUserMessage = "";
 			} else if (status.type === "idle" && taskActive) {
 				if (currentSessionID && sessionID !== currentSessionID) return;

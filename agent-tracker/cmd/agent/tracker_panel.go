@@ -601,6 +601,7 @@ func sendTrackerCommand(command string, env *ipc.Envelope) error {
 		request.Pane = strings.TrimSpace(env.Pane)
 		request.Summary = strings.TrimSpace(env.Summary)
 		request.Message = strings.TrimSpace(env.Message)
+		request.Phase = strings.TrimSpace(env.Phase)
 	}
 	enc := json.NewEncoder(conn)
 	if err := enc.Encode(&request); err != nil {

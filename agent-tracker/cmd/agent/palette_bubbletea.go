@@ -42,6 +42,7 @@ type paletteRuntime struct {
 	currentSessionName string
 	currentWindowName  string
 	mainRepoRoot       string
+	startMode          paletteMode
 }
 
 type paletteModel struct {
@@ -50,6 +51,7 @@ type paletteModel struct {
 	actions                 []paletteAction
 	openedAt                time.Time
 	quickSecondaryEscCloses bool
+	singlePanelMode         bool
 	width                   int
 	height                  int
 	result                  paletteResult
@@ -58,6 +60,7 @@ type paletteModel struct {
 	devices                 *devicePanelModel
 	status                  *statusRightPanelModel
 	tracker                 *trackerPanelModel
+	goals                   *goalPanelModel
 }
 
 type paletteStyles struct {
@@ -110,7 +113,7 @@ func runBubbleTeaPalette(args []string) error {
 	if err != nil {
 		return err
 	}
-	state := paletteUIState{Mode: paletteModeList, Message: runtime.startupMessage}
+	state := paletteUIState{Mode: runtime.startMode, Message: runtime.startupMessage}
 	for {
 		model := newPaletteModel(runtime, state)
 		finalModel, err := tea.NewProgram(model).Run()
@@ -169,11 +172,13 @@ func loadPaletteRuntime(args []string) (*paletteRuntime, error) {
 	var currentPath string
 	var currentSessionName string
 	var currentWindowName string
+	var modeFlag string
 	fs.StringVar(&windowID, "window", "", "window id")
 	fs.StringVar(&agentID, "agent-id", "", "agent id")
 	fs.StringVar(&currentPath, "path", "", "current pane path")
 	fs.StringVar(&currentSessionName, "session-name", "", "current session name")
 	fs.StringVar(&currentWindowName, "window-name", "", "current window name")
+	fs.StringVar(&modeFlag, "mode", "", "initial panel mode (goals, tracker, todos, activity)")
 	fs.SetOutput(nil)
 	if err := fs.Parse(args); err != nil {
 		return nil, err
@@ -185,6 +190,18 @@ func loadPaletteRuntime(args []string) (*paletteRuntime, error) {
 		currentPath:        firstNonEmpty(currentPath, os.Getenv("AGENT_PALETTE_PATH")),
 		currentSessionName: firstNonEmpty(currentSessionName, os.Getenv("AGENT_PALETTE_SESSION_NAME")),
 		currentWindowName:  firstNonEmpty(currentWindowName, os.Getenv("AGENT_PALETTE_WINDOW_NAME")),
+	}
+	switch strings.ToLower(modeFlag) {
+	case "goals":
+		runtime.startMode = paletteModeGoals
+	case "tracker":
+		runtime.startMode = paletteModeTracker
+	case "todos":
+		runtime.startMode = paletteModeTodos
+	case "activity":
+		runtime.startMode = paletteModeActivity
+	default:
+		runtime.startMode = paletteModeList
 	}
 	logPaletteLaunchIfMalformed(runtime)
 	if looksLikeTmuxFormatLiteral(runtime.agentID) {
@@ -351,6 +368,20 @@ func (r *paletteRuntime) buildActions() []paletteAction {
 		})
 	}
 	actions = append(actions,
+		paletteAction{
+			Section:  "System",
+			Title:    "Scratch terminal",
+			Subtitle: "Open the persistent scratch shell",
+			Keywords: []string{"scratch", "terminal", "shell", "popup", "tmux"},
+			Kind:     paletteActionOpenScratch,
+		},
+		paletteAction{
+			Section:  "System",
+			Title:    "Goals",
+			Subtitle: "Goals, threads and todos",
+			Keywords: []string{"goal", "goals", "thread", "threads", "tracker", "tasks", "status"},
+			Kind:     paletteActionOpenGoals,
+		},
 		paletteAction{
 			Section:  "System",
 			Title:    "Tracker",
@@ -582,9 +613,20 @@ func (r *paletteRuntime) execute(result paletteResult) (bool, string, error) {
 		return false, "", nil
 	case paletteActionReloadTmuxConfig:
 		return false, "", paletteTmuxRunner("source-file", os.Getenv("HOME")+"/.config/.tmux.conf")
+	case paletteActionOpenScratch:
+		return false, "", launchScratchTerminalFromPalette(r.currentPath)
 	default:
 		return false, "", nil
 	}
+}
+
+func launchScratchTerminalFromPalette(currentPath string) error {
+	exe, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	cmd := fmt.Sprintf("sleep 0.1; %s tmux scratch --path %s", shellQuote(exe), shellQuote(currentPath))
+	return runTmux("run-shell", "-b", cmd)
 }
 
 func statusRightModuleLabel(module string) string {
@@ -653,7 +695,7 @@ func newPaletteModel(runtime *paletteRuntime, state paletteUIState) *paletteMode
 	if len(state.PromptDevices) > 0 {
 		state.PromptDeviceIndex = clampInt(state.PromptDeviceIndex, 0, len(state.PromptDevices)-1)
 	}
-	model := &paletteModel{runtime: runtime, state: state, actions: runtime.buildActions(), openedAt: time.Now()}
+	model := &paletteModel{runtime: runtime, state: state, actions: runtime.buildActions(), openedAt: time.Now(), singlePanelMode: runtime.startMode != paletteModeList}
 	if state.Mode == paletteModeTodos {
 		_ = model.openTodosPanel()
 	}
@@ -669,10 +711,22 @@ func newPaletteModel(runtime *paletteRuntime, state paletteUIState) *paletteMode
 	if state.Mode == paletteModeTracker {
 		_, _ = model.openTrackerPanel()
 	}
+	if state.Mode == paletteModeGoals {
+		_, _ = model.openGoalsPanel()
+	}
 	return model
 }
 
 func (m *paletteModel) Init() tea.Cmd {
+	if m.goals != nil {
+		return goalPanelTickCmd()
+	}
+	if m.tracker != nil {
+		return trackerPanelTickCmd()
+	}
+	if m.activity != nil {
+		return activityTickCmd()
+	}
 	return nil
 }
 
@@ -791,6 +845,24 @@ func (m *paletteModel) openTrackerPanel() (tea.Cmd, error) {
 	return m.tracker.activate(), nil
 }
 
+func (m *paletteModel) openGoalsPanel() (tea.Cmd, error) {
+	m.noteSecondaryPageOpen()
+	if m.goals == nil {
+		m.goals = newGoalPanelModel(m.runtime)
+	} else {
+		m.goals.runtime = m.runtime
+		m.goals.requestBack = false
+		m.goals.requestClose = false
+	}
+	m.goals.width = m.width
+	m.goals.height = m.height
+	m.goals.showAltHints = false
+	m.state.Mode = paletteModeGoals
+	m.state.Message = ""
+	m.state.ShowAltHints = false
+	return m.goals.activate(), nil
+}
+
 func (m *paletteModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
@@ -808,12 +880,16 @@ func (m *paletteModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.tracker.width = msg.Width
 			m.tracker.height = msg.Height
 		}
+		if m.goals != nil {
+			m.goals.width = msg.Width
+			m.goals.height = msg.Height
+		}
 		if m.status != nil {
 			m.status.width = msg.Width
 			m.status.height = msg.Height
 		}
 	case tea.KeyMsg:
-		if m.state.Mode != paletteModeActivity && m.state.Mode != paletteModeTodos && m.state.Mode != paletteModeDevices && m.state.Mode != paletteModeStatusRight && m.state.Mode != paletteModeTracker {
+		if m.state.Mode != paletteModeActivity && m.state.Mode != paletteModeTodos && m.state.Mode != paletteModeDevices && m.state.Mode != paletteModeStatusRight && m.state.Mode != paletteModeTracker && m.state.Mode != paletteModeGoals {
 			if isAltFooterToggleKey(msg) {
 				m.state.ShowAltHints = !m.state.ShowAltHints
 				return m, nil
@@ -843,6 +919,10 @@ func (m *paletteModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m.closePalette()
 			case paletteModeTracker:
 				return m.closePalette()
+			case paletteModeGoals:
+				if m.goals != nil && m.goals.mode == goalModeList {
+					return m.closePalette()
+				}
 			case paletteModeSnippets:
 				return m.closePalette()
 			}
@@ -943,9 +1023,43 @@ func (m *paletteModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, tea.Quit
 			}
 			if m.tracker.requestBack {
+				if m.singlePanelMode {
+					m.result = paletteResult{Kind: paletteResultClose, State: m.state}
+					return m, tea.Quit
+				}
 				m.tracker.requestBack = false
 				m.state.Mode = paletteModeList
 				m.state.Message = m.tracker.currentStatus()
+				return m, nil
+			}
+			return m, cmd
+		}
+		if m.state.Mode == paletteModeGoals {
+			if m.goals == nil {
+				cmd, err := m.openGoalsPanel()
+				if err != nil {
+					m.state.Mode = paletteModeList
+					m.state.Message = err.Error()
+					return m, nil
+				}
+				return m, cmd
+			}
+			model, cmd := m.goals.Update(msg)
+			if updated, ok := model.(*goalPanelModel); ok {
+				m.goals = updated
+			}
+			if m.goals.requestClose {
+				m.result = paletteResult{Kind: paletteResultClose, State: m.state}
+				return m, tea.Quit
+			}
+			if m.goals.requestBack {
+				if m.singlePanelMode {
+					m.result = paletteResult{Kind: paletteResultClose, State: m.state}
+					return m, tea.Quit
+				}
+				m.goals.requestBack = false
+				m.state.Mode = paletteModeList
+				m.state.Message = m.goals.currentStatus()
 				return m, nil
 			}
 			return m, cmd
@@ -1030,6 +1144,23 @@ func (m *paletteModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, cmd
 	}
+	if m.state.Mode == paletteModeGoals && m.goals != nil {
+		model, cmd := m.goals.Update(msg)
+		if updated, ok := model.(*goalPanelModel); ok {
+			m.goals = updated
+		}
+		if m.goals.requestClose {
+			m.result = paletteResult{Kind: paletteResultClose, State: m.state}
+			return m, tea.Quit
+		}
+		if m.goals.requestBack {
+			m.goals.requestBack = false
+			m.state.Mode = paletteModeList
+			m.state.Message = m.goals.currentStatus()
+			return m, nil
+		}
+		return m, cmd
+	}
 	return m, nil
 }
 
@@ -1051,6 +1182,14 @@ func (m *paletteModel) updateList(key string) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if key == "alt+r" {
+		cmd, err := m.openGoalsPanel()
+		if err != nil {
+			m.state.Message = err.Error()
+			return m, nil
+		}
+		return m, cmd
+	}
+	if key == "alt+d" {
 		cmd, err := m.openTrackerPanel()
 		if err != nil {
 			m.state.Message = err.Error()
@@ -1140,6 +1279,13 @@ func (m *paletteModel) selectAction(action paletteAction) (tea.Model, tea.Cmd) {
 		return m, nil
 	case paletteActionOpenTracker:
 		cmd, err := m.openTrackerPanel()
+		if err != nil {
+			m.state.Message = err.Error()
+			return m, nil
+		}
+		return m, cmd
+	case paletteActionOpenGoals:
+		cmd, err := m.openGoalsPanel()
 		if err != nil {
 			m.state.Message = err.Error()
 			return m, nil
@@ -1495,6 +1641,14 @@ func (m *paletteModel) View() string {
 			return m.tracker.render(styles, width, height)
 		}
 		return styles.muted.Render("Tracker unavailable")
+	}
+	if m.state.Mode == paletteModeGoals {
+		if m.goals != nil {
+			m.goals.width = width
+			m.goals.height = height
+			return m.goals.View()
+		}
+		return styles.muted.Render("Goals unavailable")
 	}
 	return m.renderListView(styles, width, height)
 }
@@ -2199,9 +2353,9 @@ func renderPaletteFooter(styles paletteStyles, width int, message string, showAl
 			{{"Enter", "run"}, {"Esc", "close"}, {footerHintToggleKey, "more"}},
 		},
 		[][][2]string{
-			{{"Alt-U/E", "move"}, {"Alt-I", "run"}, {"Alt-C", "create"}, {"Alt-R", "tracker"}, {"Alt-A", "activity"}, {"Alt-P", "snippets"}, {"Alt-T", "todos"}, {"Alt-S", "close"}, {footerHintToggleKey, "hide"}},
-			{{"Alt-C", "create"}, {"Alt-R", "tracker"}, {"Alt-A", "activity"}, {"Alt-T", "todos"}, {"Alt-S", "close"}, {footerHintToggleKey, "hide"}},
-			{{"Alt-C", "create"}, {"Alt-R", "tracker"}, {"Alt-S", "close"}},
+			{{"Alt-U/E", "move"}, {"Alt-I", "run"}, {"Alt-C", "create"}, {"Alt-R", "goals"}, {"Alt-D", "tracker"}, {"Alt-A", "activity"}, {"Alt-P", "snippets"}, {"Alt-T", "todos"}, {"Alt-S", "close"}, {footerHintToggleKey, "hide"}},
+			{{"Alt-C", "create"}, {"Alt-R", "goals"}, {"Alt-D", "tracker"}, {"Alt-A", "activity"}, {"Alt-T", "todos"}, {"Alt-S", "close"}, {footerHintToggleKey, "hide"}},
+			{{"Alt-C", "create"}, {"Alt-R", "goals"}, {"Alt-D", "tracker"}, {"Alt-S", "close"}},
 		},
 	)
 }

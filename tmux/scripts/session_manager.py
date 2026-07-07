@@ -6,6 +6,20 @@ import sys
 from typing import List, Dict
 
 
+HIDDEN_SESSION_LABELS = {"Scratch", "scratch"}
+
+
+def session_label(name: str) -> str:
+    match = re.match(r"^(\d+)-(.*)$", name)
+    if match:
+        return match.group(2)
+    return name
+
+
+def is_hidden_session(name: str) -> bool:
+    return session_label(name) in HIDDEN_SESSION_LABELS
+
+
 def run_tmux(args: List[str], check: bool = True, capture: bool = False) -> str:
     kwargs = {
         "check": check,
@@ -31,6 +45,8 @@ def list_sessions() -> List[Dict[str, object]]:
     sessions = []
     for line in output.splitlines():
         session_id, name, created_str = line.split("\t")
+        if is_hidden_session(name):
+            continue
         created = int(created_str)
         match = re.match(r"^(\d+)-(.*)$", name)
         if match:

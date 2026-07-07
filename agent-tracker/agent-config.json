@@ -19,16 +19,17 @@
   },
   "devices": [
     "web-server",
-    "ipm",
     "opm",
     "macos",
-    "ipp"
+    "ipp",
+    "ip17"
   ],
   "status_right": {
     "cpu": false,
     "network": false,
     "memory": false,
     "memory_totals": false,
-    "flash_moe": false
+    "flash_moe": false,
+    "host": false
   }
 }

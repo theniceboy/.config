@@ -25,11 +25,12 @@ if [[ -f "$CACHE_FILE" ]]; then
   state=$(cat "$CACHE_FILE" 2>/dev/null || true)
   if [[ -n "$state" ]]; then
     result=$(echo "$state" | jq -r --arg wid "$window_id" '
-      .tasks // [] | .[] | select(.window_id == $wid) |
-      if .status == "completed" and .acknowledged != true then "waiting"
-      elif .status == "in_progress" then "in_progress"
-      else empty end
-    ' 2>/dev/null | head -1 || true)
+      .tasks // []
+      | map(select(.window_id == $wid))
+      | if any(.status == "completed" and .acknowledged != true) then "waiting"
+        elif any(.status == "in_progress") then "in_progress"
+        else empty end
+    ' 2>/dev/null || true)
     case "$result" in
       waiting) has_bell=1 ;;
       in_progress) has_watch=1 ;;

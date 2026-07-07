@@ -25,6 +25,7 @@ const (
 	statusRightModuleTodos        = "todos"
 	statusRightModuleFlashMoe     = "flash_moe"
 	statusRightModuleHost         = "host"
+	statusRightModuleGoal         = "goal"
 )
 
 const (
@@ -37,6 +38,7 @@ const (
 	statusIconAgent    = "󰚩"
 	statusIconTodos    = "󰎚"
 	statusIconFlashMoe = "󱙺"
+	statusIconGoal     = "⌖"
 )
 
 func statusRightModules() []string {
@@ -50,6 +52,7 @@ func statusRightModules() []string {
 		statusRightModuleTodoPreview,
 		statusRightModuleFlashMoe,
 		statusRightModuleHost,
+		statusRightModuleGoal,
 	}
 }
 
@@ -199,6 +202,11 @@ func renderTmuxRightStatus(args tmuxRightStatusArgs) string {
 	if statusRightModuleEnabled(statusRightModuleTodos) {
 		if label := loadTodosStatusLabel(args.WindowID); label != "" {
 			segments = append(segments, statusSegment{FG: "#1d1f21", BG: "#cc6666", Text: label, Bold: true})
+		}
+	}
+	if statusRightModuleEnabled(statusRightModuleGoal) {
+		if label := loadGoalStatusLabel(args.WindowID); label != "" {
+			segments = append(segments, statusSegment{FG: "#1d1f21", BG: "#a3be8c", Text: label, Bold: true})
 		}
 	}
 	if statusRightModuleEnabled(statusRightModuleFlashMoe) {
@@ -532,6 +540,48 @@ func loadAgentStatusLabel(windowID string) string {
 	return fmt.Sprintf(" %s %s ", statusIconAgent, device)
 }
 
+// loadGoalStatusLabel renders the focused window's goal path + thread name.
+func loadGoalStatusLabel(windowID string) string {
+	windowID = strings.TrimSpace(windowID)
+	if windowID == "" {
+		return ""
+	}
+	store, err := loadGoalStore()
+	if err != nil || store == nil {
+		return ""
+	}
+	thread := findThreadByWindow(store, windowID)
+	if thread == nil {
+		return ""
+	}
+	path := goalPathTitles(store, thread.GoalID)
+	if len(path) == 0 {
+		return ""
+	}
+	label := strings.Join(path, " › ")
+	return fmt.Sprintf(" %s %s ", statusIconGoal, truncate(label, 40))
+}
+
+// goalPathTitles returns ancestor goal titles from root to the given goal.
+func goalPathTitles(store *GoalStore, goalID string) []string {
+	goalID = strings.TrimSpace(goalID)
+	if goalID == "" || store == nil {
+		return nil
+	}
+	var titles []string
+	seen := map[string]bool{}
+	for goalID != "" && !seen[goalID] {
+		g, ok := store.Goals[goalID]
+		if !ok {
+			break
+		}
+		seen[goalID] = true
+		titles = append([]string{strings.TrimSpace(g.Title)}, titles...)
+		goalID = strings.TrimSpace(g.ParentID)
+	}
+	return titles
+}
+
 func refreshMemoryUsageCache() {
 	script := statusMemoryCacheRefreshScript()
 	if strings.TrimSpace(script) == "" || !fileExists(script) {
@@ -690,7 +740,7 @@ func loadHostStatusLabel() string {
 
 func defaultStatusRightModuleEnabled(module string) bool {
 	switch module {
-	case statusRightModuleCPU, statusRightModuleNetwork, statusRightModuleMemory, statusRightModuleAgent, statusRightModuleTodoPreview, statusRightModuleTodos, statusRightModuleFlashMoe, statusRightModuleHost:
+	case statusRightModuleCPU, statusRightModuleNetwork, statusRightModuleMemory, statusRightModuleAgent, statusRightModuleTodoPreview, statusRightModuleTodos, statusRightModuleFlashMoe, statusRightModuleHost, statusRightModuleGoal:
 		return true
 	case statusRightModuleMemoryTotals:
 		return true
@@ -701,7 +751,7 @@ func defaultStatusRightModuleEnabled(module string) bool {
 
 func isValidStatusRightModule(module string) bool {
 	switch module {
-	case statusRightModuleCPU, statusRightModuleNetwork, statusRightModuleMemory, statusRightModuleMemoryTotals, statusRightModuleAgent, statusRightModuleTodoPreview, statusRightModuleTodos, statusRightModuleFlashMoe, statusRightModuleHost:
+	case statusRightModuleCPU, statusRightModuleNetwork, statusRightModuleMemory, statusRightModuleMemoryTotals, statusRightModuleAgent, statusRightModuleTodoPreview, statusRightModuleTodos, statusRightModuleFlashMoe, statusRightModuleHost, statusRightModuleGoal:
 		return true
 	default:
 		return false
@@ -739,6 +789,8 @@ func (cfg statusRightConfig) moduleEnabled(module string) bool {
 		return derefBool(cfg.FlashMoe, defaultStatusRightModuleEnabled(module))
 	case statusRightModuleHost:
 		return derefBool(cfg.Host, defaultStatusRightModuleEnabled(module))
+	case statusRightModuleGoal:
+		return derefBool(cfg.Goal, defaultStatusRightModuleEnabled(module))
 	default:
 		return false
 	}
@@ -784,6 +836,8 @@ func (cfg *statusRightConfig) setModuleEnabled(module string, enabled bool) {
 		cfg.FlashMoe = value
 	case statusRightModuleHost:
 		cfg.Host = value
+	case statusRightModuleGoal:
+		cfg.Goal = value
 	}
 }
 
@@ -791,7 +845,7 @@ func (cfg *statusRightConfig) isDefault() bool {
 	if cfg == nil {
 		return true
 	}
-	return cfg.CPU == nil && cfg.Network == nil && cfg.Memory == nil && cfg.MemoryTotals == nil && cfg.Agent == nil && cfg.TodoPreview == nil && cfg.Todos == nil && cfg.FlashMoe == nil && cfg.Host == nil
+	return cfg.CPU == nil && cfg.Network == nil && cfg.Memory == nil && cfg.MemoryTotals == nil && cfg.Agent == nil && cfg.TodoPreview == nil && cfg.Todos == nil && cfg.FlashMoe == nil && cfg.Host == nil && cfg.Goal == nil
 }
 
 func derefBool(value *bool, fallback bool) bool {

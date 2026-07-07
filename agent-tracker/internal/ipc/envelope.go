@@ -11,6 +11,7 @@ type Envelope struct {
 	Pane      string `json:"pane,omitempty"`
 	Message   string `json:"message,omitempty"`
 	Summary   string `json:"summary,omitempty"`
+	Phase     string `json:"phase,omitempty"`
 	Tasks     []Task `json:"tasks,omitempty"`
 }
 
@@ -23,6 +24,7 @@ type Task struct {
 	Status          string  `json:"status"`
 	Summary         string  `json:"summary"`
 	CompletionNote  string  `json:"completion_note,omitempty"`
+	Phase           string  `json:"phase,omitempty"`
 	StartedAt       string  `json:"started_at,omitempty"`
 	CompletedAt     string  `json:"completed_at,omitempty"`
 	DurationSeconds float64 `json:"duration_seconds"`

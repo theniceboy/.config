@@ -83,6 +83,7 @@ type statusRightConfig struct {
 	Todos        *bool `json:"todos,omitempty"`
 	FlashMoe     *bool `json:"flash_moe,omitempty"`
 	Host         *bool `json:"host,omitempty"`
+	Goal         *bool `json:"goal,omitempty"`
 }
 
 type keyConfig struct {
@@ -105,10 +106,10 @@ type keyConfig struct {
 }
 
 type repoConfig struct {
-	BaseBranch      string   `yaml:"base_branch,omitempty"`
-	DefaultDevice   string   `yaml:"default_device,omitempty"`
-	CopyIgnore      []string `yaml:"copy_ignore,omitempty"`
-	AgentKeyPaths   []string `yaml:"agent_key_paths,omitempty"`
+	BaseBranch    string   `yaml:"base_branch,omitempty"`
+	DefaultDevice string   `yaml:"default_device,omitempty"`
+	CopyIgnore    []string `yaml:"copy_ignore,omitempty"`
+	AgentKeyPaths []string `yaml:"agent_key_paths,omitempty"`
 }
 
 type featureConfig struct {
@@ -159,7 +160,7 @@ func main() {
 
 func run(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: agent <start|resume|list|destroy|init|config|setup|tmux|tracker|browser|feature>")
+		return fmt.Errorf("usage: agent <start|resume|list|destroy|init|config|setup|tmux|tracker|goal|browser|feature|update-hot-reload>")
 	}
 	switch args[0] {
 	case "start":
@@ -182,10 +183,14 @@ func run(args []string) error {
 		return runTmuxCommand(args[1:])
 	case "tracker":
 		return runTracker(args[1:])
+	case "goal":
+		return runGoal(args[1:])
 	case "browser":
 		return runBrowserCommand(args[1:])
 	case "feature":
 		return runFeatureCommand(args[1:])
+	case "update-hot-reload":
+		return runUpdateHotReload(args[1:])
 	case "bootstrap":
 		return runBootstrap(args[1:])
 	default:
@@ -1052,7 +1057,7 @@ func destroyRequiresExplicitConfirm(record *agentRecord) (bool, error) {
 
 func runTmuxCommand(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: agent tmux <on-focus|focus|palette|right-status>")
+		return fmt.Errorf("usage: agent tmux <on-focus|focus|palette|right-status|scratch>")
 	}
 	switch args[0] {
 	case "on-focus":
@@ -1063,6 +1068,8 @@ func runTmuxCommand(args []string) error {
 		return runTmuxPalette(args[1:])
 	case "right-status":
 		return runTmuxRightStatus(args[1:])
+	case "scratch":
+		return runTmuxScratch(args[1:])
 	default:
 		return fmt.Errorf("unknown tmux subcommand: %s", args[0])
 	}
@@ -1364,6 +1371,298 @@ func runTmuxFocus(args []string) error {
 		return fmt.Errorf("pane not found for role: %s", role)
 	}
 	return runTmux("select-pane", "-t", target)
+}
+
+func runTmuxScratch(args []string) error {
+	fs := flag.NewFlagSet("agent tmux scratch", flag.ContinueOnError)
+	var path string
+	var client string
+	var warm bool
+	fs.StringVar(&path, "path", "", "directory for creating the scratch terminal")
+	fs.StringVar(&client, "client", "", "tmux client tty")
+	fs.BoolVar(&warm, "warm", false, "prepare the scratch terminal without opening it")
+	fs.SetOutput(os.Stderr)
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if warm {
+		return warmScratchSession(path)
+	}
+	current, err := currentTmuxLocation()
+	if err != nil {
+		return err
+	}
+	reg, err := loadRegistry()
+	if err != nil {
+		return err
+	}
+	record := reg.Agents["scratch"]
+	if scratchRecordAlive(record) {
+		_ = runTmux("rename-session", "-t", record.TmuxSessionID, "scratch")
+		_ = configureScratchSession(record.TmuxSessionID, record.TmuxWindowID)
+		if current.SessionID == record.TmuxSessionID {
+			return closeScratchPopup(client)
+		}
+		setScratchOrigin(record.TmuxWindowID, current)
+		if current.WindowID != "" {
+			record.LaunchWindowID = current.WindowID
+		}
+		now := time.Now()
+		record.LastFocusedAt = &now
+		record.UpdatedAt = now
+		reg.FocusedAgentID = record.ID
+		if err := saveRegistry(reg); err != nil {
+			return err
+		}
+		return openScratchPopup(record)
+	}
+	if record == nil {
+		record = &agentRecord{ID: "scratch", Name: "scratch", CreatedAt: time.Now()}
+	}
+	startPath := firstNonEmpty(path, os.Getenv("HOME"))
+	if startPath == "" || !dirExists(startPath) {
+		startPath = os.Getenv("HOME")
+	}
+	windowID, sessionID, sessionName, paneID, err := createScratchTmuxSession(startPath)
+	if err != nil {
+		return err
+	}
+	now := time.Now()
+	record.ID = "scratch"
+	record.Name = "scratch"
+	record.RepoRoot = startPath
+	record.WorkspaceRoot = startPath
+	record.RepoCopyPath = startPath
+	record.TmuxSessionID = sessionID
+	record.TmuxSessionName = sessionName
+	record.TmuxWindowID = windowID
+	record.Panes = agentPanes{AI: paneID}
+	record.LaunchWindowID = current.WindowID
+	record.LastFocusedAt = &now
+	record.UpdatedAt = now
+	if record.CreatedAt.IsZero() {
+		record.CreatedAt = now
+	}
+	reg.Agents[record.ID] = record
+	reg.FocusedAgentID = record.ID
+	if err := saveRegistry(reg); err != nil {
+		return err
+	}
+	setScratchOrigin(windowID, current)
+	return openScratchPopup(record)
+}
+
+func warmScratchSession(path string) error {
+	reg, err := loadRegistry()
+	if err != nil {
+		return err
+	}
+	record := reg.Agents["scratch"]
+	if record == nil {
+		return nil
+	}
+	if scratchRecordAlive(record) {
+		_ = runTmux("rename-session", "-t", record.TmuxSessionID, "scratch")
+		return configureScratchSession(record.TmuxSessionID, record.TmuxWindowID)
+	}
+	startPath := firstNonEmpty(path, record.RepoCopyPath, record.WorkspaceRoot, record.RepoRoot, os.Getenv("HOME"))
+	if startPath == "" || !dirExists(startPath) {
+		startPath = os.Getenv("HOME")
+	}
+	windowID, sessionID, sessionName, paneID, err := createScratchTmuxSession(startPath)
+	if err != nil {
+		return err
+	}
+	now := time.Now()
+	record.TmuxSessionID = sessionID
+	record.TmuxSessionName = sessionName
+	record.TmuxWindowID = windowID
+	record.Panes = agentPanes{AI: paneID}
+	record.RepoRoot = startPath
+	record.WorkspaceRoot = startPath
+	record.RepoCopyPath = startPath
+	record.UpdatedAt = now
+	reg.Agents[record.ID] = record
+	return saveRegistry(reg)
+}
+
+type tmuxLocation struct {
+	SessionID string
+	WindowID  string
+	PaneID    string
+	Path      string
+}
+
+func currentTmuxLocation() (tmuxLocation, error) {
+	out, err := runTmuxOutput("display-message", "-p", "#{session_id}\n#{window_id}\n#{pane_id}\n#{pane_current_path}")
+	if err != nil {
+		return tmuxLocation{}, err
+	}
+	parts := strings.SplitN(strings.TrimRight(out, "\n"), "\n", 4)
+	for len(parts) < 4 {
+		parts = append(parts, "")
+	}
+	return tmuxLocation{
+		SessionID: strings.TrimSpace(parts[0]),
+		WindowID:  strings.TrimSpace(parts[1]),
+		PaneID:    strings.TrimSpace(parts[2]),
+		Path:      strings.TrimSpace(parts[3]),
+	}, nil
+}
+
+func scratchRecordAlive(record *agentRecord) bool {
+	return record != nil && windowAlive(record.TmuxSessionID, record.TmuxWindowID)
+}
+
+func createScratchTmuxSession(path string) (windowID, sessionID, sessionName, paneID string, err error) {
+	sessionName = "Scratch"
+	if existingSessionID, existingSessionName, ok := findTmuxSessionByLabel(sessionName); ok {
+		sessionID = existingSessionID
+		sessionName = existingSessionName
+		windowID, err = runTmuxOutput("new-window", "-P", "-F", "#{window_id}", "-t", sessionID, "-c", path)
+		if err != nil {
+			return "", "", "", "", err
+		}
+	} else {
+		if err := runTmux("new-session", "-d", "-s", sessionName, "-c", path); err != nil {
+			return "", "", "", "", err
+		}
+		sessionID, _ = runTmuxOutput("display-message", "-p", "-t", sessionName+":1", "#{session_id}")
+		windowID, _ = runTmuxOutput("display-message", "-p", "-t", sessionName+":1", "#{window_id}")
+	}
+	windowID = strings.TrimSpace(windowID)
+	sessionID = strings.TrimSpace(sessionID)
+	sessionName = strings.TrimSpace(sessionName)
+	if windowID == "" || sessionID == "" {
+		return "", "", "", "", fmt.Errorf("unable to create scratch terminal")
+	}
+	paneID, err = currentPane(windowID)
+	if err != nil {
+		return "", "", "", "", err
+	}
+	_ = runTmux("rename-session", "-t", sessionID, "Scratch")
+	_ = runTmux("set-option", "-w", "-t", windowID, "@agent_id", "scratch")
+	_ = runTmux("set-option", "-w", "-t", windowID, "@scratch_window", "1")
+	_ = runTmux("set-option", "-p", "-t", paneID, "@agent_role", "scratch")
+	_ = configureScratchSession(sessionID, windowID)
+	return windowID, sessionID, "Scratch", strings.TrimSpace(paneID), nil
+}
+
+func configureScratchSession(sessionID, windowID string) error {
+	sessionID = strings.TrimSpace(sessionID)
+	windowID = strings.TrimSpace(windowID)
+	if sessionID != "" {
+		_ = runTmux("set-option", "-t", sessionID, "status", "on")
+		_ = runTmux("set-option", "-t", sessionID, "status-left", "")
+		_ = runTmux("set-option", "-t", sessionID, "status-right", "")
+		_ = runTmux("set-option", "-t", sessionID, "status-left-length", "0")
+		_ = runTmux("set-option", "-t", sessionID, "status-right-length", "0")
+		_ = runTmux("set-option", "-t", sessionID, "prefix", "None")
+		_ = runTmux("set-option", "-t", sessionID, "detach-on-destroy", "on")
+	}
+	if windowID != "" {
+		_ = runTmux("set-option", "-w", "-t", windowID, "@agent_id", "scratch")
+		_ = runTmux("set-option", "-w", "-t", windowID, "@scratch_window", "1")
+	}
+	return nil
+}
+
+func openScratchPopup(record *agentRecord) error {
+	if record == nil {
+		return fmt.Errorf("scratch terminal is not available")
+	}
+	target := strings.TrimSpace(record.TmuxSessionID)
+	if target == "" {
+		target = strings.TrimSpace(record.TmuxWindowID)
+	}
+	if target == "" {
+		return fmt.Errorf("scratch terminal is not available")
+	}
+	cmd := fmt.Sprintf("tmux attach-session -t %s", shellQuote(target))
+	return runTmux("display-popup", "-E", "-w", "85%", "-h", "80%", "-T", "Scratch", cmd)
+}
+
+func closeScratchPopup(client string) error {
+	client = strings.TrimSpace(client)
+	if client == "" {
+		client = strings.TrimSpace(os.Getenv("TMUX_CLIENT"))
+	}
+	args := []string{"detach-client"}
+	if client != "" {
+		args = append(args, "-t", client)
+	}
+	return runTmux(args...)
+}
+
+func setScratchOrigin(scratchWindowID string, origin tmuxLocation) {
+	scratchWindowID = strings.TrimSpace(scratchWindowID)
+	if scratchWindowID == "" {
+		return
+	}
+	if origin.SessionID != "" {
+		_ = runTmux("set-option", "-w", "-t", scratchWindowID, "@scratch_origin_session", origin.SessionID)
+	}
+	if origin.WindowID != "" {
+		_ = runTmux("set-option", "-w", "-t", scratchWindowID, "@scratch_origin_window", origin.WindowID)
+	}
+	if origin.PaneID != "" {
+		_ = runTmux("set-option", "-w", "-t", scratchWindowID, "@scratch_origin_pane", origin.PaneID)
+	}
+}
+
+func focusScratchOrigin(reg *registry) error {
+	if reg == nil {
+		return nil
+	}
+	record := reg.Agents["scratch"]
+	if record == nil {
+		return nil
+	}
+	originSessionID := ""
+	originWindowID := ""
+	originPaneID := ""
+	if out, err := runTmuxOutput("show-options", "-wqv", "-t", record.TmuxWindowID, "@scratch_origin_session"); err == nil {
+		originSessionID = strings.TrimSpace(out)
+	}
+	if out, err := runTmuxOutput("show-options", "-wqv", "-t", record.TmuxWindowID, "@scratch_origin_window"); err == nil {
+		originWindowID = strings.TrimSpace(out)
+	}
+	if out, err := runTmuxOutput("show-options", "-wqv", "-t", record.TmuxWindowID, "@scratch_origin_pane"); err == nil {
+		originPaneID = strings.TrimSpace(out)
+	}
+	if !windowAlive(originSessionID, originWindowID) {
+		originSessionID = ""
+		originWindowID = firstLiveNonScratchWindow(record.TmuxWindowID)
+	}
+	if originWindowID == "" {
+		return nil
+	}
+	reg.FocusedAgentID = ""
+	_ = saveRegistry(reg)
+	if originSessionID != "" {
+		_ = runTmux("switch-client", "-t", originSessionID)
+	}
+	if err := selectTmuxWindow(originWindowID); err != nil {
+		return err
+	}
+	if originPaneID != "" {
+		_ = runTmux("select-pane", "-t", originPaneID)
+	}
+	return nil
+}
+
+func firstLiveNonScratchWindow(scratchWindowID string) string {
+	out, err := runTmuxOutput("list-windows", "-a", "-F", "#{window_id}")
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(out, "\n") {
+		windowID := strings.TrimSpace(line)
+		if windowID != "" && windowID != strings.TrimSpace(scratchWindowID) {
+			return windowID
+		}
+	}
+	return ""
 }
 
 func runTmuxPalette(args []string) error {
@@ -2526,6 +2825,19 @@ exec script -q "$logfile" bash -lc "cd \"$DIR/repo\" && exec flutter run -d \"$d
 	if err := os.WriteFile(ensurePath, []byte(ensureServer), 0o755); err != nil {
 		return err
 	}
+	if err := writeHotReloadScript(repoCopyPath); err != nil {
+		return err
+	}
+	_ = os.Remove(filepath.Join(workspaceRoot, "hot-reload.sh"))
+	for _, obsolete := range []string{"open-tab.sh", "refresh-tab.sh", "on-tmux-window-activate.sh"} {
+		_ = os.Remove(filepath.Join(workspaceRoot, obsolete))
+	}
+	_ = url
+	_ = device
+	return nil
+}
+
+func writeHotReloadScript(repoCopyPath string) error {
 	hotReload := `#!/usr/bin/env bash
 set -euo pipefail
 
@@ -2584,6 +2896,7 @@ find_flutter_pane() {
     while IFS= read -r child; do
       [[ -z "$child" ]] && continue
       if ps -p "$child" -o command= 2>/dev/null | grep -q 'flutter_tools\.snapshot.*run'; then
+        FLUTTER_RUN_PID="$child"
         return 0
       fi
       if has_flutter_run "$child" $((depth + 1)); then
@@ -2593,15 +2906,24 @@ find_flutter_pane() {
     return 1
   }
 
-  local pane_id pane_pid pane_path
-  while read -r pane_id pane_pid pane_path; do
+  local pane_id pane_pid fpid fcwd
+  local repo_dir="${REPO_DIR%/}"
+  local workspace_dir="${WORKSPACE_DIR%/}"
+  while read -r pane_id pane_pid; do
     [[ -z "$pane_id" || -z "$pane_pid" ]] && continue
-    [[ "$pane_path" != "$WORKSPACE_DIR" && "$pane_path" != "$REPO_DIR" ]] && continue
-    if has_flutter_run "$pane_pid"; then
+    FLUTTER_RUN_PID=""
+    if ! has_flutter_run "$pane_pid"; then
+      continue
+    fi
+    fpid="$FLUTTER_RUN_PID"
+    [[ -z "$fpid" ]] && continue
+    fcwd="$(lsof -a -d cwd -p "$fpid" 2>/dev/null | tail -n +2 | awk '{print $NF}')"
+    fcwd="${fcwd%/}"
+    if [[ "$fcwd" == "$repo_dir" || "$fcwd" == "$workspace_dir" ]]; then
       printf "%s\n" "$pane_id"
       return 0
     fi
-  done < <(tmux list-panes -a -F '#{pane_id} #{pane_pid} #{pane_current_path}' 2>/dev/null)
+  done < <(tmux list-panes -a -F '#{pane_id} #{pane_pid}' 2>/dev/null)
 
   return 1
 }
@@ -2655,22 +2977,105 @@ PY
 exit 0
 ) >/dev/null 2>&1 &
 
-echo "Hot reload triggered"
+echo "Reloaded the application"
 `
 	if err := ensureGeneratedRepoPathIgnored(repoCopyPath, "hot-reload.sh"); err != nil {
 		return err
 	}
 	hotReloadPath := filepath.Join(repoCopyPath, "hot-reload.sh")
-	if err := os.WriteFile(hotReloadPath, []byte(hotReload), 0o755); err != nil {
+	return os.WriteFile(hotReloadPath, []byte(hotReload), 0o755)
+}
+
+func runUpdateHotReload(args []string) error {
+	fs := flag.NewFlagSet("agent update-hot-reload", flag.ContinueOnError)
+	var allRepos bool
+	fs.BoolVar(&allRepos, "all", false, "update workspaces across every repo in the registry")
+	fs.SetOutput(os.Stderr)
+	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	_ = os.Remove(filepath.Join(workspaceRoot, "hot-reload.sh"))
-	for _, obsolete := range []string{"open-tab.sh", "refresh-tab.sh", "on-tmux-window-activate.sh"} {
-		_ = os.Remove(filepath.Join(workspaceRoot, obsolete))
+
+	var repoRoots []string
+	if allRepos {
+		reg, err := loadRegistry()
+		if err != nil {
+			return err
+		}
+		seen := map[string]bool{}
+		for _, record := range reg.Agents {
+			root := filepath.Clean(record.RepoRoot)
+			if root == "" || seen[root] {
+				continue
+			}
+			seen[root] = true
+			repoRoots = append(repoRoots, root)
+		}
+		sort.Strings(repoRoots)
+	} else {
+		root, err := repoRoot()
+		if err != nil {
+			return fmt.Errorf("%w; run inside a git repo or use --all", err)
+		}
+		repoRoots = []string{root}
 	}
-	_ = url
-	_ = device
+
+	totalUpdated := 0
+	for _, root := range repoRoots {
+		updated, err := updateHotReloadInRepo(root)
+		if err != nil {
+			return fmt.Errorf("%s: %w", root, err)
+		}
+		if len(updated) == 0 {
+			continue
+		}
+		totalUpdated += len(updated)
+		fmt.Printf("%s:\n", root)
+		for _, name := range updated {
+			fmt.Printf("  %s\n", name)
+		}
+	}
+	if totalUpdated == 0 {
+		fmt.Println("No Flutter workspaces found.")
+		return nil
+	}
+	fmt.Printf("Updated hot-reload.sh in %d workspace(s).\n", totalUpdated)
 	return nil
+}
+
+func updateHotReloadInRepo(repoRoot string) ([]string, error) {
+	agentsRoot := filepath.Join(repoRoot, ".agents")
+	entries, err := os.ReadDir(agentsRoot)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var updated []string
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		workspaceRoot := filepath.Join(agentsRoot, entry.Name())
+		featurePath := filepath.Join(workspaceRoot, "agent.json")
+		repoCopyPath := filepath.Join(workspaceRoot, "repo")
+		isFlutter := false
+		if cfg, err := loadFeatureConfig(featurePath); err == nil {
+			isFlutter = cfg.IsFlutter
+		}
+		hotReloadPath := filepath.Join(repoCopyPath, "hot-reload.sh")
+		if !isFlutter && !fileExists(hotReloadPath) {
+			continue
+		}
+		if !pathExists(repoCopyPath) {
+			continue
+		}
+		if err := writeHotReloadScript(repoCopyPath); err != nil {
+			return nil, fmt.Errorf("%s: %w", entry.Name(), err)
+		}
+		updated = append(updated, entry.Name())
+	}
+	return updated, nil
 }
 
 func detectDefaultBaseBranch(repoRoot string) string {
@@ -2766,10 +3171,6 @@ func loadRegistry() (*registry, error) {
 		fallback := &registry{Agents: map[string]*agentRecord{}}
 		dec := json.NewDecoder(strings.NewReader(string(data)))
 		if decodeErr := dec.Decode(fallback); decodeErr != nil {
-			return nil, err
-		}
-		trailing := strings.TrimSpace(string(data[int(dec.InputOffset()):]))
-		if trailing == "" || strings.Trim(trailing, "}") != "" {
 			return nil, err
 		}
 		reg = fallback

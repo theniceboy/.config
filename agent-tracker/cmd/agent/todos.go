@@ -30,10 +30,9 @@ type tmuxTodoItem struct {
 }
 
 type tmuxTodoStore struct {
-	Version  int                       `json:"version"`
-	Global   []tmuxTodoItem            `json:"global,omitempty"`
-	Sessions map[string][]tmuxTodoItem `json:"sessions,omitempty"`
-	Windows  map[string][]tmuxTodoItem `json:"windows,omitempty"`
+	Version int                       `json:"version"`
+	Global  []tmuxTodoItem            `json:"global,omitempty"`
+	Windows map[string][]tmuxTodoItem `json:"windows,omitempty"`
 }
 
 type tmuxTodoListFile struct {
@@ -78,19 +77,11 @@ func normalizeTmuxTodoStore(store *tmuxTodoStore) *tmuxTodoStore {
 	if store.Global == nil {
 		store.Global = []tmuxTodoItem{}
 	}
-	if store.Sessions == nil {
-		store.Sessions = map[string][]tmuxTodoItem{}
-	}
 	if store.Windows == nil {
 		store.Windows = map[string][]tmuxTodoItem{}
 	}
 	for i := range store.Global {
 		store.Global[i].Priority = normalizeTodoPriority(store.Global[i].Priority)
-	}
-	for key := range store.Sessions {
-		for i := range store.Sessions[key] {
-			store.Sessions[key][i].Priority = normalizeTodoPriority(store.Sessions[key][i].Priority)
-		}
 	}
 	for key := range store.Windows {
 		for i := range store.Windows[key] {
@@ -143,8 +134,6 @@ func bootstrapTmuxTodoStore() (*tmuxTodoStore, error) {
 func todoItemsForScope(store *tmuxTodoStore, scope todoScope, scopeID string) []tmuxTodoItem {
 	store = normalizeTmuxTodoStore(store)
 	switch scope {
-	case todoScopeSession:
-		return store.Sessions[scopeID]
 	case todoScopeWindow:
 		return store.Windows[scopeID]
 	default:
@@ -155,8 +144,6 @@ func todoItemsForScope(store *tmuxTodoStore, scope todoScope, scopeID string) []
 func setTodoItemsForScope(store *tmuxTodoStore, scope todoScope, scopeID string, items []tmuxTodoItem) {
 	store = normalizeTmuxTodoStore(store)
 	switch scope {
-	case todoScopeSession:
-		store.Sessions[scopeID] = items
 	case todoScopeWindow:
 		store.Windows[scopeID] = items
 	default:
@@ -203,20 +190,12 @@ func importLegacyYamlTodos(store *tmuxTodoStore) error {
 		if err := yaml.Unmarshal(data, &list); err != nil {
 			continue
 		}
-		scope := todoScopeGlobal
-		scopeID := "global"
-		switch {
-		case name == "global.yaml":
-			scope = todoScopeGlobal
-		case strings.HasPrefix(name, "session_") && strings.HasSuffix(name, ".yaml"):
-			scope = todoScopeSession
-			id := strings.TrimSuffix(strings.TrimPrefix(name, "session_"), ".yaml")
-			if strings.HasPrefix(id, "_") {
-				scopeID = "$" + strings.TrimPrefix(id, "_")
-			} else {
-				scopeID = id
-			}
-		case strings.HasPrefix(name, "window_") && strings.HasSuffix(name, ".yaml"):
+	scope := todoScopeGlobal
+	scopeID := "global"
+	switch {
+	case name == "global.yaml":
+		scope = todoScopeGlobal
+	case strings.HasPrefix(name, "window_") && strings.HasSuffix(name, ".yaml"):
 			scope = todoScopeWindow
 			id := strings.TrimSuffix(strings.TrimPrefix(name, "window_"), ".yaml")
 			if strings.HasPrefix(id, "_") {
@@ -251,25 +230,6 @@ func collectAllTmuxTodos(currentSessionID, currentWindowID string) []tmuxTodoEnt
 			IsCurrent: true,
 			ItemIndex: idx,
 		})
-	}
-	sessionIDs := make([]string, 0, len(store.Sessions))
-	for id := range store.Sessions {
-		sessionIDs = append(sessionIDs, id)
-	}
-	sort.Strings(sessionIDs)
-	for _, id := range sessionIDs {
-		for idx, item := range store.Sessions[id] {
-			entries = append(entries, tmuxTodoEntry{
-				Title:     item.Title,
-				Done:      item.Done,
-				Priority:  item.Priority,
-				Scope:     todoScopeSession,
-				ScopeID:   id,
-				ScopeName: "Session",
-				IsCurrent: strings.TrimSpace(id) == strings.TrimSpace(currentSessionID),
-				ItemIndex: idx,
-			})
-		}
 	}
 	windowIDs := make([]string, 0, len(store.Windows))
 	for id := range store.Windows {

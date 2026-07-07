@@ -22,6 +22,7 @@ const (
 	paletteModeDevices
 	paletteModeStatusRight
 	paletteModeTracker
+	paletteModeGoals
 )
 
 type palettePromptField int
@@ -51,6 +52,8 @@ const (
 	paletteActionOpenTodos
 	paletteActionOpenDevices
 	paletteActionOpenTracker
+	paletteActionOpenGoals
+	paletteActionOpenScratch
 )
 
 type paletteAction struct {

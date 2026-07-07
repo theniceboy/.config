@@ -53,6 +53,11 @@ if [[ -z "$sessions" ]]; then
   exit 0
 fi
 
+sessions=$(printf '%s\n' "$sessions" | grep -Evi '^([^:]+)::([0-9]+-)?scratch$' || true)
+if [[ -z "$sessions" ]]; then
+  exit 0
+fi
+
 "$HOME/.config/tmux/tmux-status/tracker_cache.sh" 2>/dev/null || true
 
 CACHE_FILE="/tmp/tmux-tracker-cache.json"
@@ -86,11 +91,12 @@ get_session_icon() {
   if [[ -n "$tracker_state" ]]; then
     local result
     result=$(echo "$tracker_state" | jq -r --arg sid "$sid" '
-      .tasks // [] | .[] | select(.session_id == $sid) |
-      if .status == "completed" and .acknowledged != true then "waiting"
-      elif .status == "in_progress" then "in_progress"
-      else empty end
-    ' 2>/dev/null | head -1 || true)
+      .tasks // []
+      | map(select(.session_id == $sid))
+      | if any(.status == "completed" and .acknowledged != true) then "waiting"
+        elif any(.status == "in_progress") then "in_progress"
+        else empty end
+    ' 2>/dev/null || true)
     case "$result" in
       waiting) has_bell=1 ;;
       in_progress) has_watch=1 ;;

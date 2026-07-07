@@ -12,11 +12,12 @@ state=$("$agent_bin" tracker state 2>/dev/null || true)
 
 # Check for in_progress or unacknowledged completed tasks in this session
 result=$(echo "$state" | jq -r --arg sid "$session_id" '
-  .tasks // [] | .[] | select(.session_id == $sid) |
-  if .status == "in_progress" then "in_progress"
-  elif .status == "completed" and .acknowledged != true then "waiting"
-  else empty end
-' 2>/dev/null | head -1 || true)
+  .tasks // []
+  | map(select(.session_id == $sid))
+  | if any(.status == "completed" and .acknowledged != true) then "waiting"
+    elif any(.status == "in_progress") then "in_progress"
+    else empty end
+' 2>/dev/null || true)
 
 case "$result" in
   in_progress) printf '⏳' ;;

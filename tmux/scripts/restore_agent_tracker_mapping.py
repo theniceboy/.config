@@ -196,6 +196,20 @@ def main() -> int:
         if migrated_window_todos or migrated_session_todos:
             save_json(TODOS_PATH, todos_payload)
 
+    # ── goals.json: re-point thread window_id to new ids ──────
+    GOALS_PATH = HOME / ".cache" / "agent" / "goals.json"
+    migrated_threads = 0
+    if GOALS_PATH.exists() and (window_migrations or session_migrations):
+        goals_payload = load_json(GOALS_PATH)
+        threads = goals_payload.get("threads", {})
+        for thread in threads.values():
+            old_wid = str(thread.get("window_id", "")).strip()
+            if old_wid and old_wid in window_migrations:
+                thread["window_id"] = window_migrations[old_wid]
+                migrated_threads += 1
+        if migrated_threads:
+            save_json(GOALS_PATH, goals_payload)
+
     summary = []
     if changed_agents:
         summary.append(f"{changed_agents} agent windows")
@@ -203,6 +217,8 @@ def main() -> int:
         summary.append(f"{migrated_window_todos} window todos")
     if migrated_session_todos:
         summary.append(f"{migrated_session_todos} session todos")
+    if migrated_threads:
+        summary.append(f"{migrated_threads} goal threads")
     if summary:
         print("restored " + ", ".join(summary))
     return 0

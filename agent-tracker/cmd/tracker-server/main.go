@@ -34,6 +34,7 @@ type taskRecord struct {
 	Pane           string
 	Summary        string
 	CompletionNote string
+	Phase          string
 	StartedAt      time.Time
 	CompletedAt    *time.Time
 	Status         string
@@ -234,6 +235,20 @@ func (s *server) handleCommand(env ipc.Envelope) error {
 		s.broadcastStateAsync()
 		s.statusRefreshAsync()
 		return nil
+	case "update_phase":
+		target, err := requireSessionWindow(env)
+		if err != nil {
+			return err
+		}
+		phase := strings.TrimSpace(env.Phase)
+		if phase == "" {
+			return fmt.Errorf("update_phase requires phase")
+		}
+		if err := s.updatePhase(target, phase); err != nil {
+			return err
+		}
+		s.broadcastStateAsync()
+		return nil
 	case "notifications_toggle":
 		enabled, err := s.toggleNotifications()
 		if err != nil {
@@ -309,6 +324,7 @@ func (s *server) startTask(target tmuxTarget, summary string) error {
 	t.Status = statusInProgress
 	t.CompletedAt = nil
 	t.CompletionNote = ""
+	t.Phase = ""
 	t.Acknowledged = true
 	return nil
 }
@@ -347,6 +363,21 @@ func (s *server) updateTaskSummary(target tmuxTarget, summary string) error {
 	return nil
 }
 
+func (s *server) updatePhase(target tmuxTarget, phase string) error {
+	if target.SessionID == "" || target.WindowID == "" {
+		return fmt.Errorf("cannot update phase: missing session or window ID")
+	}
+	target = normalizeTargetNames(target)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	key := taskKey(target.SessionID, target.WindowID, target.PaneID)
+	if t, ok := s.tasks[key]; ok {
+		t.Phase = phase
+		mergeTaskNamesFromTarget(t, target)
+	}
+	return nil
+}
+
 func (s *server) finishTask(target tmuxTarget, note string) (bool, error) {
 	if target.SessionID == "" || target.WindowID == "" {
 		return false, nil // silently ignore - pane likely died
@@ -377,6 +408,7 @@ func (s *server) finishTask(target tmuxTarget, note string) (bool, error) {
 	mergeTaskNamesFromTarget(t, target)
 	t.Status = statusCompleted
 	t.CompletedAt = &now
+	t.Phase = ""
 	if note != "" {
 		t.CompletionNote = note
 	}
@@ -722,6 +754,7 @@ func (s *server) buildStateEnvelope() *ipc.Envelope {
 			Status:          t.Status,
 			Summary:         t.Summary,
 			CompletionNote:  t.CompletionNote,
+			Phase:           t.Phase,
 			StartedAt:       started,
 			CompletedAt:     completed,
 			DurationSeconds: duration.Seconds(),

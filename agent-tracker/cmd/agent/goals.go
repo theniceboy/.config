@@ -944,6 +944,77 @@ func assignParentsAndOrders(store *GoalStore, entries []flatEntry) {
 	}
 }
 
+// reorderChildSibling swaps a child (goal or thread) by one slot among its
+// siblings under parentID, keeping its parent and depth. Children of a goal
+// are sub-goals (ParentID==parentID) and threads (GoalID==parentID) sharing a
+// single Order sequence. Returns false at the first/last sibling boundary or
+// if the node is not found.
+func reorderChildSibling(parentID, nodeID string, isGoal bool, delta int) bool {
+	store, err := loadGoalStore()
+	if err != nil || store == nil {
+		return false
+	}
+	parentID = strings.TrimSpace(parentID)
+	type ch struct {
+		id     string
+		isGoal bool
+		order  int
+		goal   *Goal
+		thread *Thread
+	}
+	var children []ch
+	for _, g := range store.Goals {
+		if strings.TrimSpace(g.ParentID) == parentID {
+			children = append(children, ch{g.ID, true, g.Order, g, nil})
+		}
+	}
+	for _, t := range store.Threads {
+		if strings.TrimSpace(t.GoalID) == parentID {
+			children = append(children, ch{t.ID, false, t.Order, nil, t})
+		}
+	}
+	sort.SliceStable(children, func(i, j int) bool {
+		if children[i].order != children[j].order {
+			return children[i].order < children[j].order
+		}
+		return children[i].id < children[j].id
+	})
+	idx := -1
+	for i, c := range children {
+		if c.id == nodeID && c.isGoal == isGoal {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		return false
+	}
+	target := idx + delta
+	if target < 0 || target >= len(children) {
+		return false
+	}
+	moved := children[idx]
+	rest := make([]ch, 0, len(children)-1)
+	for i, c := range children {
+		if i == idx {
+			continue
+		}
+		rest = append(rest, c)
+	}
+	ordered := make([]ch, 0, len(children))
+	ordered = append(ordered, rest[:target]...)
+	ordered = append(ordered, moved)
+	ordered = append(ordered, rest[target:]...)
+	for i, c := range ordered {
+		if c.isGoal && c.goal != nil {
+			c.goal.Order = i
+		} else if !c.isGoal && c.thread != nil {
+			c.thread.Order = i
+		}
+	}
+	return saveGoalStore(store) == nil
+}
+
 func applyGoalMove(goalID string, list *flatList, g ghostState) error {
 	goalID = strings.TrimSpace(goalID)
 	startIdx := -1

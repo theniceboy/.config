@@ -21,6 +21,7 @@ type statusRightPanelEntry struct {
 type statusRightPanelModel struct {
 	entries      []statusRightPanelEntry
 	selected     int
+	offset       int
 	width        int
 	height       int
 	status       string
@@ -40,10 +41,6 @@ func (m *statusRightPanelModel) reload() {
 	for _, module := range statusRightModules() {
 		available := true
 		indented := false
-		if module == statusRightModuleTodoPreview {
-			available = statusRightModuleEnabled(statusRightModuleTodos)
-			indented = true
-		}
 		entries = append(entries, statusRightPanelEntry{
 			Module:    module,
 			Title:     statusRightModuleLabel(module),
@@ -55,6 +52,7 @@ func (m *statusRightPanelModel) reload() {
 	}
 	m.entries = entries
 	m.selected = clampInt(m.selected, 0, maxInt(0, len(m.entries)-1))
+	m.offset = clampInt(m.offset, 0, maxInt(0, len(m.entries)-1))
 }
 
 func capitalizeStatusRightDescription(value string) string {
@@ -145,7 +143,12 @@ func (m *statusRightPanelModel) render(styles paletteStyles, width, height int) 
 	)
 
 	lines := []string{styles.meta.Render(fmt.Sprintf("%d controls", len(m.entries))), ""}
-	for idx, entry := range m.entries {
+	bodyHeight := maxInt(8, height-7)
+	visibleRows := maxInt(1, (bodyHeight-2)/4)
+	m.offset = stableListOffset(m.offset, m.selected, visibleRows, len(m.entries))
+	end := minInt(len(m.entries), m.offset+visibleRows)
+	for idx := m.offset; idx < end; idx++ {
+		entry := m.entries[idx]
 		rowStyle := styles.item.Width(maxInt(24, width-2))
 		titleStyle := styles.itemTitle
 		metaStyle := styles.itemSubtitle
@@ -212,7 +215,6 @@ func (m *statusRightPanelModel) render(styles paletteStyles, width, height int) 
 		)
 		lines = append(lines, rowStyle.Render(lipgloss.JoinVertical(lipgloss.Left, titleRow, detailRow, orderRow)))
 	}
-	bodyHeight := maxInt(8, height-7)
 	body := lipgloss.NewStyle().Height(bodyHeight).Render(strings.Join(lines, "\n"))
 	footer := m.renderFooter(styles, width)
 	view := lipgloss.JoinVertical(lipgloss.Left, header, "", body, "", footer)
@@ -230,18 +232,6 @@ func statusRightVisibilityText(enabled, available bool) string {
 }
 
 func statusRightOrderHint(module string, enabled, available bool) string {
-	if module == statusRightModuleTodoPreview {
-		if !available {
-			if enabled {
-				return "Will appear inside Todos when Todos is re-enabled"
-			}
-			return "Enable Todos to configure this preview"
-		}
-		if enabled {
-			return "Shown inside Todos when Todos is enabled"
-		}
-		return "Hidden inside Todos until re-enabled"
-	}
 	prefix := "Order slot: " + statusRightModuleLabel(module)
 	if enabled {
 		return prefix + " follows the fixed module order"
@@ -252,7 +242,7 @@ func statusRightOrderHint(module string, enabled, available bool) string {
 func (m *statusRightPanelModel) layoutSummary() string {
 	labels := make([]string, 0, len(m.entries))
 	for _, entry := range m.entries {
-		if entry.Enabled && entry.Module != statusRightModuleTodoPreview {
+		if entry.Enabled {
 			labels = append(labels, entry.Title)
 		}
 	}

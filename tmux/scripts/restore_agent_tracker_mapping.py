@@ -10,6 +10,7 @@ from pathlib import Path
 HOME = Path.home()
 AGENTS_PATH = HOME / ".config/agent-tracker/run/agents.json"
 TODOS_PATH = HOME / ".cache/agent/todos.json"
+SNAPSHOT_PATH = Path(os.environ.get("XDG_STATE_HOME", str(HOME / ".local/state"))) / "agent-tracker" / "window-snapshot.json"
 
 
 def tmux_output(*args: str) -> str:
@@ -33,11 +34,11 @@ def save_json(path: Path, payload) -> None:
 
 
 def list_windows():
-    out = tmux_output("list-windows", "-a", "-F", "#{session_name}\t#{session_id}\t#{window_name}\t#{window_id}")
+    out = tmux_output("list-windows", "-a", "-F", "#{session_name}\t#{session_id}\t#{window_name}\t#{window_id}\t#{window_index}")
     windows = []
     for line in out.splitlines():
         parts = line.split("\t")
-        if len(parts) != 4:
+        if len(parts) != 5:
             continue
         windows.append(
             {
@@ -45,6 +46,7 @@ def list_windows():
                 "session_id": parts[1].strip(),
                 "window_name": parts[2].lstrip(":").strip(),
                 "window_id": parts[3].strip(),
+                "window_index": parts[4].strip(),
             }
         )
     return windows
@@ -171,29 +173,51 @@ def main() -> int:
     if state_changed:
         save_json(AGENTS_PATH, agents_payload)
 
+    # ── snapshot-based migration for non-agent windows ────────
+    if SNAPSHOT_PATH.exists():
+        try:
+            snapshot = load_json(SNAPSHOT_PATH)
+        except Exception:
+            snapshot = {}
+        current_by_pos = {
+            (w["session_name"], w["window_index"]): w["window_id"] for w in windows
+        }
+        for old_wid, info in snapshot.items():
+            old_wid = old_wid.strip()
+            sn = str(info.get("session_name", "")).strip()
+            wi = str(info.get("window_index", "")).strip()
+            if not sn or not wi:
+                continue
+            new_wid = current_by_pos.get((sn, wi), "")
+            if new_wid and old_wid != new_wid and old_wid not in window_migrations:
+                window_migrations[old_wid] = new_wid
+
     migrated_window_todos = 0
     migrated_session_todos = 0
     if TODOS_PATH.exists():
         todos_payload = load_json(TODOS_PATH)
+
         windows_store = todos_payload.setdefault("windows", {})
-        for old_id, new_id in window_migrations.items():
-            if old_id == new_id or old_id not in windows_store:
-                continue
-            existing = windows_store.get(new_id, [])
-            incoming = windows_store.pop(old_id)
-            windows_store[new_id] = merge_items(existing, incoming)
-            migrated_window_todos += len(incoming)
+        new_windows_store: dict[str, list] = {}
+        for wid, todos in windows_store.items():
+            target = window_migrations.get(wid, wid)
+            if target != wid:
+                migrated_window_todos += len(todos)
+            existing = new_windows_store.get(target, [])
+            new_windows_store[target] = merge_items(existing, todos)
+        todos_payload["windows"] = new_windows_store
 
         sessions_store = todos_payload.setdefault("sessions", {})
-        for old_id, new_id in session_migrations.items():
-            if old_id == new_id or old_id not in sessions_store:
-                continue
-            existing = sessions_store.get(new_id, [])
-            incoming = sessions_store.pop(old_id)
-            sessions_store[new_id] = merge_items(existing, incoming)
-            migrated_session_todos += len(incoming)
+        new_sessions_store: dict[str, list] = {}
+        for sid, todos in sessions_store.items():
+            target = session_migrations.get(sid, sid)
+            if target != sid:
+                migrated_session_todos += len(todos)
+            existing = new_sessions_store.get(target, [])
+            new_sessions_store[target] = merge_items(existing, todos)
+        todos_payload["sessions"] = new_sessions_store
 
-        if migrated_window_todos or migrated_session_todos:
+        if migrated_window_todos or migrated_session_todos or new_windows_store != windows_store or new_sessions_store != sessions_store:
             save_json(TODOS_PATH, todos_payload)
 
     # ── goals.json: re-point thread window_id to new ids ──────

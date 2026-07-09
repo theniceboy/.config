@@ -33,7 +33,9 @@ var paletteTmuxRunner = runTmux
 var paletteTmuxOutput = runTmuxOutput
 
 type paletteRuntime struct {
+	sessionID          string
 	windowID           string
+	paneID             string
 	agentID            string
 	reg                *registry
 	record             *agentRecord
@@ -41,6 +43,8 @@ type paletteRuntime struct {
 	currentPath        string
 	currentSessionName string
 	currentWindowName  string
+	currentWindowIndex string
+	currentPaneIndex   string
 	mainRepoRoot       string
 	startMode          paletteMode
 }
@@ -61,6 +65,8 @@ type paletteModel struct {
 	status                  *statusRightPanelModel
 	tracker                 *trackerPanelModel
 	goals                   *goalPanelModel
+	agentList               *actionListPanel
+	opencodeForkList        *actionListPanel
 }
 
 type paletteStyles struct {
@@ -116,7 +122,7 @@ func runBubbleTeaPalette(args []string) error {
 	state := paletteUIState{Mode: runtime.startMode, Message: runtime.startupMessage}
 	for {
 		model := newPaletteModel(runtime, state)
-		finalModel, err := tea.NewProgram(model).Run()
+		finalModel, err := tea.NewProgram(model, tea.WithoutBracketedPaste()).Run()
 		if err != nil {
 			return err
 		}
@@ -168,28 +174,40 @@ func runBubbleTeaPalette(args []string) error {
 func loadPaletteRuntime(args []string) (*paletteRuntime, error) {
 	fs := flag.NewFlagSet("agent palette", flag.ContinueOnError)
 	var windowID string
+	var sessionID string
+	var paneID string
 	var agentID string
 	var currentPath string
 	var currentSessionName string
 	var currentWindowName string
+	var currentWindowIndex string
+	var currentPaneIndex string
 	var modeFlag string
 	fs.StringVar(&windowID, "window", "", "window id")
+	fs.StringVar(&sessionID, "session-id", "", "session id")
+	fs.StringVar(&paneID, "pane-id", "", "pane id")
 	fs.StringVar(&agentID, "agent-id", "", "agent id")
 	fs.StringVar(&currentPath, "path", "", "current pane path")
 	fs.StringVar(&currentSessionName, "session-name", "", "current session name")
 	fs.StringVar(&currentWindowName, "window-name", "", "current window name")
-	fs.StringVar(&modeFlag, "mode", "", "initial panel mode (goals, tracker, todos, activity)")
+	fs.StringVar(&currentWindowIndex, "window-index", "", "current window index")
+	fs.StringVar(&currentPaneIndex, "pane-index", "", "current pane index")
+	fs.StringVar(&modeFlag, "mode", "", "initial panel mode (goals, tracker, todos, activity, status)")
 	fs.SetOutput(nil)
 	if err := fs.Parse(args); err != nil {
 		return nil, err
 	}
 
 	runtime := &paletteRuntime{
+		sessionID:          firstNonEmpty(sessionID, os.Getenv("AGENT_PALETTE_SESSION_ID")),
 		windowID:           firstNonEmpty(windowID, os.Getenv("AGENT_PALETTE_WINDOW_ID")),
+		paneID:             firstNonEmpty(paneID, os.Getenv("AGENT_PALETTE_PANE_ID")),
 		agentID:            firstNonEmpty(agentID, os.Getenv("AGENT_PALETTE_AGENT_ID")),
 		currentPath:        firstNonEmpty(currentPath, os.Getenv("AGENT_PALETTE_PATH")),
 		currentSessionName: firstNonEmpty(currentSessionName, os.Getenv("AGENT_PALETTE_SESSION_NAME")),
 		currentWindowName:  firstNonEmpty(currentWindowName, os.Getenv("AGENT_PALETTE_WINDOW_NAME")),
+		currentWindowIndex: firstNonEmpty(currentWindowIndex, os.Getenv("AGENT_PALETTE_WINDOW_INDEX")),
+		currentPaneIndex:   firstNonEmpty(currentPaneIndex, os.Getenv("AGENT_PALETTE_PANE_INDEX")),
 	}
 	switch strings.ToLower(modeFlag) {
 	case "goals":
@@ -200,6 +218,8 @@ func loadPaletteRuntime(args []string) (*paletteRuntime, error) {
 		runtime.startMode = paletteModeTodos
 	case "activity":
 		runtime.startMode = paletteModeActivity
+	case "status", "status-right", "bottom-right":
+		runtime.startMode = paletteModeStatusRight
 	default:
 		runtime.startMode = paletteModeList
 	}
@@ -237,11 +257,15 @@ func logPaletteLaunchIfMalformed(runtime *paletteRuntime) {
 		return
 	}
 	values := []string{
+		runtime.sessionID,
 		runtime.windowID,
+		runtime.paneID,
 		runtime.agentID,
 		runtime.currentPath,
 		runtime.currentSessionName,
 		runtime.currentWindowName,
+		runtime.currentWindowIndex,
+		runtime.currentPaneIndex,
 	}
 	for _, value := range values {
 		if strings.Contains(value, "#{") {
@@ -295,6 +319,12 @@ func (r *paletteRuntime) reload() error {
 	if strings.TrimSpace(r.windowID) == "" {
 		r.windowID = tmuxValue("", "#{window_id}")
 	}
+	if strings.TrimSpace(r.sessionID) == "" {
+		r.sessionID = tmuxValue(r.windowID, "#{session_id}")
+	}
+	if strings.TrimSpace(r.paneID) == "" {
+		r.paneID = tmuxValue(r.windowID, "#{pane_id}")
+	}
 	if strings.TrimSpace(r.currentPath) == "" {
 		r.currentPath = tmuxValue(r.windowID, "#{pane_current_path}")
 	}
@@ -303,6 +333,12 @@ func (r *paletteRuntime) reload() error {
 	}
 	if strings.TrimSpace(r.currentWindowName) == "" {
 		r.currentWindowName = tmuxValue(r.windowID, "#{window_name}")
+	}
+	if strings.TrimSpace(r.currentWindowIndex) == "" {
+		r.currentWindowIndex = tmuxValue(r.windowID, "#{window_index}")
+	}
+	if strings.TrimSpace(r.currentPaneIndex) == "" {
+		r.currentPaneIndex = tmuxValue(r.windowID, "#{pane_index}")
 	}
 	if inferredAgentID := detectPaletteAgentIDFromPath(r.currentPath); inferredAgentID != "" {
 		if strings.TrimSpace(r.agentID) == "" || r.record == nil {
@@ -330,6 +366,55 @@ func (r *paletteRuntime) effectiveAgentID() string {
 		return ""
 	}
 	return sanitizeFeatureName(r.agentID)
+}
+
+func (r *paletteRuntime) workspaceForBrowser() string {
+	if r.record != nil && r.record.BrowserEnabled {
+		if ws := strings.TrimSpace(r.record.WorkspaceRoot); ws != "" {
+			return ws
+		}
+	}
+	return ""
+}
+
+func (r *paletteRuntime) opencodePaneLocator() string {
+	sessionName := strings.TrimSpace(r.currentSessionName)
+	windowIndex := strings.TrimSpace(r.currentWindowIndex)
+	paneIndex := strings.TrimSpace(r.currentPaneIndex)
+	if sessionName == "" || windowIndex == "" || paneIndex == "" {
+		return ""
+	}
+	return fmt.Sprintf("%s:%s.%s", sessionName, windowIndex, paneIndex)
+}
+
+func (r *paletteRuntime) currentOpenCodeSessionID() string {
+	stateDir := os.Getenv("XDG_STATE_HOME")
+	if stateDir == "" {
+		home, _ := os.UserHomeDir()
+		stateDir = filepath.Join(home, ".local", "state")
+	}
+	paths := []string{}
+	if paneID := strings.TrimSpace(r.paneID); paneID != "" {
+		paths = append(paths, filepath.Join(stateDir, "op", "pane_"+sanitizeStateKey(paneID)))
+	}
+	if locator := r.opencodePaneLocator(); locator != "" {
+		paths = append(paths, filepath.Join(stateDir, "op", "loc_"+sanitizeStateKey(locator)))
+	}
+	for _, path := range paths {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		fields := strings.Fields(string(data))
+		if len(fields) > 0 && strings.TrimSpace(fields[0]) != "" {
+			return strings.TrimSpace(fields[0])
+		}
+	}
+	return ""
+}
+
+func (r *paletteRuntime) canForkCurrentOpenCode() bool {
+	return r.currentOpenCodeSessionID() != ""
 }
 
 func (r *paletteRuntime) persistRecord(update func(*agentRecord) error) error {
@@ -365,6 +450,15 @@ func (r *paletteRuntime) buildActions() []paletteAction {
 			Subtitle: "Delete the workspace and close its tmux window",
 			Keywords: []string{"agent", "destroy", "remove", "delete"},
 			Kind:     paletteActionConfirmDestroy,
+		})
+	}
+	if r.canForkCurrentOpenCode() {
+		actions = append(actions, paletteAction{
+			Section:  "Opencode",
+			Title:    "Fork current opencode",
+			Subtitle: "Open this session in another tmux pane or window",
+			Keywords: []string{"opencode", "op", "fork", "session", "pane", "window"},
+			Kind:     paletteActionOpenOpencodeFork,
 		})
 	}
 	actions = append(actions,
@@ -438,10 +532,42 @@ func (r *paletteRuntime) buildActions() []paletteAction {
 	if r.record == nil {
 		return actions
 	}
+	if r.record.BrowserEnabled {
+		actions = append(actions,
+			paletteAction{
+				Section:  "Browser",
+				Title:    "Copy console logs",
+				Subtitle: "Copy browser dev console to clipboard",
+				Keywords: []string{"browser", "console", "logs", "copy", "clipboard", "devtools"},
+				Kind:     paletteActionBrowserCopyLogs,
+			},
+			paletteAction{
+				Section:  "Browser",
+				Title:    "Paste console logs",
+				Subtitle: "Read browser dev console buffer and paste into pane",
+				Keywords: []string{"browser", "console", "logs", "paste", "devtools", "chrome"},
+				Kind:     paletteActionBrowserLogs,
+			},
+			paletteAction{
+				Section:  "Browser",
+				Title:    "Clear console logs",
+				Subtitle: "Clear the browser dev console buffer",
+				Keywords: []string{"browser", "console", "logs", "clear", "devtools"},
+				Kind:     paletteActionBrowserClearLogs,
+			},
+			paletteAction{
+				Section:  "Browser",
+				Title:    "Hot reload",
+				Subtitle: "Run hot-reload.sh (analyze + flutter reload)",
+				Keywords: []string{"browser", "reload", "hot", "flutter", "refresh"},
+				Kind:     paletteActionBrowserReload,
+			},
+		)
+	}
 	return actions
 }
 
-func (r *paletteRuntime) runAgentStart(repoRoot, feature, device string, keepWorktree bool) error {
+func (r *paletteRuntime) runAgentStart(repoRoot, feature, device string, keepWorktree, pull bool) error {
 	repoRoot = r.resolveStartRepoRoot(repoRoot)
 	feature = sanitizeFeatureName(feature)
 	if !isPaletteNoDeviceOption(device) {
@@ -454,7 +580,7 @@ func (r *paletteRuntime) runAgentStart(repoRoot, feature, device string, keepWor
 		return fmt.Errorf("feature name is required")
 	}
 	agentBin := filepath.Join(os.Getenv("HOME"), ".config", "agent-tracker", "bin", "agent")
-	args := buildAgentStartArgs(feature, device, keepWorktree)
+	args := buildAgentStartArgs(feature, device, keepWorktree, pull)
 	cmd := exec.Command(agentBin, args...)
 	cmd.Dir = repoRoot
 	cmd.Stdin = os.Stdin
@@ -503,10 +629,13 @@ func launchPaletteDestroyWithConfirm(agentID string, confirmText string) error {
 	return spawnDetachedAgentCommand(args...)
 }
 
-func buildAgentStartArgs(feature, device string, keepWorktree bool) []string {
+func buildAgentStartArgs(feature, device string, keepWorktree, pull bool) []string {
 	args := []string{"start"}
 	if keepWorktree {
 		args = append(args, "--keep-worktree")
+	}
+	if pull {
+		args = append(args, "--pull")
 	}
 	if isPaletteNoDeviceOption(device) {
 		args = append(args, "--no-device")
@@ -593,7 +722,7 @@ func (r *paletteRuntime) execute(result paletteResult) (bool, string, error) {
 	text := strings.TrimSpace(result.Input)
 	switch action.Kind {
 	case paletteActionPromptStartAgent:
-		if err := r.runAgentStart(action.RepoRoot, text, result.Device, result.KeepWorktree); err != nil {
+		if err := r.runAgentStart(action.RepoRoot, text, result.Device, result.KeepWorktree, result.Pull); err != nil {
 			return true, "", err
 		}
 		return false, "", nil
@@ -615,6 +744,52 @@ func (r *paletteRuntime) execute(result paletteResult) (bool, string, error) {
 		return false, "", paletteTmuxRunner("source-file", os.Getenv("HOME")+"/.config/.tmux.conf")
 	case paletteActionOpenScratch:
 		return false, "", launchScratchTerminalFromPalette(r.currentPath)
+	case paletteActionForkOpencodeHorizontal:
+		if err := r.launchOpenCodeFork("horizontal"); err != nil {
+			return true, "", err
+		}
+		return false, "", nil
+	case paletteActionForkOpencodeVertical:
+		if err := r.launchOpenCodeFork("vertical"); err != nil {
+			return true, "", err
+		}
+		return false, "", nil
+	case paletteActionForkOpencodeWindow:
+		if err := r.launchOpenCodeFork("window"); err != nil {
+			return true, "", err
+		}
+		return false, "", nil
+	case paletteActionBrowserClearLogs:
+		workspace := r.workspaceForBrowser()
+		if workspace == "" {
+			return true, "", fmt.Errorf("no browser-enabled agent in this window")
+		}
+		exe, err := os.Executable()
+		if err != nil {
+			return false, "", err
+		}
+		cmd := exec.Command(exe, "browser", "clear-logs", "--workspace", workspace)
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			return true, "", fmt.Errorf("%s", firstNonEmpty(strings.TrimSpace(string(output)), err.Error()))
+		}
+		return false, "Console logs cleared", nil
+	case paletteActionBrowserReload:
+		workspace := r.workspaceForBrowser()
+		if workspace == "" {
+			return true, "", fmt.Errorf("no browser-enabled agent in this window")
+		}
+		exe, err := os.Executable()
+		if err != nil {
+			return false, "", err
+		}
+		cmd := exec.Command(exe, "hot-reload", "--workspace", workspace)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if err := cmd.Run(); err != nil {
+			return true, "", err
+		}
+		return false, "", nil
 	default:
 		return false, "", nil
 	}
@@ -629,6 +804,102 @@ func launchScratchTerminalFromPalette(currentPath string) error {
 	return runTmux("run-shell", "-b", cmd)
 }
 
+func (r *paletteRuntime) launchOpenCodeFork(kind string) error {
+	sessionID := r.currentOpenCodeSessionID()
+	if sessionID == "" {
+		return fmt.Errorf("no opencode session found for the current pane")
+	}
+	path := strings.TrimSpace(r.currentPath)
+	target := firstNonEmpty(r.paneID, r.windowID)
+	var args []string
+	switch kind {
+	case "horizontal":
+		if target == "" {
+			return fmt.Errorf("current tmux pane is unknown")
+		}
+		args = []string{"split-window", "-h", "-P", "-F", "#{pane_id}", "-t", target}
+	case "vertical":
+		if target == "" {
+			return fmt.Errorf("current tmux pane is unknown")
+		}
+		args = []string{"split-window", "-v", "-P", "-F", "#{pane_id}", "-t", target}
+	case "window":
+		forkName := nextForkWindowName(r.currentWindowName, r.sessionID)
+		args = []string{"new-window", "-a", "-P", "-F", "#{pane_id}", "-n", forkName}
+		if strings.TrimSpace(r.windowID) != "" {
+			args = append(args, "-t", strings.TrimSpace(r.windowID))
+		} else if strings.TrimSpace(r.sessionID) != "" {
+			args = append(args, "-t", strings.TrimSpace(r.sessionID))
+		}
+	default:
+		return fmt.Errorf("unknown fork target")
+	}
+	if path != "" {
+		args = append(args, "-c", path)
+	}
+	out, err := paletteTmuxOutput(args...)
+	if err != nil {
+		return err
+	}
+	paneID := strings.TrimSpace(out)
+	if paneID == "" {
+		return fmt.Errorf("tmux did not return a new pane")
+	}
+	if err := waitForShellPane(paneID, 2*time.Second); err != nil {
+		return err
+	}
+	if err := paletteTmuxRunner("send-keys", "-t", paneID, "-l", "op -s "+sessionID); err != nil {
+		return err
+	}
+	return paletteTmuxRunner("send-keys", "-t", paneID, "Enter")
+}
+
+func nextForkWindowName(sourceName, sessionID string) string {
+	sourceName = strings.TrimSpace(sourceName)
+	if sourceName == "" {
+		sourceName = "op"
+	}
+	base := sourceName
+	if idx := strings.LastIndex(sourceName, "-"); idx > 0 {
+		suffix := sourceName[idx+1:]
+		if _, err := strconv.Atoi(suffix); err == nil {
+			base = sourceName[:idx]
+		}
+	}
+
+	maxN := 0
+	if session := strings.TrimSpace(sessionID); session != "" {
+		out, err := paletteTmuxOutput("list-windows", "-t", session, "-F", "#{window_name}")
+		if err == nil {
+			prefix := base + "-"
+			for _, name := range strings.Split(out, "\n") {
+				name = strings.TrimSpace(name)
+				if strings.HasPrefix(name, prefix) {
+					if n, err := strconv.Atoi(strings.TrimPrefix(name, prefix)); err == nil && n > maxN {
+						maxN = n
+					}
+				}
+			}
+		}
+	}
+	return fmt.Sprintf("%s-%d", base, maxN+1)
+}
+
+func waitForShellPane(paneID string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		out, err := paletteTmuxOutput("display-message", "-p", "-t", paneID, "#{pane_current_command}")
+		if err == nil {
+			switch strings.TrimSpace(out) {
+			case "zsh", "bash", "sh", "fish":
+				return nil
+			}
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	return nil
+}
+
 func statusRightModuleLabel(module string) string {
 	switch module {
 	case statusRightModuleCPU:
@@ -636,15 +907,15 @@ func statusRightModuleLabel(module string) string {
 	case statusRightModuleNetwork:
 		return "Network"
 	case statusRightModuleMemory:
-		return "Memory"
-	case statusRightModuleMemoryTotals:
-		return "Tmux Memory"
-	case statusRightModuleAgent:
-		return "Agent"
-	case statusRightModuleTodoPreview:
-		return "Todo Preview"
-	case statusRightModuleTodos:
-		return "Todos"
+		return "Tmux Pane Memory"
+	case statusRightModuleWindowMemory:
+		return "Tmux Window Memory"
+	case statusRightModuleSessionMemory:
+		return "Tmux Session Memory"
+	case statusRightModuleTotalMemory:
+		return "Tmux Total Memory"
+	case statusRightModuleScratch:
+		return "Scratch"
 	case statusRightModuleFlashMoe:
 		return "Flash-MoE"
 	case statusRightModuleHost:
@@ -661,15 +932,15 @@ func statusRightModuleDescription(module string) string {
 	case statusRightModuleNetwork:
 		return "network throughput"
 	case statusRightModuleMemory:
-		return "pane memory stats"
-	case statusRightModuleMemoryTotals:
-		return "window, session, and total tmux memory"
-	case statusRightModuleAgent:
-		return "active agent device"
-	case statusRightModuleTodoPreview:
-		return "append the first open window todo to Todos"
-	case statusRightModuleTodos:
-		return "todo count"
+		return "tmux pane memory"
+	case statusRightModuleWindowMemory:
+		return "tmux window memory"
+	case statusRightModuleSessionMemory:
+		return "tmux session memory"
+	case statusRightModuleTotalMemory:
+		return "total tmux memory"
+	case statusRightModuleScratch:
+		return "hidden scratch terminal bell"
 	case statusRightModuleFlashMoe:
 		return "Flash-MoE status"
 	case statusRightModuleHost:
@@ -863,6 +1134,120 @@ func (m *paletteModel) openGoalsPanel() (tea.Cmd, error) {
 	return m.goals.activate(), nil
 }
 
+func agentPanelActions() []paletteAction {
+	return []paletteAction{
+		{Section: "Browser", Title: "Hot Reload", Subtitle: "Run hot-reload.sh (analyze + flutter reload)", Keywords: []string{"reload", "hot", "flutter", "analyze"}, Kind: paletteActionBrowserReload},
+		{Section: "Browser", Title: "Copy Logs", Subtitle: "Copy browser console to clipboard", Keywords: []string{"copy", "logs", "console", "clipboard"}, Kind: paletteActionBrowserCopyLogs},
+		{Section: "Browser", Title: "Paste Logs", Subtitle: "Paste browser console into pane", Keywords: []string{"paste", "logs", "console", "pane"}, Kind: paletteActionBrowserLogs},
+		{Section: "Browser", Title: "Clear Logs", Subtitle: "Clear browser console buffer", Keywords: []string{"clear", "logs", "console", "buffer"}, Kind: paletteActionBrowserClearLogs},
+	}
+}
+
+func agentPanelHotKeys() map[string]int {
+	return map[string]int{
+		"alt+r": 0,
+		"alt+y": 1,
+		"alt+p": 2,
+		"alt+c": 3,
+	}
+}
+
+func opencodeForkPanelActions() []paletteAction {
+	return []paletteAction{
+		{Section: "Opencode", Title: "Fork in horizontal pane", Subtitle: "Split right and run op -s session_id", Keywords: []string{"opencode", "fork", "horizontal", "right", "split"}, Kind: paletteActionForkOpencodeHorizontal},
+		{Section: "Opencode", Title: "Fork in vertical pane", Subtitle: "Split below and run op -s session_id", Keywords: []string{"opencode", "fork", "vertical", "below", "split"}, Kind: paletteActionForkOpencodeVertical},
+		{Section: "Opencode", Title: "Fork in new window", Subtitle: "Create a tmux window and run op -s session_id", Keywords: []string{"opencode", "fork", "window", "new"}, Kind: paletteActionForkOpencodeWindow},
+	}
+}
+
+func opencodeForkPanelHotKeys() map[string]int {
+	return map[string]int{
+		"alt+h": 0,
+		"alt+v": 1,
+		"alt+w": 2,
+	}
+}
+
+func (m *paletteModel) openAgentPanel() {
+	m.noteSecondaryPageOpen()
+	m.agentList = newActionListPanel(agentPanelActions(), agentPanelHotKeys())
+	m.state.Mode = paletteModeAgent
+	m.state.Message = ""
+	m.state.ShowAltHints = false
+}
+
+func (m *paletteModel) openOpencodeForkPanel() {
+	m.noteSecondaryPageOpen()
+	m.opencodeForkList = newActionListPanel(opencodeForkPanelActions(), opencodeForkPanelHotKeys())
+	m.state.Mode = paletteModeOpencodeFork
+	m.state.Message = ""
+	m.state.ShowAltHints = false
+}
+
+func (m *paletteModel) updateAgentPanel(key string) (tea.Model, tea.Cmd) {
+	if key == "esc" || key == "ctrl+c" || key == "alt+n" {
+		m.state.Mode = paletteModeList
+		m.state.Message = ""
+		return m, nil
+	}
+	if m.agentList == nil {
+		m.agentList = newActionListPanel(agentPanelActions(), agentPanelHotKeys())
+	}
+	action, consumed := m.agentList.handleKey(key)
+	if consumed && action != nil {
+		return m.selectAction(*action)
+	}
+	return m, nil
+}
+
+func (m *paletteModel) updateOpencodeForkPanel(key string) (tea.Model, tea.Cmd) {
+	if key == "esc" || key == "ctrl+c" || key == "alt+n" {
+		m.state.Mode = paletteModeList
+		m.state.Message = ""
+		return m, nil
+	}
+	if m.opencodeForkList == nil {
+		m.opencodeForkList = newActionListPanel(opencodeForkPanelActions(), opencodeForkPanelHotKeys())
+	}
+	action, consumed := m.opencodeForkList.handleKey(key)
+	if consumed && action != nil {
+		return m.selectAction(*action)
+	}
+	return m, nil
+}
+
+func (m *paletteModel) agentPanelCopyLogs() (tea.Model, tea.Cmd) {
+	workspace := m.runtime.workspaceForBrowser()
+	if workspace == "" {
+		m.state.Message = "No browser-enabled agent"
+		return m, nil
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		m.state.Message = err.Error()
+		return m, nil
+	}
+	cmd := exec.Command(exe, "browser", "logs", "--workspace", workspace, "--tail", "50", "--keep")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		m.state.Message = firstNonEmpty(strings.TrimSpace(string(output)), err.Error())
+		return m, nil
+	}
+	text := strings.TrimSpace(string(output))
+	if text == "" {
+		m.state.Message = "No console output captured"
+		return m, nil
+	}
+	clip := exec.Command("pbcopy")
+	clip.Stdin = strings.NewReader(text)
+	if err := clip.Run(); err != nil {
+		m.state.Message = err.Error()
+		return m, nil
+	}
+	m.result = paletteResult{Kind: paletteResultClose, State: m.state}
+	return m, tea.Quit
+}
+
 func (m *paletteModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
@@ -889,7 +1274,16 @@ func (m *paletteModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.status.height = msg.Height
 		}
 	case tea.KeyMsg:
-		if m.state.Mode != paletteModeActivity && m.state.Mode != paletteModeTodos && m.state.Mode != paletteModeDevices && m.state.Mode != paletteModeStatusRight && m.state.Mode != paletteModeTracker && m.state.Mode != paletteModeGoals {
+		if msg.Paste {
+			if m.state.Mode == paletteModePrompt {
+				pasted := strings.ReplaceAll(string(msg.Runes), "\n", " ")
+				runes := []rune(pasted)
+				m.state.PromptText = append(m.state.PromptText[:m.state.PromptCursor], append(runes, m.state.PromptText[m.state.PromptCursor:]...)...)
+				m.state.PromptCursor += len(runes)
+			}
+			return m, nil
+		}
+		if m.state.Mode != paletteModeActivity && m.state.Mode != paletteModeTodos && m.state.Mode != paletteModeDevices && m.state.Mode != paletteModeStatusRight && m.state.Mode != paletteModeTracker && m.state.Mode != paletteModeGoals && m.state.Mode != paletteModeAgent && m.state.Mode != paletteModeOpencodeFork {
 			if isAltFooterToggleKey(msg) {
 				m.state.ShowAltHints = !m.state.ShowAltHints
 				return m, nil
@@ -925,7 +1319,15 @@ func (m *paletteModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			case paletteModeSnippets:
 				return m.closePalette()
+			case paletteModeOpencodeFork:
+				return m.closePalette()
 			}
+		}
+		if m.state.Mode == paletteModeAgent {
+			return m.updateAgentPanel(key)
+		}
+		if m.state.Mode == paletteModeOpencodeFork {
+			return m.updateOpencodeForkPanel(key)
 		}
 		if m.state.Mode == paletteModeActivity {
 			if m.activity == nil {
@@ -1170,6 +1572,18 @@ func (m *paletteModel) updateList(key string) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	}
 	if key == "alt+a" {
+		m.openAgentPanel()
+		return m, nil
+	}
+	if key == "alt+f" {
+		if !m.runtime.canForkCurrentOpenCode() {
+			m.state.Message = "No opencode session in current pane"
+			return m, nil
+		}
+		m.openOpencodeForkPanel()
+		return m, nil
+	}
+	if key == "alt+w" {
 		cmd, err := m.openActivityPanel()
 		if err != nil {
 			m.state.Message = err.Error()
@@ -1302,11 +1716,49 @@ func (m *paletteModel) selectAction(action paletteAction) (tea.Model, tea.Cmd) {
 	case paletteActionOpenStatusRight:
 		m.openStatusRightPanel()
 		return m, nil
+	case paletteActionOpenOpencodeFork:
+		m.openOpencodeForkPanel()
+		return m, nil
+	case paletteActionBrowserLogs:
+		return m.runBrowserLogsPaste()
+	case paletteActionBrowserCopyLogs:
+		return m.agentPanelCopyLogs()
 	default:
 		m.state.Mode = paletteModeList
 		m.result = paletteResult{Kind: paletteResultRunAction, Action: action, State: m.state}
 		return m, tea.Quit
 	}
+}
+
+func (m *paletteModel) runBrowserLogsPaste() (tea.Model, tea.Cmd) {
+	workspace := m.runtime.workspaceForBrowser()
+	if workspace == "" {
+		m.state.Message = "No browser-enabled agent in this window"
+		return m, nil
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		m.state.Message = err.Error()
+		return m, nil
+	}
+	cmd := exec.Command(exe, "browser", "logs", "--workspace", workspace, "--tail", "50")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		m.state.Message = firstNonEmpty(strings.TrimSpace(string(output)), err.Error())
+		return m, nil
+	}
+	text := strings.TrimSpace(string(output))
+	if text != "" {
+		if err := pasteToTmuxPane(text); err != nil {
+			m.state.Message = err.Error()
+			return m, nil
+		}
+	} else {
+		m.state.Message = "No console output captured"
+		return m, nil
+	}
+	m.result = paletteResult{Kind: paletteResultClose, State: m.state}
+	return m, tea.Quit
 }
 
 func (m *paletteModel) openPrompt(kind palettePromptKind, initial string, repoRoot string) {
@@ -1325,6 +1777,7 @@ func (m *paletteModel) openPrompt(kind palettePromptKind, initial string, repoRo
 	m.state.PromptDevices = devices
 	m.state.PromptDeviceIndex = deviceIndex
 	m.state.PromptKeepWorktree = false
+	m.state.PromptPull = true
 	m.state.ShowAltHints = false
 	m.state.Message = ""
 }
@@ -1363,18 +1816,22 @@ func (m *paletteModel) updatePrompt(key string) (tea.Model, tea.Cmd) {
 				m.state.PromptField = palettePromptFieldDevice
 			case palettePromptFieldDevice:
 				m.state.PromptField = palettePromptFieldWorktree
+			case palettePromptFieldWorktree:
+				m.state.PromptField = palettePromptFieldPull
 			default:
 				m.state.PromptField = palettePromptFieldName
 			}
 			return m, nil
 		case "shift+tab":
 			switch m.state.PromptField {
+			case palettePromptFieldPull:
+				m.state.PromptField = palettePromptFieldWorktree
 			case palettePromptFieldWorktree:
 				m.state.PromptField = palettePromptFieldDevice
 			case palettePromptFieldDevice:
 				m.state.PromptField = palettePromptFieldName
 			default:
-				m.state.PromptField = palettePromptFieldWorktree
+				m.state.PromptField = palettePromptFieldPull
 			}
 			return m, nil
 		}
@@ -1406,6 +1863,19 @@ func (m *paletteModel) updatePrompt(key string) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 		}
+		if m.state.PromptField == palettePromptFieldPull {
+			switch key {
+			case "ctrl+n", "left", "n":
+				m.state.PromptPull = false
+				return m, nil
+			case "right", "i":
+				m.state.PromptPull = true
+				return m, nil
+			case " ", "space":
+				m.state.PromptPull = !m.state.PromptPull
+				return m, nil
+			}
+		}
 	}
 	if key == "enter" {
 		text := strings.TrimSpace(string(m.state.PromptText))
@@ -1424,7 +1894,7 @@ func (m *paletteModel) updatePrompt(key string) (tea.Model, tea.Cmd) {
 			device = m.state.PromptDevices[m.state.PromptDeviceIndex]
 		}
 		m.state.Mode = paletteModeList
-		m.result = paletteResult{Kind: paletteResultRunAction, Action: action, Input: text, Device: device, KeepWorktree: m.state.PromptKeepWorktree, State: m.state}
+		m.result = paletteResult{Kind: paletteResultRunAction, Action: action, Input: text, Device: device, KeepWorktree: m.state.PromptKeepWorktree, Pull: m.state.PromptPull, State: m.state}
 		return m, tea.Quit
 	}
 	if m.state.PromptKind == palettePromptStartAgent && m.state.PromptField != palettePromptFieldName {
@@ -1562,7 +2032,7 @@ func (m *paletteModel) filteredSnippets() []snippet {
 	parts := strings.Fields(query)
 	filtered := make([]snippet, 0, len(snippets))
 	for _, s := range snippets {
-		haystack := strings.ToLower(s.Name + " " + s.Description + " " + s.Content)
+		haystack := strings.ToLower(s.Name)
 		matched := true
 		for _, part := range parts {
 			if !strings.Contains(haystack, part) {
@@ -1650,6 +2120,12 @@ func (m *paletteModel) View() string {
 		}
 		return styles.muted.Render("Goals unavailable")
 	}
+	if m.state.Mode == paletteModeAgent {
+		return m.renderAgentPanel(styles, width, height)
+	}
+	if m.state.Mode == paletteModeOpencodeFork {
+		return m.renderOpencodeForkPanel(styles, width, height)
+	}
 	return m.renderListView(styles, width, height)
 }
 
@@ -1678,7 +2154,8 @@ func (m *paletteModel) renderListView(styles paletteStyles, width, height int) s
 	if len(metaParts) > 0 {
 		header = lipgloss.JoinVertical(lipgloss.Left, header, styles.meta.Render(strings.Join(metaParts, "  ·  ")))
 	}
-	filterLine := styles.searchBox.Width(width).Render(
+	innerWidth := width - 2
+	filterLine := styles.searchBox.Width(innerWidth).Render(
 		lipgloss.JoinHorizontal(lipgloss.Center,
 			styles.searchPrompt.Render(">"),
 			" ",
@@ -1686,8 +2163,8 @@ func (m *paletteModel) renderListView(styles paletteStyles, width, height int) s
 		),
 	)
 	contentHeight := maxInt(8, height-7)
-	listWidth := maxInt(34, width*48/100)
-	sidebarWidth := maxInt(28, width-listWidth-3)
+	listWidth := maxInt(34, innerWidth*48/100)
+	sidebarWidth := maxInt(28, innerWidth-listWidth-3)
 	list := m.renderActions(styles, actions, listWidth, contentHeight)
 	sidebar := m.renderSidebar(styles, sidebarWidth, contentHeight)
 	body := lipgloss.JoinHorizontal(lipgloss.Top, list, strings.Repeat(" ", 3), sidebar)
@@ -1697,59 +2174,7 @@ func (m *paletteModel) renderListView(styles paletteStyles, width, height int) s
 }
 
 func (m *paletteModel) renderActions(styles paletteStyles, actions []paletteAction, width, height int) string {
-	entriesPerPage := maxInt(1, (height-2)/3)
-	selected := clampInt(m.state.Selected, 0, maxInt(0, len(actions)-1))
-	offset := stableListOffset(m.state.ActionOffset, selected, entriesPerPage, len(actions))
-	m.state.ActionOffset = offset
-	blocks := []string{styles.meta.Render(fmt.Sprintf("%d commands", len(actions))), ""}
-	if len(actions) == 0 {
-		blocks = append(blocks, styles.muted.Width(width).Render("No matching commands"))
-	} else {
-		for row := 0; row < entriesPerPage; row++ {
-			idx := offset + row
-			if idx >= len(actions) {
-				break
-			}
-			action := actions[idx]
-			sectionLabel := styles.sectionLabel
-			subtle := styles.itemSubtitle
-			titleStyle := styles.itemTitle
-			box := styles.item
-			markerText := "  "
-			markerStyle := styles.muted
-			rowStyle := lipgloss.NewStyle().Width(maxInt(16, width-2))
-			fillStyle := lipgloss.NewStyle()
-			if idx == selected {
-				selectedBG := lipgloss.Color("238")
-				sectionLabel = styles.selectedLabel.Background(selectedBG)
-				subtle = styles.selectedSubtle.Background(selectedBG)
-				titleStyle = styles.itemTitle.Background(selectedBG).Foreground(lipgloss.Color("230"))
-				box = styles.selectedItem
-				markerText = "› "
-				markerStyle = styles.selectedLabel.Background(selectedBG)
-				rowStyle = rowStyle.Background(selectedBG).Foreground(lipgloss.Color("230"))
-				fillStyle = fillStyle.Background(selectedBG).Foreground(lipgloss.Color("230"))
-			}
-			innerWidth := maxInt(16, width-2)
-			labelText := strings.ToUpper(action.Section)
-			labelWidth := lipgloss.Width(labelText)
-			markerWidth := lipgloss.Width(markerText)
-			titleWidth := maxInt(10, innerWidth-markerWidth-labelWidth-1)
-			titleText := truncate(action.Title, titleWidth)
-			gapWidth := maxInt(1, innerWidth-markerWidth-lipgloss.Width(titleText)-labelWidth)
-			titleRow := rowStyle.Render(
-				markerStyle.Render(markerText) +
-					titleStyle.Render(titleText) +
-					fillStyle.Render(strings.Repeat(" ", gapWidth)) +
-					sectionLabel.Render(labelText),
-			)
-			subtitleRow := rowStyle.Render(fillStyle.Render(strings.Repeat(" ", markerWidth)) + subtle.Render(truncate(action.Subtitle, maxInt(0, innerWidth-markerWidth))))
-			block := lipgloss.JoinVertical(lipgloss.Left, titleRow, subtitleRow)
-			blocks = append(blocks, box.Width(width).Render(block))
-		}
-	}
-	content := strings.Join(blocks, "\n")
-	return lipgloss.NewStyle().Width(width).Height(height).Render(content)
+	return renderActionItems(styles, actions, &m.state.Selected, &m.state.ActionOffset, width, height)
 }
 
 func (m *paletteModel) renderSidebar(styles paletteStyles, width, height int) string {
@@ -1912,12 +2337,15 @@ func (m *paletteModel) renderPrompt(styles paletteStyles, width, height int) str
 		nameLabel := styles.modalHint.Render("NAME")
 		deviceLabel := styles.modalHint.Render("DEVICE")
 		worktreeLabel := styles.modalHint.Render("WORKTREE")
+		pullLabel := styles.modalHint.Render("PULL")
 		if m.state.PromptField == palettePromptFieldName {
 			nameLabel = styles.selectedLabel.Render("NAME")
 		} else if m.state.PromptField == palettePromptFieldDevice {
 			deviceLabel = styles.selectedLabel.Render("DEVICE")
-		} else {
+		} else if m.state.PromptField == palettePromptFieldWorktree {
 			worktreeLabel = styles.selectedLabel.Render("WORKTREE")
+		} else {
+			pullLabel = styles.selectedLabel.Render("PULL")
 		}
 		deviceChips := make([]string, 0, len(devices))
 		for idx, deviceID := range devices {
@@ -1926,6 +2354,10 @@ func (m *paletteModel) renderPrompt(styles paletteStyles, width, height int) str
 		worktreeChips := []string{
 			renderPaletteDeviceChip(styles, "CLEAR", !m.state.PromptKeepWorktree),
 			renderPaletteDeviceChip(styles, "KEEP", m.state.PromptKeepWorktree),
+		}
+		pullChips := []string{
+			renderPaletteDeviceChip(styles, "SKIP", !m.state.PromptPull),
+			renderPaletteDeviceChip(styles, "PULL", m.state.PromptPull),
 		}
 		body := lipgloss.JoinVertical(lipgloss.Left,
 			styles.modalTitle.Render(title),
@@ -1942,6 +2374,9 @@ func (m *paletteModel) renderPrompt(styles paletteStyles, width, height int) str
 			"",
 			worktreeLabel,
 			styles.modalBody.Render(strings.Join(worktreeChips, " ")),
+			"",
+			pullLabel,
+			styles.modalBody.Render(strings.Join(pullChips, " ")),
 			"",
 			styles.modalHint.Render(renderPaletteHintLine(styles, minInt(64, maxInt(28, width-18)), m.state.ShowAltHints,
 				[][][2]string{
@@ -2019,6 +2454,94 @@ func (m *paletteModel) renderConfirm(styles paletteStyles, width, height int) st
 	)
 	box := styles.modal.Width(minInt(72, maxInt(36, width-10))).Render(body)
 	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, box)
+}
+
+func (m *paletteModel) renderAgentPanel(styles paletteStyles, width, height int) string {
+	if m.agentList == nil {
+		m.agentList = newActionListPanel(agentPanelActions(), agentPanelHotKeys())
+	}
+	m.state.Filter = m.agentList.filter
+	m.state.FilterCursor = m.agentList.cursor
+	innerWidth := width - 2
+	title := "Agent Actions"
+	header := styles.title.Render(title)
+	metaParts := []string{}
+	if m.runtime.currentSessionName != "" {
+		metaParts = append(metaParts, m.runtime.currentSessionName)
+	}
+	if m.runtime.currentWindowName != "" {
+		metaParts = append(metaParts, m.runtime.currentWindowName)
+	}
+	if m.runtime.record != nil && m.runtime.record.ID != "" {
+		metaParts = append(metaParts, m.runtime.record.ID)
+	}
+	if m.runtime.record != nil && m.runtime.record.BrowserEnabled {
+		metaParts = append(metaParts, "browser")
+	}
+	if len(metaParts) > 0 {
+		header = lipgloss.JoinVertical(lipgloss.Left, header, styles.meta.Render(strings.Join(metaParts, "  ·  ")))
+	}
+	filterLine := styles.searchBox.Width(innerWidth).Render(
+		lipgloss.JoinHorizontal(lipgloss.Center,
+			styles.searchPrompt.Render(">"),
+			" ",
+			styles.input.Render(renderInputValue(m.state.Filter, m.state.FilterCursor, styles)),
+		),
+	)
+	contentHeight := maxInt(8, height-7)
+	list := m.agentList.renderList(styles, innerWidth, contentHeight)
+	footer := renderPaletteModeFooter(styles, width, m.state.Message, m.state.ShowAltHints,
+		[][][2]string{
+			{{"Ctrl-U/E", "move"}, {"Ctrl-N/I", "filter"}, {"Enter", "run"}, {"Alt-R", "reload"}, {"Alt-Y", "copy"}, {"Alt-P", "paste"}, {"Alt-C", "clear"}, {"Esc", "back"}},
+		},
+		[][][2]string{
+			{{"Alt-U/E", "move"}, {"Alt-I", "run"}, {"Alt-R", "reload"}, {"Alt-Y", "copy"}, {"Alt-P", "paste"}, {"Alt-C", "clear"}, {"Esc", "back"}},
+		},
+	)
+	view := lipgloss.JoinVertical(lipgloss.Left, header, "", filterLine, "", list, "", footer)
+	return lipgloss.NewStyle().Width(width).Height(height).Padding(0, 1).Render(view)
+}
+
+func (m *paletteModel) renderOpencodeForkPanel(styles paletteStyles, width, height int) string {
+	if m.opencodeForkList == nil {
+		m.opencodeForkList = newActionListPanel(opencodeForkPanelActions(), opencodeForkPanelHotKeys())
+	}
+	m.state.Filter = m.opencodeForkList.filter
+	m.state.FilterCursor = m.opencodeForkList.cursor
+	innerWidth := width - 2
+	header := styles.title.Render("Fork Opencode")
+	metaParts := []string{}
+	if m.runtime.currentSessionName != "" {
+		metaParts = append(metaParts, m.runtime.currentSessionName)
+	}
+	if m.runtime.currentWindowName != "" {
+		metaParts = append(metaParts, m.runtime.currentWindowName)
+	}
+	if sessionID := m.runtime.currentOpenCodeSessionID(); sessionID != "" {
+		metaParts = append(metaParts, sessionID)
+	}
+	if len(metaParts) > 0 {
+		header = lipgloss.JoinVertical(lipgloss.Left, header, styles.meta.Render(strings.Join(metaParts, "  ·  ")))
+	}
+	filterLine := styles.searchBox.Width(innerWidth).Render(
+		lipgloss.JoinHorizontal(lipgloss.Center,
+			styles.searchPrompt.Render(">"),
+			" ",
+			styles.input.Render(renderInputValue(m.state.Filter, m.state.FilterCursor, styles)),
+		),
+	)
+	contentHeight := maxInt(8, height-7)
+	list := m.opencodeForkList.renderList(styles, innerWidth, contentHeight)
+	footer := renderPaletteModeFooter(styles, width, m.state.Message, m.state.ShowAltHints,
+		[][][2]string{
+			{{"Ctrl-U/E", "move"}, {"Ctrl-N/I", "filter"}, {"Enter", "fork"}, {"Esc", "back"}},
+		},
+		[][][2]string{
+			{{"Alt-H", "horizontal"}, {"Alt-V", "vertical"}, {"Alt-W", "window"}, {"Alt-I", "fork"}, {"Esc", "back"}},
+		},
+	)
+	view := lipgloss.JoinVertical(lipgloss.Left, header, "", filterLine, "", list, "", footer)
+	return lipgloss.NewStyle().Width(width).Height(height).Padding(0, 1).Render(view)
 }
 
 func (m *paletteModel) renderSnippets(styles paletteStyles, width, height int) string {
@@ -2167,26 +2690,7 @@ func (m *paletteModel) renderSnippetVars(styles paletteStyles, width, height int
 }
 
 func (m *paletteModel) filteredActions() []paletteAction {
-	query := strings.ToLower(strings.TrimSpace(string(m.state.Filter)))
-	if query == "" {
-		return m.actions
-	}
-	parts := strings.Fields(query)
-	filtered := make([]paletteAction, 0, len(m.actions))
-	for _, action := range m.actions {
-		haystack := strings.ToLower(action.Title)
-		matched := true
-		for _, part := range parts {
-			if !strings.Contains(haystack, part) {
-				matched = false
-				break
-			}
-		}
-		if matched {
-			filtered = append(filtered, action)
-		}
-	}
-	return filtered
+	return filterActionsByQuery(m.actions, m.state.Filter)
 }
 
 func newPaletteStyles() paletteStyles {
@@ -2284,13 +2788,33 @@ func applyPaletteInputKey(key string, text *[]rune, cursor *int, allowEnter bool
 	case "enter":
 		return allowEnter
 	}
-	r, ok := paletteRuneFromKey(key)
+	runes, ok := paletteRunesFromKey(key)
 	if !ok {
 		return false
 	}
-	*text = append((*text)[:*cursor], append([]rune{r}, (*text)[*cursor:]...)...)
-	*cursor++
+	*text = append((*text)[:*cursor], append(runes, (*text)[*cursor:]...)...)
+	*cursor += len(runes)
 	return true
+}
+
+func readClipboardPaste() string {
+	cmd := exec.Command("pbpaste")
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return string(out)
+}
+
+func paletteRunesFromKey(key string) ([]rune, bool) {
+	if key == "space" {
+		return []rune{' '}, true
+	}
+	runes := []rune(key)
+	if len(runes) >= 1 {
+		return runes, true
+	}
+	return nil, false
 }
 
 func paletteRuneFromKey(key string) (rune, bool) {
@@ -2353,8 +2877,8 @@ func renderPaletteFooter(styles paletteStyles, width int, message string, showAl
 			{{"Enter", "run"}, {"Esc", "close"}, {footerHintToggleKey, "more"}},
 		},
 		[][][2]string{
-			{{"Alt-U/E", "move"}, {"Alt-I", "run"}, {"Alt-C", "create"}, {"Alt-R", "goals"}, {"Alt-D", "tracker"}, {"Alt-A", "activity"}, {"Alt-P", "snippets"}, {"Alt-T", "todos"}, {"Alt-S", "close"}, {footerHintToggleKey, "hide"}},
-			{{"Alt-C", "create"}, {"Alt-R", "goals"}, {"Alt-D", "tracker"}, {"Alt-A", "activity"}, {"Alt-T", "todos"}, {"Alt-S", "close"}, {footerHintToggleKey, "hide"}},
+			{{"Alt-C", "create"}, {"Alt-F", "fork"}, {"Alt-R", "goals"}, {"Alt-D", "tracker"}, {"Alt-A", "agent"}, {"Alt-W", "activity"}, {"Alt-P", "snippets"}, {"Alt-T", "todos"}, {"Alt-S", "close"}, {footerHintToggleKey, "hide"}},
+			{{"Alt-C", "create"}, {"Alt-F", "fork"}, {"Alt-R", "goals"}, {"Alt-D", "tracker"}, {"Alt-A", "agent"}, {"Alt-W", "activity"}, {"Alt-T", "todos"}, {"Alt-S", "close"}, {footerHintToggleKey, "hide"}},
 			{{"Alt-C", "create"}, {"Alt-R", "goals"}, {"Alt-D", "tracker"}, {"Alt-S", "close"}},
 		},
 	)

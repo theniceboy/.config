@@ -39,6 +39,7 @@ type agentRecord struct {
 	Branch          string     `json:"branch"`
 	SourceBranch    string     `json:"source_branch,omitempty"`
 	KeepWorktree    bool       `json:"keep_worktree,omitempty"`
+	Pull            bool       `json:"pull,omitempty"`
 	Runtime         string     `json:"runtime,omitempty"`
 	Device          string     `json:"device,omitempty"`
 	FeatureConfig   string     `json:"feature_config,omitempty"`
@@ -65,6 +66,7 @@ type agentPanes struct {
 type agentStartOptions struct {
 	SourceBranch string
 	KeepWorktree bool
+	Pull         bool
 }
 
 type appConfig struct {
@@ -74,16 +76,16 @@ type appConfig struct {
 }
 
 type statusRightConfig struct {
-	CPU          *bool `json:"cpu,omitempty"`
-	Network      *bool `json:"network,omitempty"`
-	Memory       *bool `json:"memory,omitempty"`
-	MemoryTotals *bool `json:"memory_totals,omitempty"`
-	Agent        *bool `json:"agent,omitempty"`
-	TodoPreview  *bool `json:"todo_preview,omitempty"`
-	Todos        *bool `json:"todos,omitempty"`
-	FlashMoe     *bool `json:"flash_moe,omitempty"`
-	Host         *bool `json:"host,omitempty"`
-	Goal         *bool `json:"goal,omitempty"`
+	CPU           *bool `json:"cpu,omitempty"`
+	Network       *bool `json:"network,omitempty"`
+	Memory        *bool `json:"memory,omitempty"`
+	MemoryTotals  *bool `json:"memory_totals,omitempty"`
+	WindowMemory  *bool `json:"window_memory,omitempty"`
+	SessionMemory *bool `json:"session_memory,omitempty"`
+	TotalMemory   *bool `json:"total_memory,omitempty"`
+	Scratch       *bool `json:"scratch,omitempty"`
+	FlashMoe      *bool `json:"flash_moe,omitempty"`
+	Host          *bool `json:"host,omitempty"`
 }
 
 type keyConfig struct {
@@ -160,7 +162,7 @@ func main() {
 
 func run(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: agent <start|resume|list|destroy|init|config|setup|tmux|tracker|goal|browser|feature|update-hot-reload>")
+		return fmt.Errorf("usage: agent <start|resume|list|destroy|init|config|setup|tmux|tracker|goal|browser|feature|hot-reload|update-hot-reload>")
 	}
 	switch args[0] {
 	case "start":
@@ -189,6 +191,8 @@ func run(args []string) error {
 		return runBrowserCommand(args[1:])
 	case "feature":
 		return runFeatureCommand(args[1:])
+	case "hot-reload":
+		return runHotReloadCommand(args[1:])
 	case "update-hot-reload":
 		return runUpdateHotReload(args[1:])
 	case "bootstrap":
@@ -204,10 +208,12 @@ func runStart(args []string) error {
 	var device string
 	var noDevice bool
 	var keepWorktree bool
+	var pull bool
 	fs.StringVar(&feature, "name", "", "feature name")
 	fs.StringVar(&device, "d", "", "flutter device")
 	fs.BoolVar(&noDevice, "no-device", false, "leave the run pane idle until a device is chosen")
 	fs.BoolVar(&keepWorktree, "keep-worktree", false, "copy the current repo worktree into the new agent")
+	fs.BoolVar(&pull, "pull", false, "git fetch + fast-forward the source branch before creating the agent")
 	fs.SetOutput(os.Stderr)
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -307,8 +313,9 @@ func runStart(args []string) error {
 		WorkspaceRoot:  workspaceRoot,
 		RepoCopyPath:   repoCopyPath,
 		Branch:         feature,
-		SourceBranch:   sourceBranch,
-		KeepWorktree:   keepWorktree,
+		SourceBranch:    sourceBranch,
+		KeepWorktree:    keepWorktree,
+		Pull:            pull,
 		Runtime:        runtime,
 		Device:         device,
 		FeatureConfig:  featureConfigPath,
@@ -670,6 +677,11 @@ func runBootstrap(args []string) error {
 	defer writeBootstrapFailure(workspaceRoot, err)
 
 	repoCopyPath := filepath.Join(workspaceRoot, "repo")
+	if startOptions.Pull {
+		if err = pullSourceBranch(repoRoot, repoCfg); err != nil {
+			return err
+		}
+	}
 	if err = copyGitMetadata(repoRoot, repoCopyPath); err != nil {
 		return err
 	}
@@ -1057,7 +1069,7 @@ func destroyRequiresExplicitConfirm(record *agentRecord) (bool, error) {
 
 func runTmuxCommand(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: agent tmux <on-focus|focus|palette|right-status|scratch>")
+		return fmt.Errorf("usage: agent tmux <on-focus|focus|palette|right-status|work-status|scratch>")
 	}
 	switch args[0] {
 	case "on-focus":
@@ -1068,6 +1080,8 @@ func runTmuxCommand(args []string) error {
 		return runTmuxPalette(args[1:])
 	case "right-status":
 		return runTmuxRightStatus(args[1:])
+	case "work-status":
+		return runTmuxWorkStatus(args[1:])
 	case "scratch":
 		return runTmuxScratch(args[1:])
 	default:
@@ -1077,7 +1091,7 @@ func runTmuxCommand(args []string) error {
 
 func runBrowserCommand(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: agent browser <open|refresh|close|screenshot|logs|mcp>")
+		return fmt.Errorf("usage: agent browser <open|refresh|close|screenshot|logs|clear-logs|mcp>")
 	}
 	switch args[0] {
 	case "open":
@@ -1090,6 +1104,8 @@ func runBrowserCommand(args []string) error {
 		return runBrowserScreenshot(args[1:])
 	case "logs":
 		return runBrowserLogs(args[1:])
+	case "clear-logs":
+		return runBrowserClearLogs(args[1:])
 	case "mcp":
 		return runBrowserMCP(args[1:])
 	default:
@@ -1177,8 +1193,12 @@ func runBrowserLogs(args []string) error {
 	fs := flag.NewFlagSet("agent browser logs", flag.ContinueOnError)
 	var workspace string
 	var durationSeconds int
+	var keep bool
+	var tail int
 	fs.StringVar(&workspace, "workspace", "", "workspace root containing agent.json")
-	fs.IntVar(&durationSeconds, "duration", 5, "seconds to listen for browser console output")
+	fs.IntVar(&durationSeconds, "duration", 0, "seconds to live-stream console output (0 = read buffer)")
+	fs.BoolVar(&keep, "keep", false, "keep logs in buffer after reading")
+	fs.IntVar(&tail, "tail", 100, "max lines from buffer (0 = all)")
 	fs.SetOutput(os.Stderr)
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -1187,10 +1207,38 @@ func runBrowserLogs(args []string) error {
 	if err != nil {
 		return err
 	}
-	if durationSeconds < 1 {
-		durationSeconds = 1
+	if durationSeconds > 0 {
+		if durationSeconds < 1 {
+			durationSeconds = 1
+		}
+		return streamBrowserLogs(featurePath, time.Duration(durationSeconds)*time.Second, os.Stdout)
 	}
-	return streamBrowserLogs(featurePath, time.Duration(durationSeconds)*time.Second, os.Stdout)
+	text, err := browserReadLogsForFeature(featurePath, tail)
+	if err != nil {
+		return err
+	}
+	if text != "" {
+		fmt.Println(text)
+	}
+	if !keep {
+		_ = browserClearLogsForFeature(featurePath)
+	}
+	return nil
+}
+
+func runBrowserClearLogs(args []string) error {
+	fs := flag.NewFlagSet("agent browser clear-logs", flag.ContinueOnError)
+	var workspace string
+	fs.StringVar(&workspace, "workspace", "", "workspace root containing agent.json")
+	fs.SetOutput(os.Stderr)
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	_, featurePath, err := resolveBrowserWorkspace(workspace)
+	if err != nil {
+		return err
+	}
+	return browserClearLogsForFeature(featurePath)
 }
 
 func runFeatureCommand(args []string) error {
@@ -1558,6 +1606,7 @@ func configureScratchSession(sessionID, windowID string) error {
 		_ = runTmux("set-option", "-t", sessionID, "status-left-length", "0")
 		_ = runTmux("set-option", "-t", sessionID, "status-right-length", "0")
 		_ = runTmux("set-option", "-t", sessionID, "prefix", "None")
+		_ = runTmux("set-option", "-t", sessionID, "escape-time", "0")
 		_ = runTmux("set-option", "-t", sessionID, "detach-on-destroy", "on")
 	}
 	if windowID != "" {
@@ -1686,13 +1735,17 @@ func runTmuxPalette(args []string) error {
 		return err
 	}
 	cmd := fmt.Sprintf(
-		"%s palette --window=%s --agent-id=%s --path=%s --session-name=%s --window-name=%s",
+		"%s palette --window=%s --agent-id=%s --path=%s --session-name=%s --window-name=%s --session-id=%s --pane-id=%s --window-index=%s --pane-index=%s",
 		shellQuote(exe),
 		shellQuote(ctx.WindowID),
 		shellQuote(ctx.AgentID),
 		shellQuote(ctx.CurrentPath),
 		shellQuote(ctx.SessionName),
 		shellQuote(ctx.WindowName),
+		shellQuote(ctx.SessionID),
+		shellQuote(ctx.PaneID),
+		shellQuote(ctx.WindowIndex),
+		shellQuote(ctx.PaneIndex),
 	)
 	return runTmux("display-popup", "-E", "-w", "78%", "-h", "80%", "-T", "agent", cmd)
 }
@@ -1700,11 +1753,15 @@ func runTmuxPalette(args []string) error {
 type currentAgentRef struct{ ID string }
 
 type tmuxPaletteLaunchContext struct {
+	SessionID   string
 	WindowID    string
+	PaneID      string
 	AgentID     string
 	CurrentPath string
 	SessionName string
 	WindowName  string
+	WindowIndex string
+	PaneIndex   string
 }
 
 func tmuxPaletteContext(windowID string) (tmuxPaletteLaunchContext, error) {
@@ -1712,21 +1769,25 @@ func tmuxPaletteContext(windowID string) (tmuxPaletteLaunchContext, error) {
 	if strings.TrimSpace(windowID) != "" {
 		args = append(args, "-t", strings.TrimSpace(windowID))
 	}
-	args = append(args, "#{window_id}\n#{@agent_id}\n#{pane_current_path}\n#{session_name}\n#{window_name}")
+	args = append(args, "#{session_id}\n#{window_id}\n#{pane_id}\n#{@agent_id}\n#{pane_current_path}\n#{session_name}\n#{window_name}\n#{window_index}\n#{pane_index}")
 	out, err := runTmuxOutput(args...)
 	if err != nil {
 		return tmuxPaletteLaunchContext{}, err
 	}
-	parts := strings.SplitN(strings.TrimRight(out, "\n"), "\n", 5)
-	for len(parts) < 5 {
+	parts := strings.SplitN(strings.TrimRight(out, "\n"), "\n", 9)
+	for len(parts) < 9 {
 		parts = append(parts, "")
 	}
 	return tmuxPaletteLaunchContext{
-		WindowID:    strings.TrimSpace(parts[0]),
-		AgentID:     strings.TrimSpace(parts[1]),
-		CurrentPath: strings.TrimSpace(parts[2]),
-		SessionName: strings.TrimSpace(parts[3]),
-		WindowName:  strings.TrimSpace(parts[4]),
+		SessionID:   strings.TrimSpace(parts[0]),
+		WindowID:    strings.TrimSpace(parts[1]),
+		PaneID:      strings.TrimSpace(parts[2]),
+		AgentID:     strings.TrimSpace(parts[3]),
+		CurrentPath: strings.TrimSpace(parts[4]),
+		SessionName: strings.TrimSpace(parts[5]),
+		WindowName:  strings.TrimSpace(parts[6]),
+		WindowIndex: strings.TrimSpace(parts[7]),
+		PaneIndex:   strings.TrimSpace(parts[8]),
 	}, nil
 }
 
@@ -2269,6 +2330,27 @@ func resolveStartSourceBranch(repoRoot string, repoCfg *repoConfig) string {
 	return detectDefaultBaseBranch(repoRoot)
 }
 
+func pullSourceBranch(repoRoot string, repoCfg *repoConfig) error {
+	branch := resolveStartSourceBranch(repoRoot, repoCfg)
+	fetchCmd := exec.Command("git", "fetch", "origin")
+	fetchCmd.Dir = repoRoot
+	fetchCmd.Stdout = os.Stderr
+	fetchCmd.Stderr = os.Stderr
+	if err := fetchCmd.Run(); err != nil {
+		return fmt.Errorf("git fetch origin: %w", err)
+	}
+	if remoteExists(repoRoot, "origin/"+branch) {
+		mergeCmd := exec.Command("git", "merge", "--ff-only", "origin/"+branch)
+		mergeCmd.Dir = repoRoot
+		mergeCmd.Stdout = os.Stderr
+		mergeCmd.Stderr = os.Stderr
+		if err := mergeCmd.Run(); err != nil {
+			return fmt.Errorf("git merge --ff-only origin/%s: %w", branch, err)
+		}
+	}
+	return nil
+}
+
 func resolveDefaultDevice(repoCfg *repoConfig) string {
 	if repoCfg != nil && strings.TrimSpace(repoCfg.DefaultDevice) != "" {
 		d := strings.TrimSpace(repoCfg.DefaultDevice)
@@ -2285,6 +2367,7 @@ func resolveBootstrapStartOptions(repoRoot string, repoCfg *repoConfig, record *
 	if record != nil {
 		options.SourceBranch = strings.TrimSpace(record.SourceBranch)
 		options.KeepWorktree = record.KeepWorktree
+		options.Pull = record.Pull
 	}
 	if options.SourceBranch == "" {
 		if repoCfg != nil && strings.TrimSpace(repoCfg.BaseBranch) != "" {
@@ -2819,7 +2902,7 @@ if [[ "$device" == "web-server" ]]; then
 fi
 
 cd "$DIR"
-exec script -q "$logfile" bash -lc "cd \"$DIR/repo\" && exec flutter run -d \"$device\""
+exec script -qF "$logfile" bash -lc "cd \"$DIR/repo\" && exec flutter run -d \"$device\""
 `
 	ensurePath := filepath.Join(workspaceRoot, "ensure-server.sh")
 	if err := os.WriteFile(ensurePath, []byte(ensureServer), 0o755); err != nil {
@@ -2840,144 +2923,10 @@ exec script -q "$logfile" bash -lc "cd \"$DIR/repo\" && exec flutter run -d \"$d
 func writeHotReloadScript(repoCopyPath string) error {
 	hotReload := `#!/usr/bin/env bash
 set -euo pipefail
-
 REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
 WORKSPACE_DIR="$(dirname "$REPO_DIR")"
-INFO="$WORKSPACE_DIR/agent.json"
 AGENT_BIN="${AGENT_BIN:-$HOME/.config/agent-tracker/bin/agent}"
-
-port=$(python3 - "$INFO" <<'PY'
-import json, pathlib, sys
-data = json.loads(pathlib.Path(sys.argv[1]).read_text())
-print(data.get('port', ''))
-PY
-)
-device=$(python3 - "$INFO" <<'PY'
-import json, pathlib, sys
-data = json.loads(pathlib.Path(sys.argv[1]).read_text())
-value = data.get('device')
-if value is None:
-    value = 'web-server'
-print(value)
-PY
-)
-logfile="$WORKSPACE_DIR/logs/flutter-$port.log"
-
-if [[ -z "$device" ]]; then
-  echo "No launch device selected"
-  exit 1
-fi
-
-set +e
-analyze_output=$(cd "$REPO_DIR" && flutter analyze lib --no-fatal-infos --no-fatal-warnings 2>&1)
-analyze_exit=$?
-set -e
-
-filtered=$(printf "%s\n" "$analyze_output" | awk '/^Analyzing/ {found=1} found {print}')
-[[ -n "$filtered" ]] && printf "%s\n" "$filtered"
-if [[ $analyze_exit -ne 0 ]]; then
-  echo "Analysis failed."
-  [[ -z "$filtered" ]] && printf "%s\n" "$analyze_output"
-  exit 1
-fi
-
-if [[ ! -f "$logfile" ]] || ! grep -qiE 'Flutter run key commands\.|is being served at|serving at|lib/main\.dart is being served' "$logfile" 2>/dev/null; then
-  echo "Flutter server not ready"
-  exit 1
-fi
-
-find_flutter_pane() {
-  [[ -z "${TMUX-}" ]] && return 1
-
-  has_flutter_run() {
-    local pid=$1 depth=${2:-0}
-    [[ $depth -gt 12 ]] && return 1
-    local child
-    while IFS= read -r child; do
-      [[ -z "$child" ]] && continue
-      if ps -p "$child" -o command= 2>/dev/null | grep -q 'flutter_tools\.snapshot.*run'; then
-        FLUTTER_RUN_PID="$child"
-        return 0
-      fi
-      if has_flutter_run "$child" $((depth + 1)); then
-        return 0
-      fi
-    done < <(pgrep -P "$pid" 2>/dev/null || true)
-    return 1
-  }
-
-  local pane_id pane_pid fpid fcwd
-  local repo_dir="${REPO_DIR%/}"
-  local workspace_dir="${WORKSPACE_DIR%/}"
-  while read -r pane_id pane_pid; do
-    [[ -z "$pane_id" || -z "$pane_pid" ]] && continue
-    FLUTTER_RUN_PID=""
-    if ! has_flutter_run "$pane_pid"; then
-      continue
-    fi
-    fpid="$FLUTTER_RUN_PID"
-    [[ -z "$fpid" ]] && continue
-    fcwd="$(lsof -a -d cwd -p "$fpid" 2>/dev/null | tail -n +2 | awk '{print $NF}')"
-    fcwd="${fcwd%/}"
-    if [[ "$fcwd" == "$repo_dir" || "$fcwd" == "$workspace_dir" ]]; then
-      printf "%s\n" "$pane_id"
-      return 0
-    fi
-  done < <(tmux list-panes -a -F '#{pane_id} #{pane_pid}' 2>/dev/null)
-
-  return 1
-}
-
-target_pane=$(find_flutter_pane) || {
-  echo "Flutter pane not found"
-  exit 1
-}
-lines_before=$(wc -l < "$logfile")
-tmux send-keys -t "$target_pane" r 2>/dev/null
-
-(
-  restart_server() {
-    tmux send-keys -t "$target_pane" C-c 2>/dev/null || true
-    sleep 0.5
-    tmux send-keys -t "$target_pane" "cd '$WORKSPACE_DIR' && ./ensure-server.sh" Enter 2>/dev/null || true
-  }
-
-  for _ in $(seq 1 100); do
-    newlines=$(python3 - "$logfile" "$lines_before" <<'PY'
-import pathlib
-import sys
-
-path = pathlib.Path(sys.argv[1])
-start = int(sys.argv[2])
-if not path.exists():
-    sys.exit(0)
-with path.open('r', errors='ignore') as handle:
-    lines = handle.readlines()
-sys.stdout.write(''.join(lines[start:]))
-PY
-)
-    if printf "%s\n" "$newlines" | grep -qiE 'Reloaded [0-9]+ libraries|Reloaded 1 of [0-9]+ libraries|Restarted application in'; then
-      exit 0
-    fi
-    if printf "%s\n" "$newlines" | grep -qi 'Page requires refresh'; then
-	      "$AGENT_BIN" browser open --workspace "$WORKSPACE_DIR" --allow-open >/dev/null 2>&1 || true
-	      "$AGENT_BIN" browser refresh --workspace "$WORKSPACE_DIR" >/dev/null 2>&1 || true
-      exit 0
-    fi
-    if printf "%s\n" "$newlines" | grep -qiE 'no client connected|no connected devices|Hot reload rejected'; then
-      if [[ "$device" == "web-server" ]]; then
-	        "$AGENT_BIN" browser open --workspace "$WORKSPACE_DIR" --allow-open >/dev/null 2>&1 || true
-	        "$AGENT_BIN" browser refresh --workspace "$WORKSPACE_DIR" >/dev/null 2>&1 || true
-        restart_server
-      fi
-      exit 0
-    fi
-    sleep 0.3
-  done
-exit 0
-) >/dev/null 2>&1 &
-
-echo "Reloaded the application"
+exec "$AGENT_BIN" hot-reload --workspace "$WORKSPACE_DIR"
 `
 	if err := ensureGeneratedRepoPathIgnored(repoCopyPath, "hot-reload.sh"); err != nil {
 		return err
@@ -3321,6 +3270,9 @@ func syncChromeForFeature(featurePath string, allowOpen bool) error {
 	}
 	if match != nil {
 		_, err := browserActivateExistingTabByURL(cfg.URL)
+		if err == nil {
+			_ = browserEnsureConsoleShim(match.WebSocketDebuggerURL)
+		}
 		return err
 	}
 	if !allowOpen {
@@ -3329,7 +3281,13 @@ func syncChromeForFeature(featurePath string, allowOpen bool) error {
 	if _, err := browserCreateTarget(version.WebSocketDebuggerURL, cfg.URL, true); err != nil {
 		return err
 	}
-	return browserActivateLastTab()
+	if err := browserActivateLastTab(); err != nil {
+		return err
+	}
+	if target, err := browserTargetForURL(cfg.URL); err == nil && target != nil {
+		_ = browserEnsureConsoleShim(target.WebSocketDebuggerURL)
+	}
+	return nil
 }
 
 func refreshChromeForFeature(featurePath string) error {
@@ -3973,6 +3931,108 @@ func browserConsoleArgsText(args []struct {
 		}
 	}
 	return strings.TrimSpace(strings.Join(parts, " "))
+}
+
+const browserConsoleShimJS = `(function(){if(window.__agentConsoleShimInstalled)return;window.__agentConsoleShimInstalled=true;var b=[];var MAX=500;function add(e){b.push(e);if(b.length>MAX)b=b.slice(-MAX)}['log','warn','error','info','debug','trace'].forEach(function(l){var o=console[l]?console[l].bind(console):function(){};console[l]=function(){var a=Array.prototype.slice.call(arguments);var t=a.map(function(x){try{if(x instanceof Error)return x.stack||(x.name+': '+x.message);if(typeof x==='object')return JSON.stringify(x);return String(x)}catch(e){return String(x)}}).join(' ');add({t:l,m:t,d:Date.now()});o.apply(console,a)}});window.addEventListener('error',function(e){var m=e.message||'Error';if(e.filename)m+=' ('+e.filename+':'+(e.lineno||0)+')';add({t:'error',m:m,d:Date.now()})});window.addEventListener('unhandledrejection',function(e){var r=e.reason;var t;try{if(r instanceof Error)t=r.stack||(r.name+': '+r.message);else if(typeof r==='object')t=JSON.stringify(r);else t=String(r)}catch(ex){t=String(r)}add({t:'error',m:'Unhandled rejection: '+t,d:Date.now()})});Object.defineProperty(window,'__agentConsoleBuffer',{configurable:true,get:function(){return b},set:function(v){b=Array.isArray(v)?v:[]}})})();`
+
+type browserConsoleEntry struct {
+	Type string `json:"t"`
+	Msg  string `json:"m"`
+	Time int64  `json:"d"`
+}
+
+func browserEnsureConsoleShim(pageWSURL string) error {
+	_ = browserCDPRequest(pageWSURL, "Page.enable", map[string]any{}, nil)
+	_ = browserCDPRequest(pageWSURL, "Page.addScriptToEvaluateOnNewDocument", map[string]any{
+		"source": browserConsoleShimJS,
+	}, nil)
+	return browserCDPRequest(pageWSURL, "Runtime.evaluate", map[string]any{
+		"expression": browserConsoleShimJS,
+		"silent":     true,
+	}, nil)
+}
+
+func browserReadConsoleBuffer(pageWSURL string) ([]browserConsoleEntry, error) {
+	var result struct {
+		Result struct {
+			Value string `json:"value"`
+		} `json:"result"`
+	}
+	if err := browserCDPRequest(pageWSURL, "Runtime.evaluate", map[string]any{
+		"expression":    "JSON.stringify(window.__agentConsoleBuffer||[])",
+		"returnByValue": true,
+		"silent":        true,
+	}, &result); err != nil {
+		return nil, err
+	}
+	var entries []browserConsoleEntry
+	raw := strings.TrimSpace(result.Result.Value)
+	if raw == "" || raw == "[]" {
+		return entries, nil
+	}
+	if err := json.Unmarshal([]byte(raw), &entries); err != nil {
+		return nil, fmt.Errorf("parse console buffer: %w", err)
+	}
+	return entries, nil
+}
+
+func browserClearConsoleBuffer(pageWSURL string) error {
+	return browserCDPRequest(pageWSURL, "Runtime.evaluate", map[string]any{
+		"expression": "window.__agentConsoleBuffer=[]",
+		"silent":     true,
+	}, nil)
+}
+
+func formatConsoleEntries(entries []browserConsoleEntry, maxLines int) string {
+	if len(entries) == 0 {
+		return ""
+	}
+	start := 0
+	if maxLines > 0 && len(entries) > maxLines {
+		start = len(entries) - maxLines
+	}
+	var lines []string
+	for _, e := range entries[start:] {
+		level := firstNonEmpty(strings.TrimSpace(e.Type), "log")
+		msg := strings.TrimSpace(e.Msg)
+		if msg == "" {
+			continue
+		}
+		lines = append(lines, fmt.Sprintf("[%s] %s", level, msg))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func browserClearLogsForFeature(featurePath string) error {
+	_, target, err := browserFeatureTarget(featurePath)
+	if err != nil {
+		return err
+	}
+	if target == nil {
+		return nil
+	}
+	if err := browserEnsureConsoleShim(target.WebSocketDebuggerURL); err != nil {
+		return err
+	}
+	return browserClearConsoleBuffer(target.WebSocketDebuggerURL)
+}
+
+func browserReadLogsForFeature(featurePath string, maxLines int) (string, error) {
+	_, target, err := browserFeatureTarget(featurePath)
+	if err != nil {
+		return "", err
+	}
+	if target == nil {
+		return "", nil
+	}
+	if err := browserEnsureConsoleShim(target.WebSocketDebuggerURL); err != nil {
+		return "", err
+	}
+	entries, err := browserReadConsoleBuffer(target.WebSocketDebuggerURL)
+	if err != nil {
+		return "", err
+	}
+	return formatConsoleEntries(entries, maxLines), nil
 }
 
 func runAppleScript(script string, args ...string) (string, error) {

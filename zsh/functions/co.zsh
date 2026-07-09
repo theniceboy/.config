@@ -1,170 +1,130 @@
+# co() - Start jcode (replaces op).
+#
+# Usage:
+#   co              # start new jcode session in TUI
+#   co -r           # resume last session for this tmux pane
+#   co --resume foo # resume by session name/id
+#   co --resume     # list sessions to pick from
+#   co -- any jcode args
+#
+# Mirrors the structure of op()/opr() but adapted for jcode:
+# - Sets up config (source of truth: ~/.config/jcode/config.toml)
+# - Detects agent.json for browser MCP integration (same as op)
+# - Passes tmux context to hooks via env vars
+
 co() {
-  local -a codex_cmd
-  codex_cmd=(codex)
-  local search_dir=$PWD
-  local overlay_file=""
-  while :; do
-    if [ -f "$search_dir/codex-mcp.toml" ]; then
-      overlay_file="$search_dir/codex-mcp.toml"
-      break
-    fi
-    if [ "$search_dir" = "/" ]; then
-      break
-    fi
-    search_dir="$(dirname "$search_dir")"
+  local resume_session=""
+
+  # Parse -r / --resume-last shortcut
+  local -a jcode_args=()
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      -r|--resume-last)
+        resume_session="last"
+        shift
+        ;;
+      *)
+        jcode_args+=("$1")
+        shift
+        ;;
+    esac
   done
 
-  local base_home="${CODEX_HOME:-$HOME/.codex}"
-  local base_config="$base_home/config.toml"
-  if [ ! -f "$base_config" ]; then
-    print -u2 "co: missing base config at $base_config"
-    return 1
-  fi
-
-  setopt local_options null_glob
-
-  local tmp_home
-  tmp_home=$(mktemp -d "${TMPDIR:-/tmp}/codex-home.XXXXXX") || return 1
-  print -u2 "co: using temporary CODEX_HOME at $tmp_home"
-
-  local cleanup_cmd="print -u2 \"co: removing temporary CODEX_HOME $tmp_home\"; rm -rf '$tmp_home'"
-  trap "$cleanup_cmd" EXIT INT TERM
-
-  if ! cp "$base_config" "$tmp_home/config.toml" >/dev/null 2>&1; then
-    trap - EXIT INT TERM
-    eval "$cleanup_cmd"
-    print -u2 "co: failed to copy $base_config"
-    return 1
-  fi
-
-  local base_agents="$base_home/AGENTS.md"
-  if [ -f "$base_agents" ]; then
-    if ! cp "$base_agents" "$tmp_home/AGENTS.md" >/dev/null 2>&1; then
-      trap - EXIT INT TERM
-      eval "$cleanup_cmd"
-      print -u2 "co: failed to copy $base_agents"
-      return 1
-    fi
-  fi
-
-  if [ ! -e "$tmp_home/AGENTS.md" ]; then
-    if ! : > "$tmp_home/AGENTS.md"; then
-      trap - EXIT INT TERM
-      eval "$cleanup_cmd"
-      print -u2 "co: failed to create $tmp_home/AGENTS.md"
-      return 1
-    fi
-  fi
-
-  # Symlink only selected persistent items into the temporary home
-  local -a to_link
-  to_link=(
-    log
-    sessions
-    auth.json
-    history.jsonl
-    internal_storage.json
-    notify.py
-    version.json
-  )
-
-  local name
-  for name in "${to_link[@]}"; do
-    if [ -e "$base_home/$name" ]; then
-      if ! ln -s "$base_home/$name" "$tmp_home/$name" 2>/dev/null; then
-        trap - EXIT INT TERM
-        eval "$cleanup_cmd"
-        print -u2 "co: failed to symlink $base_home/$name"
-        return 1
+  # Resolve resume-last from tmux pane locator
+  if [ "$resume_session" = "last" ]; then
+    local pane_target="${TMUX_PANE:-}"
+    if [ -n "$pane_target" ]; then
+      local locator
+      locator=$(tmux display-message -p -t "$pane_target" \
+        '#{session_name}:#{window_index}.#{pane_index}' 2>/dev/null) || true
+      if [ -n "$locator" ]; then
+        local sanitized="${locator//[^a-zA-Z0-9_]/_}"
+        local state_file="${XDG_STATE_HOME:-$HOME/.local/state}/co/loc_${sanitized}"
+        if [ -f "$state_file" ]; then
+          resume_session=$(cat "$state_file" 2>/dev/null || true)
+          [ -n "$resume_session" ] && print -u2 "co: resuming session $resume_session"
+        else
+          print -u2 "co: no previous session for this tmux pane"
+          return 1
+        fi
       fi
     else
-      print -u2 "co: note: $base_home/$name not found; skipping symlink"
+      print -u2 "co: -r requires tmux"
+      return 1
     fi
+    jcode_args=(--resume "$resume_session")
+  fi
+
+  # ── Provider/model (explicit, no auto mode) ─────────────
+  # Pass -p/-m unless the user already specified them
+  local has_provider=0 has_model=0
+  local a
+  for a in "${jcode_args[@]:-}"; do
+    case "$a" in
+      -p|--provider|--provider=*) has_provider=1 ;;
+      -m|--model|--model=*) has_model=1 ;;
+    esac
   done
-  print -u2 "co: prepared $tmp_home with copies of config.toml and AGENTS.md; symlinked selected persistent items"
+  [ "$has_provider" = 0 ] && jcode_args=(-p zai "${jcode_args[@]}")
+  [ "$has_model" = 0 ] && jcode_args=(-m glm-5.2 "${jcode_args[@]}")
 
-  if [ ! -d "$base_home/prompts" ]; then
-    if ! mkdir -p "$base_home/prompts"; then
-      trap - EXIT INT TERM
-      eval "$cleanup_cmd"
-      print -u2 "co: failed to create $base_home/prompts"
-      return 1
+  # ── Detect agent.json (same logic as op) ────────────────
+  local agent_workspace=""
+  local agent_feature=""
+  local agent_browser_url=""
+  local search_dir="$PWD"
+  while [ -n "$search_dir" ] && [ "$search_dir" != "/" ]; do
+    if [ -f "$search_dir/agent.json" ]; then
+      agent_workspace="$search_dir"
+      break
     fi
-    print -u2 "co: created $base_home/prompts"
-  fi
-
-  # Prepare prompts directory and merge base + project prompts (project overrides)
-  if ! mkdir -p "$tmp_home/prompts"; then
-    trap - EXIT INT TERM
-    eval "$cleanup_cmd"
-    print -u2 "co: failed to create $tmp_home/prompts"
-    return 1
-  fi
-
-  local f
-  for f in "$base_home/prompts"/*.md; do
-    [ -f "$f" ] || continue
-    if [ ! -e "$tmp_home/prompts/${f:t}" ]; then
-      if ! cp "$f" "$tmp_home/prompts/" >/dev/null 2>&1; then
-        trap - EXIT INT TERM
-        eval "$cleanup_cmd"
-        print -u2 "co: failed to copy base prompt $f"
-        return 1
-      fi
+    if [ "${search_dir:t}" = "repo" ] && [ -f "${search_dir:h}/agent.json" ]; then
+      agent_workspace="${search_dir:h}"
+      break
     fi
+    search_dir="${search_dir:h}"
   done
-  local project_prompts_dir=""
-  if [ -d "$PWD/.agent-prompts" ]; then
-    project_prompts_dir="$PWD/.agent-prompts"
-  elif [ -d "$PWD/codex-prompts" ]; then
-    project_prompts_dir="$PWD/codex-prompts"
+
+  if [ -n "$agent_workspace" ] && command -v jq >/dev/null 2>&1; then
+    local agent_json="$agent_workspace/agent.json"
+    agent_browser_url=$(jq -r '.url // empty' "$agent_json" 2>/dev/null || true)
+    agent_feature=$(jq -r '.feature // empty' "$agent_json" 2>/dev/null || true)
   fi
 
-  if [ -n "$project_prompts_dir" ]; then
-    local copied_any=0
-    for f in "$project_prompts_dir"/*.md; do
-      [ -f "$f" ] || continue
-      copied_any=1
-      if ! cp -f "$f" "$tmp_home/prompts/" >/dev/null 2>&1; then
-        trap - EXIT INT TERM
-        eval "$cleanup_cmd"
-        print -u2 "co: failed to copy project prompt $f"
-        return 1
-      fi
-    done
-    if (( copied_any )); then
-      print -u2 "co: added project prompts from $project_prompts_dir (overriding base on conflicts)"
+  # ── Set up CO_* env for hooks ────────────────────────────
+  # Hooks read these to resolve tmux context without guessing
+  local co_tmux_pane="${TMUX_PANE:-}"
+  local co_tmux_session_id=""
+  local co_tmux_window_id=""
+
+  if [ -n "$co_tmux_pane" ]; then
+    local tmux_ctx
+    tmux_ctx=$(tmux display-message -p -t "$co_tmux_pane" \
+      '#{session_id}:::#{window_id}' 2>/dev/null) || true
+    if [ -n "$tmux_ctx" ]; then
+      co_tmux_session_id="${tmux_ctx%%:::*}"
+      co_tmux_window_id="${tmux_ctx##*:::}"
     fi
   fi
 
-  local tmux_id
-  if tmux_id=$(tmux display-message -p '#{session_id}::#{window_id}::#{pane_id}' 2>/dev/null); then
-    if ! printf 'The TMUX_ID for this session will be "%s". Pass this id to the tracker mcp\n' "$tmux_id" >> "$tmp_home/AGENTS.md"; then
-      trap - EXIT INT TERM
-      eval "$cleanup_cmd"
-      print -u2 "co: failed to append tmux id to AGENTS.md"
-      return 1
-    fi
-    print -u2 "co: recorded tmux id $tmux_id in AGENTS.md"
-  else
-    print -u2 "co: warning: unable to determine tmux id"
+  local co_state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/co"
+  mkdir -p "$co_state_dir" 2>/dev/null || true
+  if [ -n "$co_tmux_pane" ]; then
+    printf '%s\t%s\t%s\t%s\t%s\n' \
+      "$co_tmux_pane" \
+      "$co_tmux_session_id" \
+      "$co_tmux_window_id" \
+      "$PWD" \
+      "$(date +%s)" >| "$co_state_dir/pending_pane"
   fi
 
-  if [ -n "$overlay_file" ]; then
-    if ! printf '\n' >> "$tmp_home/config.toml" || ! cat "$overlay_file" >> "$tmp_home/config.toml"; then
-      trap - EXIT INT TERM
-      eval "$cleanup_cmd"
-      print -u2 "co: failed to append $overlay_file to temporary config"
-      return 1
-    fi
-    print -u2 "co: appended MCP overlay from $overlay_file"
-  fi
-
-  codex_cmd+=("$@")
-  CODEX_HOME="$tmp_home" "${codex_cmd[@]}"
-  local exit_code=$?
-
-  trap - EXIT INT TERM
-  eval "$cleanup_cmd"
-  return $exit_code
+  # ── Run jcode ────────────────────────────────────────────
+  CO_TMUX_PANE="$co_tmux_pane" \
+    CO_TMUX_SESSION_ID="$co_tmux_session_id" \
+    CO_TMUX_WINDOW_ID="$co_tmux_window_id" \
+    AGENT_WORKSPACE="${agent_workspace:-${AGENT_WORKSPACE:-}}" \
+    AGENT_FEATURE="${agent_feature:-${AGENT_FEATURE:-}}" \
+    AGENT_BROWSER_URL="${agent_browser_url:-${AGENT_BROWSER_URL:-}}" \
+    RIPGREP_CONFIG_PATH="${RIPGREP_CONFIG_PATH:-$HOME/.ripgreprc}" \
+    jcode --no-update "${jcode_args[@]}"
 }

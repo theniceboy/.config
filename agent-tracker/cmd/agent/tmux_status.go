@@ -13,19 +13,19 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 const (
-	statusRightModuleCPU          = "cpu"
-	statusRightModuleNetwork      = "network"
-	statusRightModuleMemory       = "memory"
-	statusRightModuleMemoryTotals = "memory_totals"
-	statusRightModuleAgent        = "agent"
-	statusRightModuleTodoPreview  = "todo_preview"
-	statusRightModuleTodos        = "todos"
-	statusRightModuleFlashMoe     = "flash_moe"
-	statusRightModuleHost         = "host"
-	statusRightModuleGoal         = "goal"
+	statusRightModuleCPU           = "cpu"
+	statusRightModuleNetwork       = "network"
+	statusRightModuleMemory        = "memory"
+	statusRightModuleWindowMemory  = "window_memory"
+	statusRightModuleSessionMemory = "session_memory"
+	statusRightModuleTotalMemory   = "total_memory"
+	statusRightModuleScratch       = "scratch"
+	statusRightModuleFlashMoe      = "flash_moe"
+	statusRightModuleHost          = "host"
 )
 
 const (
@@ -36,9 +36,12 @@ const (
 	statusIconSession  = ""
 	statusIconTotal    = "󰍛"
 	statusIconAgent    = "󰚩"
+	statusIconScratch  = "✏️"
 	statusIconTodos    = "󰎚"
 	statusIconFlashMoe = "󱙺"
 	statusIconGoal     = "⌖"
+	statusIconNext     = "󰁔"
+	statusIconLastMsg  = "󰅻"
 )
 
 func statusRightModules() []string {
@@ -46,13 +49,12 @@ func statusRightModules() []string {
 		statusRightModuleCPU,
 		statusRightModuleNetwork,
 		statusRightModuleMemory,
-		statusRightModuleMemoryTotals,
-		statusRightModuleAgent,
-		statusRightModuleTodos,
-		statusRightModuleTodoPreview,
+		statusRightModuleWindowMemory,
+		statusRightModuleSessionMemory,
+		statusRightModuleTotalMemory,
+		statusRightModuleScratch,
 		statusRightModuleFlashMoe,
 		statusRightModuleHost,
-		statusRightModuleGoal,
 	}
 }
 
@@ -97,15 +99,17 @@ type tmuxRightStatusArgs struct {
 	StatusBG    string
 	SessionName string
 	WindowIndex string
+	WindowName  string
 	PaneID      string
 	WindowID    string
 }
 
 type statusSegment struct {
-	FG   string
-	BG   string
-	Text string
-	Bold bool
+	FG             string
+	BG             string
+	Text           string
+	Bold           bool
+	NoRightPadding bool
 }
 
 type statusMemoryCache struct {
@@ -119,6 +123,69 @@ type statusTodoCache struct {
 	Global   []statusTodoItem            `json:"global"`
 	Sessions map[string][]statusTodoItem `json:"sessions"`
 	Windows  map[string][]statusTodoItem `json:"windows"`
+}
+
+type windowSnapshotEntry struct {
+	SessionName string `json:"session_name"`
+	WindowIndex string `json:"window_index"`
+	WindowName  string `json:"window_name"`
+}
+
+func windowSnapshotPath() string {
+	stateDir := os.Getenv("XDG_STATE_HOME")
+	if stateDir == "" {
+		home, _ := os.UserHomeDir()
+		stateDir = filepath.Join(home, ".local", "state")
+	}
+	return filepath.Join(stateDir, "agent-tracker", "window-snapshot.json")
+}
+
+func saveWindowSnapshot(args tmuxRightStatusArgs) {
+	if args.WindowID == "" {
+		return
+	}
+	path := windowSnapshotPath()
+	data, err := os.ReadFile(path)
+	var snapshot map[string]windowSnapshotEntry
+	if err == nil {
+		_ = json.Unmarshal(data, &snapshot)
+	}
+	if snapshot == nil {
+		snapshot = make(map[string]windowSnapshotEntry)
+	}
+	out, err := runTmuxOutput("list-windows", "-a", "-F", "#{window_id}\t#{session_name}\t#{window_index}\t#{window_name}")
+	if err != nil {
+		entry := windowSnapshotEntry{
+			SessionName: args.SessionName,
+			WindowIndex: args.WindowIndex,
+			WindowName:  args.WindowName,
+		}
+		if existing, ok := snapshot[args.WindowID]; ok && existing == entry {
+			return
+		}
+		snapshot[args.WindowID] = entry
+	} else {
+		for _, line := range strings.Split(out, "\n") {
+			fields := strings.SplitN(line, "\t", 4)
+			if len(fields) != 4 {
+				continue
+			}
+			wid := strings.TrimSpace(fields[0])
+			if wid == "" {
+				continue
+			}
+			snapshot[wid] = windowSnapshotEntry{
+				SessionName: strings.TrimSpace(fields[1]),
+				WindowIndex: strings.TrimSpace(fields[2]),
+				WindowName:  strings.TrimSpace(fields[3]),
+			}
+		}
+	}
+	updated, _ := json.Marshal(snapshot)
+	_ = os.MkdirAll(filepath.Dir(path), 0755)
+	tmp := path + ".tmp"
+	_ = os.WriteFile(tmp, updated, 0644)
+	_ = os.Rename(tmp, path)
 }
 
 type statusTodoItem struct {
@@ -174,6 +241,34 @@ func runTmuxRightStatus(args []string) error {
 	return nil
 }
 
+func runTmuxWorkStatus(args []string) error {
+	fs := flag.NewFlagSet("agent tmux work-status", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	values := fs.Args()
+	parsed := tmuxRightStatusArgs{}
+	if len(values) > 0 {
+		parsed.Width, _ = strconv.Atoi(strings.TrimSpace(values[0]))
+	}
+	if len(values) > 1 {
+		parsed.WindowID = strings.TrimSpace(values[1])
+	}
+	if len(values) > 2 {
+		parsed.SessionName = strings.TrimSpace(values[2])
+	}
+	if len(values) > 3 {
+		parsed.WindowIndex = strings.TrimSpace(values[3])
+	}
+	if len(values) > 4 {
+		parsed.WindowName = strings.TrimSpace(values[4])
+	}
+	saveWindowSnapshot(parsed)
+	fmt.Print(renderTmuxWorkStatus(parsed))
+	return nil
+}
+
 func renderTmuxRightStatus(args tmuxRightStatusArgs) string {
 	segments := make([]statusSegment, 0, 6)
 	if statusRightModuleEnabled(statusRightModuleCPU) {
@@ -191,24 +286,7 @@ func renderTmuxRightStatus(args tmuxRightStatusArgs) string {
 			segments = append(segments, statusSegment{FG: "#eceff4", BG: "#5e81ac", Text: label})
 		}
 	}
-	if statusRightModuleEnabled(statusRightModuleMemoryTotals) {
-		segments = append(segments, loadMemoryTotalsStatusSegments(args)...)
-	}
-	if statusRightModuleEnabled(statusRightModuleAgent) {
-		if label := loadAgentStatusLabel(args.WindowID); label != "" {
-			segments = append(segments, statusSegment{FG: "#1d1f21", BG: "#81a1c1", Text: label, Bold: true})
-		}
-	}
-	if statusRightModuleEnabled(statusRightModuleTodos) {
-		if label := loadTodosStatusLabel(args.WindowID); label != "" {
-			segments = append(segments, statusSegment{FG: "#1d1f21", BG: "#cc6666", Text: label, Bold: true})
-		}
-	}
-	if statusRightModuleEnabled(statusRightModuleGoal) {
-		if label := loadGoalStatusLabel(args.WindowID); label != "" {
-			segments = append(segments, statusSegment{FG: "#1d1f21", BG: "#a3be8c", Text: label, Bold: true})
-		}
-	}
+	segments = append(segments, loadSplitMemoryStatusSegments(args)...)
 	if statusRightModuleEnabled(statusRightModuleFlashMoe) {
 		if segment, ok := loadFlashMoeStatusSegment(); ok {
 			segments = append(segments, segment)
@@ -219,7 +297,299 @@ func renderTmuxRightStatus(args tmuxRightStatusArgs) string {
 			segments = append(segments, statusSegment{FG: "#1d1f21", BG: statusThemeColor(), Text: label})
 		}
 	}
+	if statusRightModuleEnabled(statusRightModuleScratch) {
+		if label := loadScratchStatusLabel(args.SessionName); label != "" {
+			segments = append(segments, statusSegment{FG: "#1d1f21", BG: "#d75f5f", Text: label, Bold: true, NoRightPadding: true})
+		}
+	}
 	return formatRightStatusSegments(args.StatusBG, segments)
+}
+
+func renderTmuxWorkStatus(args tmuxRightStatusArgs) string {
+	baseBG := "#232530"
+	leftBG := "#272535"
+	available := args.Width
+	if available <= 0 {
+		available = 120
+	}
+	leftParts := make([]string, 0, 3)
+	if label := loadGoalWorkStatusLabel(args.WindowID); label != "" {
+		leftParts = append(leftParts, fmt.Sprintf("#[fg=#f8f8f2,bg=#343746] %s %s #[fg=#343746,bg=%s]", statusIconGoal, label, leftBG))
+	}
+	if label := loadTodoCountWorkStatusLabel(args.WindowID); label != "" {
+		leftParts = append(leftParts, fmt.Sprintf("#[fg=#ff79c6,bg=%s] %s %s ", leftBG, statusIconTodos, label))
+	}
+	if label := loadTodoPreviewWorkStatusLabel(args.WindowID); label != "" {
+		leftParts = append(leftParts, fmt.Sprintf("#[fg=#ff79c6,bg=%s]%s #[fg=#ff79c6,bg=%s]%s", leftBG, statusIconNext, leftBG, label))
+	}
+
+	hasLeft := len(leftParts) > 0
+	msgLabel := loadLastUserMessageLabel(args.WindowID)
+
+	var agentPart string
+	if label := loadAgentWorkStatusLabel(args.WindowID); label != "" {
+		agentPart = fmt.Sprintf("#[fg=#8be9fd,bg=#233a45] %s %s ", statusIconAgent, label)
+	}
+
+	if len(leftParts) == 0 && msgLabel == "" && agentPart == "" {
+		return ""
+	}
+
+	left := ""
+	if hasLeft {
+		left = strings.Join(leftParts, fmt.Sprintf("#[fg=#c5c8c6,bg=%s] ", leftBG))
+	}
+	leftPlain := stripTmuxStyles(left)
+	agentPlain := stripTmuxStyles(agentPart)
+	leftMaxWidth := maxInt(1, available*60/100)
+	if len([]rune(leftPlain)) > leftMaxWidth {
+		left = truncateStyledWorkStatus(left, leftMaxWidth)
+		leftPlain = stripTmuxStyles(left)
+	}
+
+	var msgPart string
+	if msgLabel != "" {
+		msgSpace := available - len([]rune(leftPlain)) - len([]rune(agentPlain)) - 1
+		msgPrefixWidth := len([]rune(statusIconLastMsg)) + 1
+		if hasLeft {
+			msgPrefixWidth += len([]rune("  │  "))
+		}
+		msgMaxWidth := msgSpace - msgPrefixWidth
+		if msgMaxWidth > 0 {
+			msg := truncate(msgLabel, msgMaxWidth)
+			if hasLeft {
+				msgPart = fmt.Sprintf("#[fg=#3d4050,bg=%s]  │  #[fg=#6c7086,bg=%s]%s #[fg=#c5c8c6,bg=%s]%s", baseBG, baseBG, statusIconLastMsg, baseBG, msg)
+			} else {
+				msgPart = fmt.Sprintf("#[fg=#6c7086,bg=%s]%s #[fg=#c5c8c6,bg=%s]%s", baseBG, statusIconLastMsg, baseBG, msg)
+			}
+		}
+	}
+	msgPlain := stripTmuxStyles(msgPart)
+
+	middle := left + msgPart
+	middlePlain := leftPlain + msgPlain
+	gapWidth := available - len([]rune(middlePlain)) - len([]rune(agentPlain))
+	if gapWidth < 1 {
+		gapWidth = 1
+	}
+	return fmt.Sprintf("#[fg=#c5c8c6,bg=%s,fill=%s]%s%s%s#[default]", baseBG, baseBG, middle, strings.Repeat(" ", gapWidth), agentPart)
+}
+
+var tmuxStylePattern = regexp.MustCompile(`#\[[^]]*\]`)
+
+func stripTmuxStyles(text string) string {
+	return tmuxStylePattern.ReplaceAllString(text, "")
+}
+
+func truncateStyledWorkStatus(text string, width int) string {
+	plain := stripTmuxStyles(text)
+	if len([]rune(plain)) <= width {
+		return text
+	}
+	if width <= 0 {
+		return ""
+	}
+	limit := maxInt(0, width-1)
+	visible := 0
+	var b strings.Builder
+	for i := 0; i < len(text); {
+		if strings.HasPrefix(text[i:], "#[") {
+			end := strings.IndexByte(text[i:], ']')
+			if end >= 0 {
+				end += i
+				b.WriteString(text[i : end+1])
+				i = end + 1
+				continue
+			}
+		}
+		r, size := utf8.DecodeRuneInString(text[i:])
+		if r == utf8.RuneError && size == 0 {
+			break
+		}
+		if visible >= limit {
+			break
+		}
+		b.WriteRune(r)
+		visible++
+		i += size
+	}
+	b.WriteRune('…')
+	return b.String()
+}
+
+func loadLastUserMessageLabel(windowID string) string {
+	windowID = strings.TrimSpace(windowID)
+	if windowID == "" {
+		return ""
+	}
+	sanitized := sanitizeStateKey(windowID)
+	stateDir := os.Getenv("XDG_STATE_HOME")
+	if stateDir == "" {
+		home, _ := os.UserHomeDir()
+		stateDir = filepath.Join(home, ".local", "state")
+	}
+	path := filepath.Join(stateDir, "op", "lastmsg_"+sanitized)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	text := strings.TrimSpace(string(data))
+	text = strings.Join(strings.Fields(text), " ")
+	return text
+}
+
+func sanitizeStateKey(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		if (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '_' {
+			b.WriteRune(r)
+		} else {
+			b.WriteByte('_')
+		}
+	}
+	return b.String()
+}
+
+func loadAgentWorkStatusLabel(windowID string) string {
+	windowID = strings.TrimSpace(windowID)
+	if windowID == "" {
+		return ""
+	}
+	ref, err := statusDetectCurrentAgentFromTmux(windowID)
+	if err != nil || strings.TrimSpace(ref.ID) == "" {
+		return ""
+	}
+	reg, err := statusLoadRegistry()
+	if err != nil || reg == nil {
+		return ""
+	}
+	record := reg.Agents[strings.TrimSpace(ref.ID)]
+	if record == nil {
+		return ""
+	}
+	device := strings.TrimSpace(record.Device)
+	if device == "" {
+		device = "no device"
+	}
+	return device
+}
+
+func loadGoalWorkStatusLabel(windowID string) string {
+	windowID = strings.TrimSpace(windowID)
+	if windowID == "" {
+		return ""
+	}
+	store, err := loadGoalStore()
+	if err != nil || store == nil {
+		return ""
+	}
+	thread := findThreadByWindow(store, windowID)
+	if thread == nil {
+		return ""
+	}
+	path := goalPathTitles(store, thread.GoalID)
+	if len(path) == 0 {
+		return ""
+	}
+	return strings.Join(path, " › ")
+}
+
+func loadTodoCountWorkStatusLabel(windowID string) string {
+	items, ok := statusTodoItemsForWindow(windowID)
+	if !ok {
+		return ""
+	}
+	count := 0
+	for _, item := range items {
+		if !item.Done {
+			count++
+		}
+	}
+	if count == 0 {
+		return ""
+	}
+	return fmt.Sprintf("%d", count)
+}
+
+func loadTodoPreviewWorkStatusLabel(windowID string) string {
+	items, ok := statusTodoItemsForWindow(windowID)
+	if !ok {
+		return ""
+	}
+	title := firstOpenStatusTodoTitle(items)
+	if title == "" {
+		return ""
+	}
+	return title
+}
+
+func loadScratchStatusLabel(currentSessionName string) string {
+	if scratchSessionName(currentSessionName) {
+		return ""
+	}
+	if scratchTrackerWaiting() {
+		return fmt.Sprintf(" %s 🔔", statusIconScratch)
+	}
+	out, err := statusCommandOutput("tmux", "list-windows", "-t", "Scratch", "-F", "#{window_bell_flag} #{window_activity_flag} #{@unread} #{@watch_failed}")
+	if err != nil {
+		out, err = statusCommandOutput("tmux", "list-windows", "-t", "scratch", "-F", "#{window_bell_flag} #{window_activity_flag} #{@unread} #{@watch_failed}")
+		if err != nil {
+			return ""
+		}
+	}
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		for _, field := range strings.Fields(line) {
+			if field == "1" {
+				return fmt.Sprintf(" %s 🔔", statusIconScratch)
+			}
+		}
+	}
+	return ""
+}
+
+func scratchTrackerWaiting() bool {
+	data, err := os.ReadFile("/tmp/tmux-tracker-cache.json")
+	if err != nil {
+		return false
+	}
+	var state struct {
+		Tasks []struct {
+			SessionID    string `json:"session_id"`
+			Session      string `json:"session"`
+			Status       string `json:"status"`
+			Acknowledged bool   `json:"acknowledged"`
+		} `json:"tasks"`
+	}
+	if err := json.Unmarshal(data, &state); err != nil {
+		return false
+	}
+	for _, task := range state.Tasks {
+		if task.Status == "completed" && !task.Acknowledged && scratchTrackerTaskSession(task.Session, task.SessionID) {
+			return true
+		}
+	}
+	return false
+}
+
+func scratchTrackerTaskSession(sessionName, sessionID string) bool {
+	if scratchSessionName(sessionName) {
+		return true
+	}
+	for _, target := range []string{"Scratch", "scratch"} {
+		out, err := statusCommandOutput("tmux", "display-message", "-p", "-t", target, "#{session_id}")
+		if err == nil && strings.TrimSpace(string(out)) == strings.TrimSpace(sessionID) {
+			return true
+		}
+	}
+	return false
+}
+
+func scratchSessionName(name string) bool {
+	name = strings.TrimSpace(name)
+	if match := regexp.MustCompile(`^\d+-(.*)$`).FindStringSubmatch(name); len(match) == 2 {
+		name = match[1]
+	}
+	return strings.EqualFold(name, "scratch")
 }
 
 func formatRightStatusSegments(statusBG string, segments []statusSegment) string {
@@ -238,6 +608,11 @@ func formatRightStatusSegments(statusBG string, segments []statusSegment) string
 		builder.WriteString("]")
 		builder.WriteString(segment.Text)
 		prevBG = segment.BG
+	}
+	last := segments[len(segments)-1]
+	if last.NoRightPadding {
+		builder.WriteString(fmt.Sprintf("#[bg=%s]", statusBG))
+		return builder.String()
 	}
 	builder.WriteString(fmt.Sprintf(" #[fg=%s,bg=%s]%s", prevBG, statusBG, rightCap))
 	return builder.String()
@@ -481,7 +856,7 @@ func loadMemoryStatusLabel(paneID string) string {
 	return fmt.Sprintf(" %s %s ", statusIconMemory, value)
 }
 
-func loadMemoryTotalsStatusSegments(args tmuxRightStatusArgs) []statusSegment {
+func loadSplitMemoryStatusSegments(args tmuxRightStatusArgs) []statusSegment {
 	cache, ok := loadMemoryStatusCache()
 	if !ok {
 		return nil
@@ -491,14 +866,20 @@ func loadMemoryTotalsStatusSegments(args tmuxRightStatusArgs) []statusSegment {
 	if windowKey != "" && strings.TrimSpace(args.WindowIndex) != "" {
 		windowKey = windowKey + ":" + strings.TrimSpace(args.WindowIndex)
 	}
-	if value := strings.TrimSpace(cache.Window[windowKey]); value != "" {
-		segments = append(segments, statusSegment{FG: "#eceff4", BG: "#4c566a", Text: fmt.Sprintf(" %s %s ", statusIconWindow, value)})
+	if statusRightModuleEnabled(statusRightModuleWindowMemory) {
+		if value := strings.TrimSpace(cache.Window[windowKey]); value != "" {
+			segments = append(segments, statusSegment{FG: "#eceff4", BG: "#4c566a", Text: fmt.Sprintf(" %s %s ", statusIconWindow, value)})
+		}
 	}
-	if value := strings.TrimSpace(cache.Session[strings.TrimSpace(args.SessionName)]); value != "" {
-		segments = append(segments, statusSegment{FG: "#eceff4", BG: "#434c5e", Text: fmt.Sprintf(" %s %s ", statusIconSession, value)})
+	if statusRightModuleEnabled(statusRightModuleSessionMemory) {
+		if value := strings.TrimSpace(cache.Session[strings.TrimSpace(args.SessionName)]); value != "" {
+			segments = append(segments, statusSegment{FG: "#eceff4", BG: "#434c5e", Text: fmt.Sprintf(" %s %s ", statusIconSession, value)})
+		}
 	}
-	if value := strings.TrimSpace(cache.Total); value != "" {
-		segments = append(segments, statusSegment{FG: "#eceff4", BG: "#3b4252", Text: fmt.Sprintf(" %s %s ", statusIconTotal, value)})
+	if statusRightModuleEnabled(statusRightModuleTotalMemory) {
+		if value := strings.TrimSpace(cache.Total); value != "" {
+			segments = append(segments, statusSegment{FG: "#eceff4", BG: "#3b4252", Text: fmt.Sprintf(" %s %s ", statusIconTotal, value)})
+		}
 	}
 	return segments
 }
@@ -603,13 +984,6 @@ func loadTodosStatusLabel(windowID string) string {
 	}
 	if count == 0 {
 		return ""
-	}
-	if !statusRightModuleEnabled(statusRightModuleTodoPreview) {
-		return fmt.Sprintf(" %s %d ", statusIconTodos, count)
-	}
-	title := firstOpenStatusTodoTitle(items)
-	if title != "" {
-		return fmt.Sprintf(" %s %d %s ", statusIconTodos, count, truncate(title, statusTodoMaxChars()))
 	}
 	return fmt.Sprintf(" %s %d ", statusIconTodos, count)
 }
@@ -740,9 +1114,7 @@ func loadHostStatusLabel() string {
 
 func defaultStatusRightModuleEnabled(module string) bool {
 	switch module {
-	case statusRightModuleCPU, statusRightModuleNetwork, statusRightModuleMemory, statusRightModuleAgent, statusRightModuleTodoPreview, statusRightModuleTodos, statusRightModuleFlashMoe, statusRightModuleHost, statusRightModuleGoal:
-		return true
-	case statusRightModuleMemoryTotals:
+	case statusRightModuleCPU, statusRightModuleNetwork, statusRightModuleMemory, statusRightModuleWindowMemory, statusRightModuleSessionMemory, statusRightModuleTotalMemory, statusRightModuleScratch, statusRightModuleFlashMoe, statusRightModuleHost:
 		return true
 	default:
 		return false
@@ -751,7 +1123,7 @@ func defaultStatusRightModuleEnabled(module string) bool {
 
 func isValidStatusRightModule(module string) bool {
 	switch module {
-	case statusRightModuleCPU, statusRightModuleNetwork, statusRightModuleMemory, statusRightModuleMemoryTotals, statusRightModuleAgent, statusRightModuleTodoPreview, statusRightModuleTodos, statusRightModuleFlashMoe, statusRightModuleHost, statusRightModuleGoal:
+	case statusRightModuleCPU, statusRightModuleNetwork, statusRightModuleMemory, statusRightModuleWindowMemory, statusRightModuleSessionMemory, statusRightModuleTotalMemory, statusRightModuleScratch, statusRightModuleFlashMoe, statusRightModuleHost:
 		return true
 	default:
 		return false
@@ -777,20 +1149,18 @@ func (cfg statusRightConfig) moduleEnabled(module string) bool {
 		return derefBool(cfg.Network, defaultStatusRightModuleEnabled(module))
 	case statusRightModuleMemory:
 		return derefBool(cfg.Memory, defaultStatusRightModuleEnabled(module))
-	case statusRightModuleMemoryTotals:
-		return derefBool(cfg.MemoryTotals, defaultStatusRightModuleEnabled(module))
-	case statusRightModuleAgent:
-		return derefBool(cfg.Agent, defaultStatusRightModuleEnabled(module))
-	case statusRightModuleTodoPreview:
-		return derefBool(cfg.TodoPreview, defaultStatusRightModuleEnabled(module))
-	case statusRightModuleTodos:
-		return derefBool(cfg.Todos, defaultStatusRightModuleEnabled(module))
+	case statusRightModuleWindowMemory:
+		return derefBool(cfg.WindowMemory, derefBool(cfg.MemoryTotals, defaultStatusRightModuleEnabled(module)))
+	case statusRightModuleSessionMemory:
+		return derefBool(cfg.SessionMemory, derefBool(cfg.MemoryTotals, defaultStatusRightModuleEnabled(module)))
+	case statusRightModuleTotalMemory:
+		return derefBool(cfg.TotalMemory, derefBool(cfg.MemoryTotals, defaultStatusRightModuleEnabled(module)))
+	case statusRightModuleScratch:
+		return derefBool(cfg.Scratch, defaultStatusRightModuleEnabled(module))
 	case statusRightModuleFlashMoe:
 		return derefBool(cfg.FlashMoe, defaultStatusRightModuleEnabled(module))
 	case statusRightModuleHost:
 		return derefBool(cfg.Host, defaultStatusRightModuleEnabled(module))
-	case statusRightModuleGoal:
-		return derefBool(cfg.Goal, defaultStatusRightModuleEnabled(module))
 	default:
 		return false
 	}
@@ -824,20 +1194,18 @@ func (cfg *statusRightConfig) setModuleEnabled(module string, enabled bool) {
 		cfg.Network = value
 	case statusRightModuleMemory:
 		cfg.Memory = value
-	case statusRightModuleMemoryTotals:
-		cfg.MemoryTotals = value
-	case statusRightModuleAgent:
-		cfg.Agent = value
-	case statusRightModuleTodoPreview:
-		cfg.TodoPreview = value
-	case statusRightModuleTodos:
-		cfg.Todos = value
+	case statusRightModuleWindowMemory:
+		cfg.WindowMemory = value
+	case statusRightModuleSessionMemory:
+		cfg.SessionMemory = value
+	case statusRightModuleTotalMemory:
+		cfg.TotalMemory = value
+	case statusRightModuleScratch:
+		cfg.Scratch = value
 	case statusRightModuleFlashMoe:
 		cfg.FlashMoe = value
 	case statusRightModuleHost:
 		cfg.Host = value
-	case statusRightModuleGoal:
-		cfg.Goal = value
 	}
 }
 
@@ -845,7 +1213,7 @@ func (cfg *statusRightConfig) isDefault() bool {
 	if cfg == nil {
 		return true
 	}
-	return cfg.CPU == nil && cfg.Network == nil && cfg.Memory == nil && cfg.MemoryTotals == nil && cfg.Agent == nil && cfg.TodoPreview == nil && cfg.Todos == nil && cfg.FlashMoe == nil && cfg.Host == nil && cfg.Goal == nil
+	return cfg.CPU == nil && cfg.Network == nil && cfg.Memory == nil && cfg.MemoryTotals == nil && cfg.WindowMemory == nil && cfg.SessionMemory == nil && cfg.TotalMemory == nil && cfg.Scratch == nil && cfg.FlashMoe == nil && cfg.Host == nil
 }
 
 func derefBool(value *bool, fallback bool) bool {

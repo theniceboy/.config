@@ -145,7 +145,7 @@ func newActivityMonitorModel(windowID string, embedded bool) *activityMonitorBT 
 
 func runBubbleTeaActivityMonitor(windowID string) error {
 	model := newActivityMonitorModel(windowID, false)
-	_, err := tea.NewProgram(model).Run()
+	_, err := tea.NewProgram(model, tea.WithoutBracketedPaste()).Run()
 	return err
 }
 

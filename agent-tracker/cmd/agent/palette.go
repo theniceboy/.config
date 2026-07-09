@@ -23,6 +23,8 @@ const (
 	paletteModeStatusRight
 	paletteModeTracker
 	paletteModeGoals
+	paletteModeAgent
+	paletteModeOpencodeFork
 )
 
 type palettePromptField int
@@ -31,6 +33,7 @@ const (
 	palettePromptFieldName palettePromptField = iota
 	palettePromptFieldDevice
 	palettePromptFieldWorktree
+	palettePromptFieldPull
 )
 
 type palettePromptKind int
@@ -54,6 +57,14 @@ const (
 	paletteActionOpenTracker
 	paletteActionOpenGoals
 	paletteActionOpenScratch
+	paletteActionBrowserLogs
+	paletteActionBrowserCopyLogs
+	paletteActionBrowserClearLogs
+	paletteActionBrowserReload
+	paletteActionOpenOpencodeFork
+	paletteActionForkOpencodeHorizontal
+	paletteActionForkOpencodeVertical
+	paletteActionForkOpencodeWindow
 )
 
 type paletteAction struct {
@@ -81,6 +92,7 @@ type paletteResult struct {
 	Input        string
 	Device       string
 	KeepWorktree bool
+	Pull         bool
 	State        paletteUIState
 }
 
@@ -99,6 +111,7 @@ type paletteUIState struct {
 	PromptDevices       []string
 	PromptDeviceIndex   int
 	PromptKeepWorktree  bool
+	PromptPull          bool
 	ShowAltHints        bool
 	Message             string
 	ConfirmRequiresText bool

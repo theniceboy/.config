@@ -50,6 +50,7 @@ type todoPanelModel struct {
 	addText         []rune
 	addCursor       int
 	addScope        todoScope
+	addPrepend      bool
 	deleteEntry     *tmuxTodoEntry
 	editEntry       *tmuxTodoEntry
 	closePalette    bool
@@ -133,7 +134,7 @@ func runTodoPanel() error {
 	if err != nil {
 		return err
 	}
-	_, err = tea.NewProgram(model).Run()
+	_, err = tea.NewProgram(model, tea.WithoutBracketedPaste()).Run()
 	if err != nil {
 		return err
 	}
@@ -280,6 +281,15 @@ func (m *todoPanelModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.showAltHints = false
+		if msg.Paste {
+			if m.mode == todoPanelModeAdd || m.mode == todoPanelModeEdit {
+				pasted := strings.ReplaceAll(string(msg.Runes), "\n", " ")
+				runes := []rune(pasted)
+				m.addText = append(m.addText[:m.addCursor], append(runes, m.addText[m.addCursor:]...)...)
+				m.addCursor += len(runes)
+			}
+			return m, nil
+		}
 		key := msg.String()
 		if key == "alt+s" {
 			m.closePalette = true
@@ -361,6 +371,13 @@ func (m *todoPanelModel) updateList(key string) (tea.Model, tea.Cmd) {
 		m.addText = nil
 		m.addCursor = 0
 		m.addScope = m.defaultAddScope()
+		m.addPrepend = false
+	case "k":
+		m.mode = todoPanelModeAdd
+		m.addText = nil
+		m.addCursor = 0
+		m.addScope = m.defaultAddScope()
+		m.addPrepend = true
 	case "E":
 		if entry, ok := m.selectedEntry(m.focusedPane); ok {
 			entryCopy := entry
@@ -410,13 +427,24 @@ func (m *todoPanelModel) updateAdd(key string) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		scopeID := m.scopeID(m.addScope)
-		if err := addTmuxTodo(m.addScope, scopeID, title); err != nil {
-			m.setStatus(err.Error(), 1500*time.Millisecond)
+		if m.addPrepend {
+			if err := addTmuxTodoTop(m.addScope, scopeID, title); err != nil {
+				m.setStatus(err.Error(), 1500*time.Millisecond)
+			} else {
+				m.reloadEntries()
+				targetPane := m.paneForScope(m.addScope)
+				m.setFocusedPane(targetPane)
+				m.setSelectedIndex(targetPane, 0)
+			}
 		} else {
-			m.reloadEntries()
-			targetPane := m.paneForScope(m.addScope)
-			m.setFocusedPane(targetPane)
-			m.setSelectedIndex(targetPane, maxInt(0, len(m.visibleEntries(targetPane))-1))
+			if err := addTmuxTodo(m.addScope, scopeID, title); err != nil {
+				m.setStatus(err.Error(), 1500*time.Millisecond)
+			} else {
+				m.reloadEntries()
+				targetPane := m.paneForScope(m.addScope)
+				m.setFocusedPane(targetPane)
+				m.setSelectedIndex(targetPane, maxInt(0, len(m.visibleEntries(targetPane))-1))
+			}
 		}
 		m.mode = todoPanelModeList
 		return m, nil
@@ -798,11 +826,11 @@ func (m *todoPanelModel) renderFooter(w int) string {
 		)
 	} else {
 		footer = pickRenderedShortcutFooter(contentWidth, renderSegments,
-			[][2]string{{"u/e", "move"}, {"Enter", "goto"}, {"Ctrl-U/E", "reorder"}, {"n/i", "column"}, {"Tab", "window"}, {"Shift-N/I", "scope"}, {"Space", "toggle"}, {"a/Alt-A", "add"}, {"E", "edit"}, {"y", "copy"}, {"d", "delete"}, {"1/2/3", "priority"}, {"c", "completed"}, {"Esc", "close"}, {footerHintToggleKey, "more"}},
-			[][2]string{{"u/e", "move"}, {"Enter", "goto"}, {"Ctrl-U/E", "reorder"}, {"n/i", "col"}, {"Tab", "win"}, {"N/I", "scope"}, {"Space", "toggle"}, {"a/Alt-A", "add"}, {"E", "edit"}, {"y", "copy"}, {"d", "del"}, {"c", "done"}, {"Esc", "close"}, {footerHintToggleKey, "more"}},
-			[][2]string{{"u/e", "move"}, {"Enter", "goto"}, {"Ctrl-U/E", "reorder"}, {"n/i", "col"}, {"Tab", "win"}, {"N/I", "scope"}, {"Space", "toggle"}, {"a/Alt-A", "add"}, {"E", "edit"}, {"y", "copy"}, {"d", "del"}, {"Esc", "close"}, {footerHintToggleKey, "more"}},
-			[][2]string{{"u/e", "move"}, {"Enter", "goto"}, {"n/i", "col"}, {"Tab", "win"}, {"N/I", "scope"}, {"Space", "toggle"}, {"a/Alt-A", "add"}, {"E", "edit"}, {"y", "copy"}, {"d", "del"}, {"Esc", "close"}, {footerHintToggleKey, "more"}},
-			[][2]string{{"u/e", "move"}, {"Enter", "goto"}, {"n/i", "col"}, {"Tab", "win"}, {"N/I", "scope"}, {"a/Alt-A", "add"}, {"E", "edit"}, {"y", "copy"}, {"d", "del"}, {"Esc", "close"}, {footerHintToggleKey, "more"}},
+			[][2]string{{"u/e", "move"}, {"Enter", "goto"}, {"Space", "toggle"}, {"c", "completed"}, {"Ctrl-U/E", "reorder"}, {"n/i", "column"}, {"Tab", "window"}, {"Shift-N/I", "scope"}, {"a/Alt-A", "add"}, {"k", "insert top"}, {"E", "edit"}, {"y", "copy"}, {"d", "delete"}, {"1/2/3", "priority"}, {"Esc", "close"}, {footerHintToggleKey, "more"}},
+			[][2]string{{"u/e", "move"}, {"Enter", "goto"}, {"Space", "toggle"}, {"c", "done"}, {"Ctrl-U/E", "reorder"}, {"n/i", "col"}, {"Tab", "win"}, {"N/I", "scope"}, {"a/Alt-A", "add"}, {"k", "insert top"}, {"E", "edit"}, {"y", "copy"}, {"d", "del"}, {"Esc", "close"}, {footerHintToggleKey, "more"}},
+			[][2]string{{"u/e", "move"}, {"Enter", "goto"}, {"Space", "toggle"}, {"c", "done"}, {"n/i", "col"}, {"Tab", "win"}, {"N/I", "scope"}, {"a/Alt-A", "add"}, {"k", "insert top"}, {"E", "edit"}, {"y", "copy"}, {"d", "del"}, {"Esc", "close"}, {footerHintToggleKey, "more"}},
+			[][2]string{{"u/e", "move"}, {"Enter", "goto"}, {"Space", "toggle"}, {"c", "done"}, {"n/i", "col"}, {"Tab", "win"}, {"a/Alt-A", "add"}, {"k", "insert top"}, {"E", "edit"}, {"d", "del"}, {"Esc", "close"}, {footerHintToggleKey, "more"}},
+			[][2]string{{"u/e", "move"}, {"Enter", "goto"}, {"Space", "toggle"}, {"c", "done"}, {"a/Alt-A", "add"}, {"E", "edit"}, {"d", "del"}, {"Esc", "close"}, {footerHintToggleKey, "more"}},
 			[][2]string{{"Esc", "close"}, {footerHintToggleKey, "more"}},
 		)
 	}

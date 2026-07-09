@@ -8,6 +8,10 @@ path_value="${4-}"
 session_name="${5-}"
 window_name="${6-}"
 
+if [[ "$session_name" =~ ^([0-9]+-)?[sS]cratch$ ]]; then
+  exit 0
+fi
+
 exec tmux display-popup -E -c "$client_tty" -d "$path_value" -w 78% -h 80% -T agent \
   ~/.config/agent-tracker/bin/agent palette \
   --window="$window_id" \

@@ -53,9 +53,7 @@ export const TrackerNotifyPlugin = async ({ client, directory, $ }) => {
 					};
 					break;
 				}
-			} catch {
-				// continue
-			}
+			} catch {}
 		}
 		if (!tmuxContext) {
 			tmuxContext = { paneId: TMUX_PANE };
@@ -76,32 +74,59 @@ export const TrackerNotifyPlugin = async ({ client, directory, $ }) => {
 		if (!locator) return "";
 		return `${OP_STATE_DIR}/loc_${sanitizeKey(locator)}`;
 	};
+	const paneIDSessionStateFile = () => {
+		if (!tmuxContext?.paneId) return "";
+		return `${OP_STATE_DIR}/pane_${sanitizeKey(tmuxContext.paneId)}`;
+	};
 	const persistPaneSessionMap = async (sessionID) => {
-		const stateFile = paneSessionStateFile();
-		if (!sessionID || !stateFile) return;
-		try {
-			mkdirSync(OP_STATE_DIR, { recursive: true });
-			const tmpPath = `${stateFile}.tmp`;
-			writeFileSync(tmpPath, `${sessionID}\n`, "utf8");
-			renameSync(tmpPath, stateFile);
-		} catch (error) {
-			log("failed to persist pane session", { stateFile, error: String(error) });
+		const stateFiles = [paneSessionStateFile(), paneIDSessionStateFile()].filter(Boolean);
+		if (!sessionID || stateFiles.length === 0) return;
+		for (const stateFile of stateFiles) {
+			try {
+				mkdirSync(OP_STATE_DIR, { recursive: true });
+				const tmpPath = `${stateFile}.tmp`;
+				writeFileSync(tmpPath, `${sessionID}\n`, "utf8");
+				renameSync(tmpPath, stateFile);
+			} catch (error) {
+				log("failed to persist pane session", { stateFile, error: String(error) });
+			}
 		}
 	};
 	const loadPersistedPaneSessionID = () => {
-		const stateFile = paneSessionStateFile();
-		if (!stateFile) return "";
+		for (const stateFile of [paneIDSessionStateFile(), paneSessionStateFile()].filter(Boolean)) {
+			try {
+				const value = readFileSync(stateFile, "utf8").trim();
+				if (value) return value;
+			} catch {}
+		}
+		return "";
+	};
+	const lastUserMsgStateFile = () => {
+		if (!tmuxContext?.windowId) return "";
+		return `${OP_STATE_DIR}/lastmsg_${sanitizeKey(tmuxContext.windowId)}`;
+	};
+	const persistLastUserMessage = (text: string) => {
+		const stateFile = lastUserMsgStateFile();
+		if (!text || !stateFile) return;
 		try {
-			return readFileSync(stateFile, "utf8").trim();
-		} catch {
-			return "";
+			mkdirSync(OP_STATE_DIR, { recursive: true });
+			const tmpPath = `${stateFile}.tmp`;
+			writeFileSync(tmpPath, text, "utf8");
+			renameSync(tmpPath, stateFile);
+		} catch (error) {
+			log("failed to persist last user message", { stateFile, error: String(error) });
 		}
 	};
 	const eventSessionID = (event) => {
+		const type = event?.type || "";
+		const properties = event?.properties || {};
 		return (
-			event?.properties?.sessionID ||
-			event?.properties?.session?.id ||
-			event?.properties?.info?.id ||
+			properties?.sessionID ||
+			properties?.session_id ||
+			properties?.session?.id ||
+			properties?.session?.sessionID ||
+			(type.startsWith("session.") ? properties?.id : "") ||
+			(type.startsWith("session.") ? properties?.info?.id : "") ||
 			""
 		);
 	};
@@ -157,6 +182,20 @@ export const TrackerNotifyPlugin = async ({ client, directory, $ }) => {
 			(question) => question?.sessionID === effectiveSessionID,
 		);
 		await applyQuestionPending(pending);
+	};
+
+	const rememberPaneSession = async (sessionID) => {
+		sessionID = String(sessionID || "").trim();
+		if (!sessionID) return "";
+		const session = await client.session.get({ path: { id: sessionID } }).catch(() => null);
+		if (session?.data?.parentID) return "";
+		const sessionChanged = sessionID !== rootSessionID;
+		rootSessionID = sessionID;
+		await persistPaneSessionMap(sessionID);
+		if (sessionChanged) {
+			await syncPendingQuestionState(sessionID);
+		}
+		return sessionID;
 	};
 
 	if (rootSessionID) {
@@ -291,10 +330,10 @@ export const TrackerNotifyPlugin = async ({ client, directory, $ }) => {
 
 	return {
 		"tool.execute.before": async (input, output) => {
+			if (input?.sessionID) {
+				await rememberPaneSession(input.sessionID);
+			}
 			if (input.tool === "question") {
-				if (!rootSessionID && input?.sessionID) {
-					rootSessionID = input.sessionID;
-				}
 				await applyQuestionPending(true);
 				await updatePhase("question");
 				log("Question tool called:", {
@@ -307,6 +346,12 @@ export const TrackerNotifyPlugin = async ({ client, directory, $ }) => {
 		},
 		
 		event: async ({ event }) => {
+			const observedSessionID = eventSessionID(event);
+			let observedRootSessionID = "";
+			if (observedSessionID) {
+				observedRootSessionID = await rememberPaneSession(observedSessionID);
+			}
+
 			if (event?.type === "question.asked") {
 				await applyQuestionPending(true);
 				await updatePhase("question");
@@ -314,7 +359,7 @@ export const TrackerNotifyPlugin = async ({ client, directory, $ }) => {
 			}
 
 			if (event?.type === "question.replied" || event?.type === "question.rejected") {
-				const sessionID = event?.properties?.sessionID || rootSessionID;
+				const sessionID = observedSessionID || rootSessionID;
 				await syncPendingQuestionState(sessionID);
 				return;
 			}
@@ -336,6 +381,7 @@ export const TrackerNotifyPlugin = async ({ client, directory, $ }) => {
 						const text = part.text?.trim();
 						if (text && text.length > 0) {
 							lastUserMessage = text.slice(0, MAX_SUMMARY_CHARS);
+							persistLastUserMessage(lastUserMessage);
 						}
 					}
 					if (role === "assistant") {
@@ -346,24 +392,8 @@ export const TrackerNotifyPlugin = async ({ client, directory, $ }) => {
 
 			if (event?.type !== "session.updated" && event?.type !== "session.status") return;
 
-			const sessionID = eventSessionID(event);
+			const sessionID = observedRootSessionID;
 			if (!sessionID) return;
-
-			// Check if this is a subagent session
-			const session = await client.session.get({ path: { id: sessionID } }).catch(() => null);
-			const parentID = session?.data?.parentID;
-
-			// Skip subagent sessions (they have a parentID)
-			if (parentID) {
-				return;
-			}
-
-			const sessionChanged = sessionID !== rootSessionID;
-			rootSessionID = sessionID;
-			await persistPaneSessionMap(sessionID);
-			if (sessionChanged) {
-				await syncPendingQuestionState(sessionID);
-			}
 			if (event?.type !== "session.status") return;
 
 			const status = event?.properties?.status;

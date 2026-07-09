@@ -29,6 +29,9 @@
     "network": false,
     "memory": false,
     "memory_totals": false,
+    "window_memory": false,
+    "session_memory": false,
+    "total_memory": false,
     "flash_moe": false,
     "host": false
   }

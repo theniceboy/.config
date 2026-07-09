@@ -16,3 +16,11 @@ function openlazynpm {
 
 zle -N openlazynpm; bindkey "^N" openlazynpm
 
+autoload -Uz add-zsh-hook
+_rebind_custom_keys() {
+    bindkey '^p' fzf-find-widget
+    bindkey '^n' openlazynpm
+    add-zsh-hook -d precmd _rebind_custom_keys
+}
+add-zsh-hook precmd _rebind_custom_keys
+

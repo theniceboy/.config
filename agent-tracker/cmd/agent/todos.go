@@ -273,12 +273,25 @@ func sortTmuxTodosByScope(entries []tmuxTodoEntry, scopePriority todoScope) {
 }
 
 func addTmuxTodo(scope todoScope, scopeID, title string) error {
+	return addTmuxTodoAt(scope, scopeID, title, false)
+}
+
+func addTmuxTodoTop(scope todoScope, scopeID, title string) error {
+	return addTmuxTodoAt(scope, scopeID, title, true)
+}
+
+func addTmuxTodoAt(scope todoScope, scopeID, title string, prepend bool) error {
 	store, err := loadTmuxTodoStore()
 	if err != nil {
 		return err
 	}
 	items := append([]tmuxTodoItem(nil), todoItemsForScope(store, scope, scopeID)...)
-	items = append(items, tmuxTodoItem{Title: strings.TrimSpace(title), Done: false, Priority: 2, CreatedAt: time.Now()})
+	newItem := tmuxTodoItem{Title: strings.TrimSpace(title), Done: false, Priority: 2, CreatedAt: time.Now()}
+	if prepend {
+		items = append([]tmuxTodoItem{newItem}, items...)
+	} else {
+		items = append(items, newItem)
+	}
 	setTodoItemsForScope(store, scope, scopeID, items)
 	return saveTmuxTodoStore(store)
 }

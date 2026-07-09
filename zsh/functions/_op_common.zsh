@@ -28,26 +28,6 @@ _op_run() {
     return 1
   fi
 
-  local private_config="${SCONFIG_HOME:-$HOME/.sconfig}/opencode/opencode.json"
-  if [ -f "$private_config" ]; then
-    if ! command -v jq >/dev/null 2>&1; then
-      trap - EXIT INT TERM
-      eval "$cleanup_cmd"
-      print -u2 "$tag: jq is required to merge $private_config"
-      return 1
-    fi
-    local merged_config_json="$tmp_home/opencode.json.merged"
-    if jq -s '.[0] * .[1]' "$tmp_home/opencode.json" "$private_config" > "$merged_config_json" 2>/dev/null; then
-      mv "$merged_config_json" "$tmp_home/opencode.json"
-    else
-      rm -f "$merged_config_json"
-      trap - EXIT INT TERM
-      eval "$cleanup_cmd"
-      print -u2 "$tag: failed to merge $private_config"
-      return 1
-    fi
-  fi
-
   local agent_workspace=""
   local agent_feature=""
   local agent_browser_url=""

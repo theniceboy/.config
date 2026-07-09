@@ -271,6 +271,10 @@ func (m *goalPanelModel) updateList(key string) (tea.Model, tea.Cmd) {
 		m.moveCursor(-1)
 	case "e", "down":
 		m.moveCursor(1)
+	case "alt+u":
+		return m.moveSibling(-1)
+	case "alt+e":
+		return m.moveSibling(1)
 	case "n":
 		m.jumpToParent()
 	case "right", ">", "enter":
@@ -1219,6 +1223,44 @@ func (m *goalPanelModel) submitPromote() {
 
 // ── move mode ───────────────────────────────────────────────
 
+// moveSibling reorders the selected node among its siblings (same parent,
+// same depth) by one slot, without changing parent/depth. No-op at the
+// first/last sibling boundary and for drafts (ordered by recency).
+func (m *goalPanelModel) moveSibling(delta int) (tea.Model, tea.Cmd) {
+	n := m.currentNode()
+	if n == nil {
+		return m, nil
+	}
+	var parentID, nodeID string
+	var isGoal bool
+	switch n.Kind {
+	case nodeGoal:
+		parentID = strings.TrimSpace(n.Goal.ParentID)
+		nodeID = n.Goal.ID
+		isGoal = true
+	case nodeThread:
+		parentID = strings.TrimSpace(n.Thread.GoalID)
+		nodeID = n.Thread.ID
+		isGoal = false
+	default:
+		return m, nil
+	}
+	if !reorderChildSibling(parentID, nodeID, isGoal, delta) {
+		return m, nil
+	}
+	m.reload()
+	if isGoal {
+		if idx := m.list.indexOfGoal(nodeID); idx >= 0 {
+			m.cursor = idx
+		}
+	} else {
+		if idx := m.list.indexOfThread(nodeID); idx >= 0 {
+			m.cursor = idx
+		}
+	}
+	return m, nil
+}
+
 func (m *goalPanelModel) beginMove() (tea.Model, tea.Cmd) {
 	n := m.currentNode()
 	if n == nil {
@@ -2014,9 +2056,6 @@ func (m *goalPanelModel) renderNode(styles paletteStyles, n *goalNode, idx, widt
 	case nodeDraft:
 		isPromoting := m.mode == goalModePromoteGoal && strings.TrimSpace(n.Draft.WindowID) == strings.TrimSpace(m.promoteWindow)
 		draftNameStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("251"))
-		if n.Unread {
-			draftNameStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("230"))
-		}
 		if isPromoting {
 			draftNameStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("223"))
 		}
@@ -2028,6 +2067,10 @@ func (m *goalPanelModel) renderNode(styles paletteStyles, n *goalNode, idx, widt
 		iconStyle := threadStatusIconStyle(styles, n.Status)
 		if isPromoting {
 			iconStyle = styles.selectedLabel
+		}
+		if n.Unread {
+			icon = "⚑"
+			iconStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("221"))
 		}
 		if selected {
 			iconStyle = iconStyle.Copy().Background(bg)
@@ -2066,7 +2109,7 @@ func (m *goalPanelModel) renderNode(styles paletteStyles, n *goalNode, idx, widt
 			dispName = strings.TrimSpace(dispName)
 		}
 		nameR := draftNameStyle.Render(truncate(firstLine(dispName), maxW))
-		left := indentR + iconStyle.Render(icon) + currentTag + sepR + nameR
+		left := indentR + iconStyle.Render(icon) + sepR + nameR + currentTag
 
 		rightParts := []string{}
 		if hasName {
@@ -2099,15 +2142,14 @@ func (m *goalPanelModel) renderNode(styles paletteStyles, n *goalNode, idx, widt
 			if selected {
 				nameStyle = nameStyle.Copy().Background(lipgloss.Color("238")).Foreground(lipgloss.Color("246"))
 			}
-		} else if n.Unread {
-			nameStyle = styles.itemTitle.Copy().Bold(true).Foreground(lipgloss.Color("230"))
-			if selected {
-				nameStyle = nameStyle.Copy().Background(lipgloss.Color("238"))
-			}
 		}
 		bg := lipgloss.Color("238")
 		icon := threadStatusIcon(n.Status)
 		iconStyle := threadStatusIconStyle(styles, n.Status)
+		if n.Unread {
+			icon = "⚑"
+			iconStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("221"))
+		}
 		if selected {
 			iconStyle = iconStyle.Copy().Background(bg)
 		}
@@ -2197,8 +2239,6 @@ func (m *goalPanelModel) renderStatusLine(styles paletteStyles, metaStyle lipglo
 		primary = n.LastUpdate
 		if n.Phase != "" {
 			primaryStyle = phaseDisplayStyle(styles, n.Phase)
-		} else if n.Unread {
-			primaryStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("230"))
 		}
 	}
 	if primary == "" {
@@ -2209,7 +2249,7 @@ func (m *goalPanelModel) renderStatusLine(styles paletteStyles, metaStyle lipglo
 	}
 	if primary == "" && n.Unread {
 		primary = "needs review"
-		primaryStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("221"))
+		primaryStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("221"))
 	}
 
 	prefixW := 0
@@ -2428,13 +2468,13 @@ func (m *goalPanelModel) renderFooter(styles paletteStyles, width int) string {
 	if n != nil {
 		switch n.Kind {
 		case nodeGoal:
-			full = [][2]string{{"u/e", "move"}, {"t", "thread"}, {"T", "top"}, {"a", "sub-goal"}, {"A", "top goal"}, {"r", "rename"}, {"R", "edit"}, {"Enter", enterLabel}, {"D", "delete"}, {"m", "move"}, {"o", "more"}, {"Esc", "back"}}
+			full = [][2]string{{"u/e", "move"}, {"Alt-U/E", "reorder"}, {"t", "thread"}, {"T", "top"}, {"a", "sub-goal"}, {"A", "top goal"}, {"r", "rename"}, {"R", "edit"}, {"Enter", enterLabel}, {"D", "delete"}, {"m", "move"}, {"o", "more"}, {"Esc", "back"}}
 		case nodeThread:
 			dLabel := "done"
 			if strings.TrimSpace(n.Thread.WindowID) == "" {
 				dLabel = "delete"
 			}
-			full = [][2]string{{"u/e", "move"}, {"t", "thread"}, {"a", "goal"}, {"r", "rename"}, {"R", "edit"}, {"g", "goal"}, {"m", "move"}, {"Enter", enterLabel}, {"D", dLabel}, {"o", "more"}, {"Esc", "back"}}
+			full = [][2]string{{"u/e", "move"}, {"Alt-U/E", "reorder"}, {"t", "thread"}, {"a", "goal"}, {"r", "rename"}, {"R", "edit"}, {"g", "goal"}, {"m", "move"}, {"Enter", enterLabel}, {"D", dLabel}, {"o", "more"}, {"Esc", "back"}}
 		case nodeDraft:
 			full = [][2]string{{"u/e", "move"}, {"a", "goal"}, {"m", "move"}, {"p", "promote"}, {"Enter", enterLabel}, {"o", "more"}, {"Esc", "back"}}
 		case nodeTodo:
@@ -2553,7 +2593,7 @@ func (m *goalPanelModel) renderHelp(styles paletteStyles, width, height int) str
 	lines := []string{
 		"u/e move through the list. n jumps to the parent goal.",
 		"→ or t expands a thread to show its todos. Enter goes to the thread's window (or binds it if planned).",
-		"r renames. g sets the goal. b sets a blocker. m enters move mode (u/e to reposition, Enter to commit).",
+		"r renames. g sets the goal. b sets a blocker. Alt-U/E reorders the item among its siblings (no nesting). m enters move mode (u/e to reposition, Enter to commit).",
 		"p promotes a draft into a named thread. D marks a thread done / deletes a goal (cascade).",
 		"a adds a todo to the selected thread. c toggles a todo. l toggles the assigned/unassigned view.",
 		"o opens all actions. Esc returns to the palette.",

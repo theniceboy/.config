@@ -130,33 +130,19 @@ def get_tmux_panes() -> list[TmuxPane]:
     return panes
 
 
-def get_descendants(pid: int, max_depth: int = 5) -> set[int]:
-    """Get all descendant PIDs of a process."""
-    descendants = set()
-    to_check = [pid]
-    depth = 0
-    
-    while to_check and depth < max_depth:
-        next_check = []
-        for p in to_check:
-            children = run_cmd(f"pgrep -P {p} 2>/dev/null").strip().split('\n')
-            for child in children:
-                if child.isdigit():
-                    child_pid = int(child)
-                    if child_pid not in descendants:
-                        descendants.add(child_pid)
-                        next_check.append(child_pid)
-        to_check = next_check
-        depth += 1
-    
-    return descendants
-
-
 def get_parent_chain(pid: int, max_depth: int = 10) -> list[tuple[int, str]]:
-    """Get parent chain up to launchd."""
-    chain = []
-    current = pid
-    
+    """Ancestors as (pid, comm), starting with the immediate parent.
+
+    Walks upward via `ps ppid`, which stays correct when `pgrep -P` child
+    enumeration races with reparenting on macOS.
+    """
+    ppid_out = run_cmd(f"ps -p {pid} -o ppid= 2>/dev/null").strip()
+    try:
+        current = int(ppid_out)
+    except ValueError:
+        return []
+
+    chain: list[tuple[int, str]] = []
     for _ in range(max_depth):
         output = run_cmd(f"ps -p {current} -o ppid=,comm= 2>/dev/null").strip()
         if not output:
@@ -167,13 +153,12 @@ def get_parent_chain(pid: int, max_depth: int = 10) -> list[tuple[int, str]]:
         try:
             ppid = int(parts[0])
             comm = parts[1]
-            chain.append((ppid, comm))
-            if ppid <= 1:
-                break
-            current = ppid
         except ValueError:
             break
-    
+        chain.append((current, comm))
+        if ppid <= 1 or current <= 1:
+            break
+        current = ppid
     return chain
 
 
@@ -197,15 +182,13 @@ def main():
     processes = get_target_processes()
     panes = get_tmux_panes()
     
-    pane_descendants: dict[int, set[int]] = {}
-    for pane in panes:
-        pane_descendants[pane.pane_pid] = get_descendants(pane.pane_pid)
-    
+    pane_pids = {pane.pane_pid: pane for pane in panes}
+
     tmux_mapping: dict[int, TmuxPane] = {}
     for proc in processes:
-        for pane in panes:
-            if proc.pid in pane_descendants[pane.pane_pid]:
-                tmux_mapping[proc.pid] = pane
+        for ancestor_pid, _ in get_parent_chain(proc.pid):
+            if ancestor_pid in pane_pids:
+                tmux_mapping[proc.pid] = pane_pids[ancestor_pid]
                 break
     
     by_window: dict[str, list[Process]] = defaultdict(list)

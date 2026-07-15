@@ -11,12 +11,15 @@
 		}
 	},
 	"disabled_providers": [
+		"openai",
+		"zai",
+		"zhipuai",
+		"zhipuai-coding-plan",
 		"zen",
 		"cloudflare",
 		"cloudflare-ai-gateway",
 		"cloudflare-workers-ai",
-		"amazon-bedrock",
-		"ollama-cloud"
+		"amazon-bedrock"
 	],
 	"compaction": {
 		"auto": false
@@ -84,6 +87,102 @@
 				"--stdio"
 			],
 			"enabled": false
+		}
+	},
+	"provider": {
+		"cliproxy": {
+			"api": "openai",
+			"name": "CLIProxyAPI (dmini)",
+			"options": {
+				"apiKey": "{env:CLIPROXY_API_KEY}",
+				"baseURL": "{env:CLIPROXY_BASE_URL}"
+			},
+			"models": {
+				"gpt-5.6-sol": {
+					"name": "gpt-5.6-sol",
+					"attachment": true,
+					"modalities": {
+						"input": ["text", "image"],
+						"output": ["text"]
+					},
+					"tool_call": true,
+					"reasoning": true,
+					"limit": {
+						"context": 272000,
+						"output": 128000
+					}
+				},
+				"gpt-5.6-terra": {
+					"name": "gpt-5.6-terra",
+					"attachment": true,
+					"modalities": {
+						"input": ["text", "image"],
+						"output": ["text"]
+					},
+					"tool_call": true,
+					"reasoning": true,
+					"limit": {
+						"context": 272000,
+						"output": 128000
+					}
+				},
+				"gpt-5.6-luna": {
+					"name": "gpt-5.6-luna",
+					"attachment": true,
+					"modalities": {
+						"input": ["text", "image"],
+						"output": ["text"]
+					},
+					"tool_call": true,
+					"reasoning": true,
+					"limit": {
+						"context": 272000,
+						"output": 128000
+					}
+				},
+				"gpt-5.5": {
+					"name": "gpt-5.5",
+					"attachment": true,
+					"modalities": {
+						"input": ["text", "image"],
+						"output": ["text"]
+					},
+					"tool_call": true,
+					"reasoning": true,
+					"limit": {
+						"context": 272000,
+						"output": 128000
+					}
+				},
+				"gpt-5.4": {
+					"name": "gpt-5.4",
+					"attachment": true,
+					"modalities": {
+						"input": ["text", "image"],
+						"output": ["text"]
+					},
+					"tool_call": true,
+					"reasoning": true,
+					"limit": {
+						"context": 272000,
+						"output": 128000
+					}
+				},
+				"gpt-5.4-mini": {
+					"name": "gpt-5.4-mini",
+					"attachment": true,
+					"modalities": {
+						"input": ["text", "image"],
+						"output": ["text"]
+					},
+					"tool_call": true,
+					"reasoning": true,
+					"limit": {
+						"context": 272000,
+						"output": 128000
+					}
+				}
+			}
 		}
 	}
 }

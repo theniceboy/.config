@@ -48,3 +48,5 @@ if [ -d "$HOME/Github/mac-ctrl/bin" ] && ! echo ":$PATH:" | grep -q ":$HOME/Gith
 fi
 
 export PATH="$XDG_CONFIG_HOME/agent-tracker/bin$PATH"
+
+export OPENCODE_EXPERIMENTAL_DISABLE_FILEWATCHER=true

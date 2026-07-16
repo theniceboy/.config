@@ -173,6 +173,7 @@ _op_run() {
     AGENT_FEATURE="${agent_feature:-${AGENT_FEATURE:-}}" \
     AGENT_BROWSER_URL="${agent_browser_url:-${AGENT_BROWSER_URL:-}}" \
     OP_TRACKER_NOTIFY="${OP_TRACKER_NOTIFY:-0}" \
+    OPENCODE_EXPERIMENTAL_DISABLE_FILEWATCHER="${OPENCODE_EXPERIMENTAL_DISABLE_FILEWATCHER:-true}" \
     RIPGREP_CONFIG_PATH="${RIPGREP_CONFIG_PATH:-$HOME/.ripgreprc}" \
     "${opencode_cmd[@]}"
   local exit_code=$?

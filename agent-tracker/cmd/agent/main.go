@@ -162,7 +162,7 @@ func main() {
 
 func run(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: agent <start|resume|list|destroy|init|config|setup|tmux|tracker|goal|browser|feature|hot-reload|update-hot-reload>")
+		return fmt.Errorf("usage: agent <start|resume|list|destroy|init|config|setup|tmux|tracker|goal|browser|feature|hot-reload>")
 	}
 	switch args[0] {
 	case "start":
@@ -193,8 +193,6 @@ func run(args []string) error {
 		return runFeatureCommand(args[1:])
 	case "hot-reload":
 		return runHotReloadCommand(args[1:])
-	case "update-hot-reload":
-		return runUpdateHotReload(args[1:])
 	case "bootstrap":
 		return runBootstrap(args[1:])
 	default:
@@ -678,8 +676,8 @@ func runBootstrap(args []string) error {
 
 	repoCopyPath := filepath.Join(workspaceRoot, "repo")
 	if startOptions.Pull {
-		if err = pullSourceBranch(repoRoot, repoCfg); err != nil {
-			return err
+		if pullErr := pullSourceBranch(repoRoot, repoCfg); pullErr != nil {
+			fmt.Fprintf(os.Stderr, "warning: pull source branch failed (continuing): %v\n", pullErr)
 		}
 	}
 	if err = copyGitMetadata(repoRoot, repoCopyPath); err != nil {
@@ -2171,7 +2169,6 @@ func requiredAgentExcludeEntries(repoRoot string, isFlutter bool) []string {
 	entries = append(entries, ".agents")
 	if isFlutter {
 		entries = append(entries, "web_dev_config.yaml")
-		entries = append(entries, "hot-reload.sh")
 	}
 	return entries
 }
@@ -2830,21 +2827,6 @@ func configureFlutterWebConfig(repoRoot, repoCopyPath string, port int) error {
 	return os.WriteFile(configPath, []byte(content), 0o644)
 }
 
-func ensureGeneratedRepoPathIgnored(repoCopyPath, relPath string) error {
-	relPath = filepath.ToSlash(filepath.Clean(strings.TrimSpace(relPath)))
-	if relPath == "" || relPath == "." {
-		return fmt.Errorf("relative path is required")
-	}
-	trackedPaths, err := trackedPathsForRepoCopy(repoCopyPath, []string{relPath})
-	if err != nil {
-		return err
-	}
-	if len(trackedPaths) > 0 {
-		return markGitPathsSkipWorktree(repoCopyPath, trackedPaths)
-	}
-	return ensureGitExcludeEntries(repoCopyPath, []string{relPath})
-}
-
 func writeFlutterHelperScripts(workspaceRoot, repoCopyPath, url, device string) error {
 	if err := os.MkdirAll(filepath.Join(workspaceRoot, "logs"), 0o755); err != nil {
 		return err
@@ -2908,123 +2890,12 @@ exec script -qF "$logfile" bash -lc "cd \"$DIR/repo\" && exec flutter run -d \"$
 	if err := os.WriteFile(ensurePath, []byte(ensureServer), 0o755); err != nil {
 		return err
 	}
-	if err := writeHotReloadScript(repoCopyPath); err != nil {
-		return err
-	}
-	_ = os.Remove(filepath.Join(workspaceRoot, "hot-reload.sh"))
 	for _, obsolete := range []string{"open-tab.sh", "refresh-tab.sh", "on-tmux-window-activate.sh"} {
 		_ = os.Remove(filepath.Join(workspaceRoot, obsolete))
 	}
 	_ = url
 	_ = device
 	return nil
-}
-
-func writeHotReloadScript(repoCopyPath string) error {
-	hotReload := `#!/usr/bin/env bash
-set -euo pipefail
-REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
-WORKSPACE_DIR="$(dirname "$REPO_DIR")"
-AGENT_BIN="${AGENT_BIN:-$HOME/.config/agent-tracker/bin/agent}"
-exec "$AGENT_BIN" hot-reload --workspace "$WORKSPACE_DIR"
-`
-	if err := ensureGeneratedRepoPathIgnored(repoCopyPath, "hot-reload.sh"); err != nil {
-		return err
-	}
-	hotReloadPath := filepath.Join(repoCopyPath, "hot-reload.sh")
-	return os.WriteFile(hotReloadPath, []byte(hotReload), 0o755)
-}
-
-func runUpdateHotReload(args []string) error {
-	fs := flag.NewFlagSet("agent update-hot-reload", flag.ContinueOnError)
-	var allRepos bool
-	fs.BoolVar(&allRepos, "all", false, "update workspaces across every repo in the registry")
-	fs.SetOutput(os.Stderr)
-	if err := fs.Parse(args); err != nil {
-		return err
-	}
-
-	var repoRoots []string
-	if allRepos {
-		reg, err := loadRegistry()
-		if err != nil {
-			return err
-		}
-		seen := map[string]bool{}
-		for _, record := range reg.Agents {
-			root := filepath.Clean(record.RepoRoot)
-			if root == "" || seen[root] {
-				continue
-			}
-			seen[root] = true
-			repoRoots = append(repoRoots, root)
-		}
-		sort.Strings(repoRoots)
-	} else {
-		root, err := repoRoot()
-		if err != nil {
-			return fmt.Errorf("%w; run inside a git repo or use --all", err)
-		}
-		repoRoots = []string{root}
-	}
-
-	totalUpdated := 0
-	for _, root := range repoRoots {
-		updated, err := updateHotReloadInRepo(root)
-		if err != nil {
-			return fmt.Errorf("%s: %w", root, err)
-		}
-		if len(updated) == 0 {
-			continue
-		}
-		totalUpdated += len(updated)
-		fmt.Printf("%s:\n", root)
-		for _, name := range updated {
-			fmt.Printf("  %s\n", name)
-		}
-	}
-	if totalUpdated == 0 {
-		fmt.Println("No Flutter workspaces found.")
-		return nil
-	}
-	fmt.Printf("Updated hot-reload.sh in %d workspace(s).\n", totalUpdated)
-	return nil
-}
-
-func updateHotReloadInRepo(repoRoot string) ([]string, error) {
-	agentsRoot := filepath.Join(repoRoot, ".agents")
-	entries, err := os.ReadDir(agentsRoot)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	var updated []string
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		workspaceRoot := filepath.Join(agentsRoot, entry.Name())
-		featurePath := filepath.Join(workspaceRoot, "agent.json")
-		repoCopyPath := filepath.Join(workspaceRoot, "repo")
-		isFlutter := false
-		if cfg, err := loadFeatureConfig(featurePath); err == nil {
-			isFlutter = cfg.IsFlutter
-		}
-		hotReloadPath := filepath.Join(repoCopyPath, "hot-reload.sh")
-		if !isFlutter && !fileExists(hotReloadPath) {
-			continue
-		}
-		if !pathExists(repoCopyPath) {
-			continue
-		}
-		if err := writeHotReloadScript(repoCopyPath); err != nil {
-			return nil, fmt.Errorf("%s: %w", entry.Name(), err)
-		}
-		updated = append(updated, entry.Name())
-	}
-	return updated, nil
 }
 
 func detectDefaultBaseBranch(repoRoot string) string {

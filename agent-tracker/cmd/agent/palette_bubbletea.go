@@ -558,7 +558,7 @@ func (r *paletteRuntime) buildActions() []paletteAction {
 			paletteAction{
 				Section:  "Browser",
 				Title:    "Hot reload",
-				Subtitle: "Run hot-reload.sh (analyze + flutter reload)",
+				Subtitle: "Analyze + flutter reload",
 				Keywords: []string{"browser", "reload", "hot", "flutter", "refresh"},
 				Kind:     paletteActionBrowserReload,
 			},
@@ -1136,7 +1136,7 @@ func (m *paletteModel) openGoalsPanel() (tea.Cmd, error) {
 
 func agentPanelActions() []paletteAction {
 	return []paletteAction{
-		{Section: "Browser", Title: "Hot Reload", Subtitle: "Run hot-reload.sh (analyze + flutter reload)", Keywords: []string{"reload", "hot", "flutter", "analyze"}, Kind: paletteActionBrowserReload},
+		{Section: "Browser", Title: "Hot Reload", Subtitle: "Analyze + flutter reload", Keywords: []string{"reload", "hot", "flutter", "analyze"}, Kind: paletteActionBrowserReload},
 		{Section: "Browser", Title: "Copy Logs", Subtitle: "Copy browser console to clipboard", Keywords: []string{"copy", "logs", "console", "clipboard"}, Kind: paletteActionBrowserCopyLogs},
 		{Section: "Browser", Title: "Paste Logs", Subtitle: "Paste browser console into pane", Keywords: []string{"paste", "logs", "console", "pane"}, Kind: paletteActionBrowserLogs},
 		{Section: "Browser", Title: "Clear Logs", Subtitle: "Clear browser console buffer", Keywords: []string{"clear", "logs", "console", "buffer"}, Kind: paletteActionBrowserClearLogs},

@@ -165,6 +165,7 @@ func saveWindowSnapshot(args tmuxRightStatusArgs) {
 		}
 		snapshot[args.WindowID] = entry
 	} else {
+		liveIDs := make(map[string]bool)
 		for _, line := range strings.Split(out, "\n") {
 			fields := strings.SplitN(line, "\t", 4)
 			if len(fields) != 4 {
@@ -174,18 +175,62 @@ func saveWindowSnapshot(args tmuxRightStatusArgs) {
 			if wid == "" {
 				continue
 			}
+			liveIDs[wid] = true
 			snapshot[wid] = windowSnapshotEntry{
 				SessionName: strings.TrimSpace(fields[1]),
 				WindowIndex: strings.TrimSpace(fields[2]),
 				WindowName:  strings.TrimSpace(fields[3]),
 			}
 		}
+		pruneOrphanedLastMessageFiles(liveIDs)
 	}
 	updated, _ := json.Marshal(snapshot)
 	_ = os.MkdirAll(filepath.Dir(path), 0755)
 	tmp := path + ".tmp"
 	_ = os.WriteFile(tmp, updated, 0644)
 	_ = os.Rename(tmp, path)
+}
+
+// work-status is invoked once per tmux status refresh, so prune cadence is bounded
+// via a stamp file rather than running on every call.
+const lastMessagePruneInterval = 2 * time.Minute
+
+func pruneOrphanedLastMessageFiles(liveWindowIDs map[string]bool) {
+	stateDir := os.Getenv("XDG_STATE_HOME")
+	if stateDir == "" {
+		home, _ := os.UserHomeDir()
+		stateDir = filepath.Join(home, ".local", "state")
+	}
+	dir := filepath.Join(stateDir, "op")
+	stamp := filepath.Join(dir, ".lastmsg-prune-stamp")
+	if info, err := os.Stat(stamp); err == nil && statusNow().Sub(info.ModTime()) < lastMessagePruneInterval {
+		return
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return
+	}
+	if err := os.WriteFile(stamp, []byte{}, 0o644); err != nil {
+		return
+	}
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	live := make(map[string]bool, len(liveWindowIDs))
+	for id := range liveWindowIDs {
+		live[sanitizeStateKey(id)] = true
+	}
+	for _, e := range entries {
+		name := e.Name()
+		if !strings.HasPrefix(name, "lastmsg_") {
+			continue
+		}
+		if live[strings.TrimPrefix(name, "lastmsg_")] {
+			continue
+		}
+		_ = os.Remove(filepath.Join(dir, name))
+	}
 }
 
 type statusTodoItem struct {

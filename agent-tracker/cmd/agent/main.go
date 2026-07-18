@@ -581,6 +581,43 @@ func stopWorkspaceBootstrap(workspaceRoot string) error {
 	return killProcessGroup(pid)
 }
 
+func stopRunningApp(record *agentRecord) {
+	if record == nil {
+		return
+	}
+	if paneID := strings.TrimSpace(record.Panes.Run); paneID != "" {
+		if pid := paneProcessID(paneID); pid > 0 {
+			_ = killProcessGroup(pid)
+		}
+	}
+	if record.Port > 0 {
+		out, err := exec.Command("lsof", "-ti", "tcp:"+strconv.Itoa(record.Port), "-sTCP:LISTEN", "-n").Output()
+		if err == nil {
+			for _, raw := range strings.Fields(strings.TrimSpace(string(out))) {
+				if pid, perr := strconv.Atoi(raw); perr == nil && pid > 0 {
+					_ = syscall.Kill(pid, syscall.SIGTERM)
+				}
+			}
+		}
+	}
+}
+
+func paneProcessID(paneID string) int {
+	paneID = strings.TrimSpace(paneID)
+	if paneID == "" {
+		return 0
+	}
+	out, err := runTmuxOutput("display-message", "-p", "-t", paneID, "#{pane_pid}")
+	if err != nil {
+		return 0
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(out))
+	if err != nil || pid <= 0 {
+		return 0
+	}
+	return pid
+}
+
 func ensureWorkspaceBootstrap(record *agentRecord, _ *repoConfig) error {
 	if fileExists(bootstrapRepoReadyPath(record.WorkspaceRoot)) {
 		return nil
@@ -975,6 +1012,7 @@ func runDestroy(args []string) error {
 	record := target.Record
 	windowID := target.WindowID
 	destroyingCurrentWindow := target.DestroyingCurrentWindow
+	stopRunningApp(record)
 	if record.URL != "" {
 		_ = closeChromeTab(record.URL)
 	}

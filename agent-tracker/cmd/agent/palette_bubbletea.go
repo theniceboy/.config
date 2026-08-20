@@ -67,6 +67,9 @@ type paletteModel struct {
 	goals                   *goalPanelModel
 	agentList               *actionListPanel
 	opencodeForkList        *actionListPanel
+	deviceSwitch            *deviceSwitchPanelModel
+	restoreAgent            *restoreAgentPanelModel
+	quotas                  *llmQuotaPanelModel
 }
 
 type paletteStyles struct {
@@ -192,7 +195,7 @@ func loadPaletteRuntime(args []string) (*paletteRuntime, error) {
 	fs.StringVar(&currentWindowName, "window-name", "", "current window name")
 	fs.StringVar(&currentWindowIndex, "window-index", "", "current window index")
 	fs.StringVar(&currentPaneIndex, "pane-index", "", "current pane index")
-	fs.StringVar(&modeFlag, "mode", "", "initial panel mode (goals, tracker, todos, activity, status)")
+	fs.StringVar(&modeFlag, "mode", "", "initial panel mode (goals, tracker, todos, activity, status, quotas)")
 	fs.SetOutput(nil)
 	if err := fs.Parse(args); err != nil {
 		return nil, err
@@ -220,6 +223,8 @@ func loadPaletteRuntime(args []string) (*paletteRuntime, error) {
 		runtime.startMode = paletteModeActivity
 	case "status", "status-right", "bottom-right":
 		runtime.startMode = paletteModeStatusRight
+	case "quotas", "llm-quotas":
+		runtime.startMode = paletteModeLLMQuotas
 	default:
 		runtime.startMode = paletteModeList
 	}
@@ -432,6 +437,41 @@ func (r *paletteRuntime) persistRecord(update func(*agentRecord) error) error {
 	return r.reload()
 }
 
+func (r *paletteRuntime) applyDeviceSwitch(deviceID string) error {
+	if r.record == nil {
+		return fmt.Errorf("no agent record loaded")
+	}
+	deviceID = normalizeManagedDeviceID(deviceID)
+	if deviceID == "" {
+		return fmt.Errorf("invalid device id")
+	}
+	workspace := strings.TrimSpace(r.record.WorkspaceRoot)
+	paneID := strings.TrimSpace(r.record.Panes.Run)
+	if workspace == "" || paneID == "" {
+		return fmt.Errorf("agent workspace or run pane missing")
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	cmd := exec.Command(exe, "feature", "--workspace", workspace, "--device", deviceID)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("%s", firstNonEmpty(strings.TrimSpace(string(out)), err.Error()))
+	}
+	if err := r.reload(); err != nil {
+		return err
+	}
+	runCmd := gatedWorkspaceCommand(
+		workspace,
+		bootstrapRepoReadyPath(workspace),
+		fmt.Sprintf("cd %s; ./ensure-server.sh %s; exec ${SHELL:-/bin/zsh}", shellQuote(workspace), shellQuote(deviceID)),
+	)
+	if err := runTmux("respawn-pane", "-k", "-t", paneID, runCmd); err != nil {
+		return fmt.Errorf("failed to restart server: %w", err)
+	}
+	return nil
+}
+
 func (r *paletteRuntime) buildActions() []paletteAction {
 	actions := []paletteAction{
 		{
@@ -450,6 +490,22 @@ func (r *paletteRuntime) buildActions() []paletteAction {
 			Subtitle: "Delete the workspace and close its tmux window",
 			Keywords: []string{"agent", "destroy", "remove", "delete"},
 			Kind:     paletteActionConfirmDestroy,
+		}, paletteAction{
+			Section:  "Agent",
+			Title:    "Close agent",
+			Subtitle: "Close tmux window + stop processes (workspace kept; resume restores)",
+			Keywords: []string{"agent", "close", "stop", "shutdown"},
+			Kind:     paletteActionCloseAgent,
+		})
+	}
+	if len(restorableAgentItems(r.mainRepoRoot)) > 0 {
+		actions = append(actions, paletteAction{
+			Section:  "Restore",
+			Title:    "Restore agent",
+			Subtitle: "Reopen a closed agent + resume its opencode session",
+			Keywords: []string{"agent", "restore", "resume", "reopen"},
+			Kind:     paletteActionRestoreAgent,
+			RepoRoot: r.mainRepoRoot,
 		})
 	}
 	if r.canForkCurrentOpenCode() {
@@ -489,6 +545,13 @@ func (r *paletteRuntime) buildActions() []paletteAction {
 			Subtitle: "View CPU, memory and process usage",
 			Keywords: []string{"activity", "monitor", "cpu", "memory", "processes", "top", "ps"},
 			Kind:     paletteActionOpenActivityMonitor,
+		},
+		paletteAction{
+			Section:  "System",
+			Title:    "LLM quotas",
+			Subtitle: "Live Z.AI and Codex subscription usage",
+			Keywords: []string{"llm", "quota", "quotas", "usage", "zai", "codex", "cliproxy", "limits"},
+			Kind:     paletteActionOpenLLMQuotas,
 		},
 		paletteAction{
 			Section:  "System",
@@ -629,6 +692,44 @@ func launchPaletteDestroyWithConfirm(agentID string, confirmText string) error {
 	return spawnDetachedAgentCommand(args...)
 }
 
+func launchPaletteClose(agentID string) error {
+	agentID = strings.TrimSpace(agentID)
+	if agentID == "" {
+		return fmt.Errorf("no agent found for this tmux window")
+	}
+	if _, err := loadDestroyTarget(agentID); err != nil {
+		return err
+	}
+	if os.Getenv("TMUX") != "" {
+		exe, err := os.Executable()
+		if err != nil {
+			return err
+		}
+		return runTmux("run-shell", "-b", fmt.Sprintf("%s close --id %s", shellQuote(exe), shellQuote(agentID)))
+	}
+	return spawnDetachedAgentCommand("close", "--id", agentID)
+}
+
+func launchPaletteRestore(agentID, repoRoot string) error {
+	agentID = strings.TrimSpace(agentID)
+	if agentID == "" {
+		return fmt.Errorf("no agent selected")
+	}
+	repoRoot = strings.TrimSpace(repoRoot)
+	if os.Getenv("TMUX") != "" {
+		exe, err := os.Executable()
+		if err != nil {
+			return err
+		}
+		cmd := fmt.Sprintf("%s restore --id %s", shellQuote(exe), shellQuote(agentID))
+		if repoRoot != "" {
+			cmd = fmt.Sprintf("cd %s && %s", shellQuote(repoRoot), cmd)
+		}
+		return runTmux("run-shell", "-b", cmd)
+	}
+	return spawnDetachedAgentCommand("restore", "--id", agentID)
+}
+
 func buildAgentStartArgs(feature, device string, keepWorktree, pull bool) []string {
 	args := []string{"start"}
 	if keepWorktree {
@@ -740,6 +841,15 @@ func (r *paletteRuntime) execute(result paletteResult) (bool, string, error) {
 			return true, "", err
 		}
 		return false, "", nil
+	case paletteActionCloseAgent:
+		agentID := r.effectiveAgentID()
+		if agentID == "" {
+			return true, "", fmt.Errorf("no agent found for this tmux window")
+		}
+		if err := launchPaletteClose(agentID); err != nil {
+			return true, "", err
+		}
+		return false, "", nil
 	case paletteActionReloadTmuxConfig:
 		return false, "", paletteTmuxRunner("source-file", os.Getenv("HOME")+"/.config/.tmux.conf")
 	case paletteActionOpenScratch:
@@ -790,6 +900,19 @@ func (r *paletteRuntime) execute(result paletteResult) (bool, string, error) {
 			return true, "", err
 		}
 		return false, "", nil
+	case paletteActionRestartAgentServer:
+		if r.record == nil || r.record.Runtime != "flutter" || strings.TrimSpace(r.record.Device) == "" || strings.TrimSpace(r.record.Panes.Run) == "" || strings.TrimSpace(r.record.WorkspaceRoot) == "" {
+			return true, "", fmt.Errorf("no restartable Flutter server for this agent")
+		}
+		runCmd := gatedWorkspaceCommand(
+			r.record.WorkspaceRoot,
+			bootstrapRepoReadyPath(r.record.WorkspaceRoot),
+			fmt.Sprintf("cd %s; ./ensure-server.sh %s; exec ${SHELL:-/bin/zsh}", shellQuote(r.record.WorkspaceRoot), shellQuote(r.record.Device)),
+		)
+		if err := runTmux("respawn-pane", "-k", "-t", r.record.Panes.Run, runCmd); err != nil {
+			return true, "", fmt.Errorf("failed to restart server: %w", err)
+		}
+		return false, "Restarting agent server", nil
 	default:
 		return false, "", nil
 	}
@@ -985,6 +1108,9 @@ func newPaletteModel(runtime *paletteRuntime, state paletteUIState) *paletteMode
 	if state.Mode == paletteModeGoals {
 		_, _ = model.openGoalsPanel()
 	}
+	if state.Mode == paletteModeLLMQuotas {
+		model.quotas = newLLMQuotaPanelModel()
+	}
 	return model
 }
 
@@ -994,6 +1120,9 @@ func (m *paletteModel) Init() tea.Cmd {
 	}
 	if m.tracker != nil {
 		return trackerPanelTickCmd()
+	}
+	if m.quotas != nil {
+		return m.quotas.activate()
 	}
 	if m.activity != nil {
 		return activityTickCmd()
@@ -1116,6 +1245,22 @@ func (m *paletteModel) openTrackerPanel() (tea.Cmd, error) {
 	return m.tracker.activate(), nil
 }
 
+func (m *paletteModel) openLLMQuotaPanel() tea.Cmd {
+	m.noteSecondaryPageOpen()
+	if m.quotas == nil {
+		m.quotas = newLLMQuotaPanelModel()
+	} else {
+		m.quotas.requestBack = false
+	}
+	m.quotas.width = m.width
+	m.quotas.height = m.height
+	m.quotas.showAltHints = false
+	m.state.Mode = paletteModeLLMQuotas
+	m.state.Message = ""
+	m.state.ShowAltHints = false
+	return m.quotas.activate()
+}
+
 func (m *paletteModel) openGoalsPanel() (tea.Cmd, error) {
 	m.noteSecondaryPageOpen()
 	if m.goals == nil {
@@ -1134,13 +1279,32 @@ func (m *paletteModel) openGoalsPanel() (tea.Cmd, error) {
 	return m.goals.activate(), nil
 }
 
-func agentPanelActions() []paletteAction {
-	return []paletteAction{
+func agentPanelActions(r *paletteRuntime) []paletteAction {
+	actions := []paletteAction{
 		{Section: "Browser", Title: "Hot Reload", Subtitle: "Analyze + flutter reload", Keywords: []string{"reload", "hot", "flutter", "analyze"}, Kind: paletteActionBrowserReload},
 		{Section: "Browser", Title: "Copy Logs", Subtitle: "Copy browser console to clipboard", Keywords: []string{"copy", "logs", "console", "clipboard"}, Kind: paletteActionBrowserCopyLogs},
 		{Section: "Browser", Title: "Paste Logs", Subtitle: "Paste browser console into pane", Keywords: []string{"paste", "logs", "console", "pane"}, Kind: paletteActionBrowserLogs},
 		{Section: "Browser", Title: "Clear Logs", Subtitle: "Clear browser console buffer", Keywords: []string{"clear", "logs", "console", "buffer"}, Kind: paletteActionBrowserClearLogs},
 	}
+	if r != nil && r.record != nil {
+		actions = append(actions,
+			paletteAction{
+				Section:  "Server",
+				Title:    "Restart agent server",
+				Subtitle: "Re-run ensure-server.sh in the Run pane",
+				Keywords: []string{"restart", "server", "flutter", "ensure-server", "run", "pane"},
+				Kind:     paletteActionRestartAgentServer,
+			},
+			paletteAction{
+				Section:  "Server",
+				Title:    "Switch device",
+				Subtitle: "Change the Flutter launch device and restart the server",
+				Keywords: []string{"switch", "device", "flutter", "change", "launch"},
+				Kind:     paletteActionSwitchAgentDevice,
+			},
+		)
+	}
+	return actions
 }
 
 func agentPanelHotKeys() map[string]int {
@@ -1149,6 +1313,8 @@ func agentPanelHotKeys() map[string]int {
 		"alt+y": 1,
 		"alt+p": 2,
 		"alt+c": 3,
+		"alt+t": 4,
+		"alt+d": 5,
 	}
 }
 
@@ -1170,8 +1336,28 @@ func opencodeForkPanelHotKeys() map[string]int {
 
 func (m *paletteModel) openAgentPanel() {
 	m.noteSecondaryPageOpen()
-	m.agentList = newActionListPanel(agentPanelActions(), agentPanelHotKeys())
+	m.agentList = newActionListPanel(agentPanelActions(m.runtime), agentPanelHotKeys())
 	m.state.Mode = paletteModeAgent
+	m.state.Message = ""
+	m.state.ShowAltHints = false
+}
+
+func (m *paletteModel) openDeviceSwitchPanel() {
+	m.noteSecondaryPageOpen()
+	current := ""
+	if m.runtime.record != nil {
+		current = m.runtime.record.Device
+	}
+	m.deviceSwitch = newDeviceSwitchPanelModel(current)
+	m.state.Mode = paletteModeSwitchDevice
+	m.state.Message = ""
+	m.state.ShowAltHints = false
+}
+
+func (m *paletteModel) openRestoreAgentPanel(repoRoot string) {
+	m.noteSecondaryPageOpen()
+	m.restoreAgent = newRestoreAgentPanelModel(repoRoot)
+	m.state.Mode = paletteModeRestoreAgent
 	m.state.Message = ""
 	m.state.ShowAltHints = false
 }
@@ -1191,7 +1377,7 @@ func (m *paletteModel) updateAgentPanel(key string) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if m.agentList == nil {
-		m.agentList = newActionListPanel(agentPanelActions(), agentPanelHotKeys())
+		m.agentList = newActionListPanel(agentPanelActions(m.runtime), agentPanelHotKeys())
 	}
 	action, consumed := m.agentList.handleKey(key)
 	if consumed && action != nil {
@@ -1216,6 +1402,67 @@ func (m *paletteModel) updateOpencodeForkPanel(key string) (tea.Model, tea.Cmd) 
 	return m, nil
 }
 
+func (m *paletteModel) updateDeviceSwitchPanel(key string) (tea.Model, tea.Cmd) {
+	if m.deviceSwitch == nil {
+		m.deviceSwitch = newDeviceSwitchPanelModel("")
+	}
+	m.deviceSwitch.handleKey(key)
+	if m.deviceSwitch.requestBack {
+		m.deviceSwitch.requestBack = false
+		m.state.Mode = paletteModeAgent
+		m.state.Message = ""
+		m.agentList = newActionListPanel(agentPanelActions(m.runtime), agentPanelHotKeys())
+		return m, nil
+	}
+	if m.deviceSwitch.requestDone {
+		chosen := m.deviceSwitch.chosen
+		m.deviceSwitch.requestDone = false
+		if chosen == "" {
+			return m, nil
+		}
+		if err := m.runtime.applyDeviceSwitch(chosen); err != nil {
+			m.state.Mode = paletteModeAgent
+			m.state.Message = err.Error()
+			m.agentList = newActionListPanel(agentPanelActions(m.runtime), agentPanelHotKeys())
+			return m, nil
+		}
+		m.state.Mode = paletteModeAgent
+		m.state.Message = fmt.Sprintf("Switched to %s, restarting server", chosen)
+		m.agentList = newActionListPanel(agentPanelActions(m.runtime), agentPanelHotKeys())
+		return m, nil
+	}
+	return m, nil
+}
+
+func (m *paletteModel) updateRestoreAgentPanel(key string) (tea.Model, tea.Cmd) {
+	if m.restoreAgent == nil {
+		m.restoreAgent = newRestoreAgentPanelModel(m.runtime.mainRepoRoot)
+	}
+	m.restoreAgent.handleKey(key)
+	if m.restoreAgent.requestBack {
+		m.restoreAgent.requestBack = false
+		m.state.Mode = paletteModeList
+		m.state.Message = ""
+		return m, nil
+	}
+	if m.restoreAgent.requestDone {
+		chosen := m.restoreAgent.chosen
+		repoRoot := m.restoreAgent.repoRoot
+		m.restoreAgent.requestDone = false
+		if chosen == "" {
+			return m, nil
+		}
+		if err := launchPaletteRestore(chosen, repoRoot); err != nil {
+			m.state.Mode = paletteModeList
+			m.state.Message = err.Error()
+			return m, nil
+		}
+		m.result = paletteResult{Kind: paletteResultClose, State: m.state}
+		return m, tea.Quit
+	}
+	return m, nil
+}
+
 func (m *paletteModel) agentPanelCopyLogs() (tea.Model, tea.Cmd) {
 	workspace := m.runtime.workspaceForBrowser()
 	if workspace == "" {
@@ -1234,10 +1481,6 @@ func (m *paletteModel) agentPanelCopyLogs() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	text := strings.TrimSpace(string(output))
-	if text == "" {
-		m.state.Message = "No console output captured"
-		return m, nil
-	}
 	clip := exec.Command("pbcopy")
 	clip.Stdin = strings.NewReader(text)
 	if err := clip.Run(); err != nil {
@@ -1265,6 +1508,10 @@ func (m *paletteModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.tracker.width = msg.Width
 			m.tracker.height = msg.Height
 		}
+		if m.quotas != nil {
+			m.quotas.width = msg.Width
+			m.quotas.height = msg.Height
+		}
 		if m.goals != nil {
 			m.goals.width = msg.Width
 			m.goals.height = msg.Height
@@ -1283,7 +1530,7 @@ func (m *paletteModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
-		if m.state.Mode != paletteModeActivity && m.state.Mode != paletteModeTodos && m.state.Mode != paletteModeDevices && m.state.Mode != paletteModeStatusRight && m.state.Mode != paletteModeTracker && m.state.Mode != paletteModeGoals && m.state.Mode != paletteModeAgent && m.state.Mode != paletteModeOpencodeFork {
+		if m.state.Mode != paletteModeActivity && m.state.Mode != paletteModeTodos && m.state.Mode != paletteModeDevices && m.state.Mode != paletteModeStatusRight && m.state.Mode != paletteModeTracker && m.state.Mode != paletteModeGoals && m.state.Mode != paletteModeLLMQuotas && m.state.Mode != paletteModeAgent && m.state.Mode != paletteModeSwitchDevice && m.state.Mode != paletteModeOpencodeFork && m.state.Mode != paletteModeRestoreAgent {
 			if isAltFooterToggleKey(msg) {
 				m.state.ShowAltHints = !m.state.ShowAltHints
 				return m, nil
@@ -1313,6 +1560,8 @@ func (m *paletteModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m.closePalette()
 			case paletteModeTracker:
 				return m.closePalette()
+			case paletteModeLLMQuotas:
+				return m.closePalette()
 			case paletteModeGoals:
 				if m.goals != nil && m.goals.mode == goalModeList {
 					return m.closePalette()
@@ -1321,10 +1570,20 @@ func (m *paletteModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m.closePalette()
 			case paletteModeOpencodeFork:
 				return m.closePalette()
+			case paletteModeSwitchDevice:
+				return m.closePalette()
+			case paletteModeRestoreAgent:
+				return m.closePalette()
 			}
 		}
 		if m.state.Mode == paletteModeAgent {
 			return m.updateAgentPanel(key)
+		}
+		if m.state.Mode == paletteModeSwitchDevice {
+			return m.updateDeviceSwitchPanel(key)
+		}
+		if m.state.Mode == paletteModeRestoreAgent {
+			return m.updateRestoreAgentPanel(key)
 		}
 		if m.state.Mode == paletteModeOpencodeFork {
 			return m.updateOpencodeForkPanel(key)
@@ -1432,6 +1691,25 @@ func (m *paletteModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.tracker.requestBack = false
 				m.state.Mode = paletteModeList
 				m.state.Message = m.tracker.currentStatus()
+				return m, nil
+			}
+			return m, cmd
+		}
+		if m.state.Mode == paletteModeLLMQuotas {
+			if m.quotas == nil {
+				return m, m.openLLMQuotaPanel()
+			}
+			model, cmd := m.quotas.Update(msg)
+			if updated, ok := model.(*llmQuotaPanelModel); ok {
+				m.quotas = updated
+			}
+			if m.quotas.requestBack {
+				if m.singlePanelMode {
+					return m.closePalette()
+				}
+				m.quotas.requestBack = false
+				m.state.Mode = paletteModeList
+				m.state.Message = m.quotas.currentStatus()
 				return m, nil
 			}
 			return m, cmd
@@ -1546,6 +1824,19 @@ func (m *paletteModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, cmd
 	}
+	if m.state.Mode == paletteModeLLMQuotas && m.quotas != nil {
+		model, cmd := m.quotas.Update(msg)
+		if updated, ok := model.(*llmQuotaPanelModel); ok {
+			m.quotas = updated
+		}
+		if m.quotas.requestBack {
+			m.quotas.requestBack = false
+			m.state.Mode = paletteModeList
+			m.state.Message = m.quotas.currentStatus()
+			return m, nil
+		}
+		return m, cmd
+	}
 	if m.state.Mode == paletteModeGoals && m.goals != nil {
 		model, cmd := m.goals.Update(msg)
 		if updated, ok := model.(*goalPanelModel); ok {
@@ -1590,6 +1881,9 @@ func (m *paletteModel) updateList(key string) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m, cmd
+	}
+	if key == "alt+q" {
+		return m, m.openLLMQuotaPanel()
 	}
 	if key == "alt+p" {
 		m.openSnippetsPanel()
@@ -1698,6 +1992,8 @@ func (m *paletteModel) selectAction(action paletteAction) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m, cmd
+	case paletteActionOpenLLMQuotas:
+		return m, m.openLLMQuotaPanel()
 	case paletteActionOpenGoals:
 		cmd, err := m.openGoalsPanel()
 		if err != nil {
@@ -1718,6 +2014,12 @@ func (m *paletteModel) selectAction(action paletteAction) (tea.Model, tea.Cmd) {
 		return m, nil
 	case paletteActionOpenOpencodeFork:
 		m.openOpencodeForkPanel()
+		return m, nil
+	case paletteActionSwitchAgentDevice:
+		m.openDeviceSwitchPanel()
+		return m, nil
+	case paletteActionRestoreAgent:
+		m.openRestoreAgentPanel(action.RepoRoot)
 		return m, nil
 	case paletteActionBrowserLogs:
 		return m.runBrowserLogsPaste()
@@ -2112,6 +2414,14 @@ func (m *paletteModel) View() string {
 		}
 		return styles.muted.Render("Tracker unavailable")
 	}
+	if m.state.Mode == paletteModeLLMQuotas {
+		if m.quotas != nil {
+			m.quotas.width = width
+			m.quotas.height = height
+			return m.quotas.render(styles, width, height)
+		}
+		return styles.muted.Render("LLM quotas unavailable")
+	}
 	if m.state.Mode == paletteModeGoals {
 		if m.goals != nil {
 			m.goals.width = width
@@ -2123,8 +2433,24 @@ func (m *paletteModel) View() string {
 	if m.state.Mode == paletteModeAgent {
 		return m.renderAgentPanel(styles, width, height)
 	}
+	if m.state.Mode == paletteModeSwitchDevice {
+		if m.deviceSwitch == nil {
+			m.deviceSwitch = newDeviceSwitchPanelModel("")
+		}
+		m.deviceSwitch.width = width
+		m.deviceSwitch.height = height
+		return m.deviceSwitch.View()
+	}
 	if m.state.Mode == paletteModeOpencodeFork {
 		return m.renderOpencodeForkPanel(styles, width, height)
+	}
+	if m.state.Mode == paletteModeRestoreAgent {
+		if m.restoreAgent == nil {
+			m.restoreAgent = newRestoreAgentPanelModel(m.runtime.mainRepoRoot)
+		}
+		m.restoreAgent.width = width
+		m.restoreAgent.height = height
+		return m.restoreAgent.View()
 	}
 	return m.renderListView(styles, width, height)
 }
@@ -2458,7 +2784,7 @@ func (m *paletteModel) renderConfirm(styles paletteStyles, width, height int) st
 
 func (m *paletteModel) renderAgentPanel(styles paletteStyles, width, height int) string {
 	if m.agentList == nil {
-		m.agentList = newActionListPanel(agentPanelActions(), agentPanelHotKeys())
+		m.agentList = newActionListPanel(agentPanelActions(m.runtime), agentPanelHotKeys())
 	}
 	m.state.Filter = m.agentList.filter
 	m.state.FilterCursor = m.agentList.cursor
@@ -2877,9 +3203,9 @@ func renderPaletteFooter(styles paletteStyles, width int, message string, showAl
 			{{"Enter", "run"}, {"Esc", "close"}, {footerHintToggleKey, "more"}},
 		},
 		[][][2]string{
-			{{"Alt-C", "create"}, {"Alt-F", "fork"}, {"Alt-R", "goals"}, {"Alt-D", "tracker"}, {"Alt-A", "agent"}, {"Alt-W", "activity"}, {"Alt-P", "snippets"}, {"Alt-T", "todos"}, {"Alt-S", "close"}, {footerHintToggleKey, "hide"}},
-			{{"Alt-C", "create"}, {"Alt-F", "fork"}, {"Alt-R", "goals"}, {"Alt-D", "tracker"}, {"Alt-A", "agent"}, {"Alt-W", "activity"}, {"Alt-T", "todos"}, {"Alt-S", "close"}, {footerHintToggleKey, "hide"}},
-			{{"Alt-C", "create"}, {"Alt-R", "goals"}, {"Alt-D", "tracker"}, {"Alt-S", "close"}},
+			{{"Alt-C", "create"}, {"Alt-F", "fork"}, {"Alt-R", "goals"}, {"Alt-D", "tracker"}, {"Alt-Q", "quotas"}, {"Alt-A", "agent"}, {"Alt-W", "activity"}, {"Alt-P", "snippets"}, {"Alt-T", "todos"}, {"Alt-S", "close"}, {footerHintToggleKey, "hide"}},
+			{{"Alt-C", "create"}, {"Alt-R", "goals"}, {"Alt-D", "tracker"}, {"Alt-Q", "quotas"}, {"Alt-A", "agent"}, {"Alt-W", "activity"}, {"Alt-T", "todos"}, {"Alt-S", "close"}, {footerHintToggleKey, "hide"}},
+			{{"Alt-R", "goals"}, {"Alt-D", "tracker"}, {"Alt-Q", "quotas"}, {"Alt-S", "close"}},
 		},
 	)
 }

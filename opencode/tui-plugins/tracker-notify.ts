@@ -184,11 +184,16 @@ export const TrackerNotifyPlugin = async ({ client, directory, $ }) => {
 		await applyQuestionPending(pending);
 	};
 
+	const knownChildSessions = new Set();
 	const rememberPaneSession = async (sessionID) => {
 		sessionID = String(sessionID || "").trim();
 		if (!sessionID) return "";
+		if (knownChildSessions.has(sessionID)) return "";
 		const session = await client.session.get({ path: { id: sessionID } }).catch(() => null);
-		if (session?.data?.parentID) return "";
+		if (session?.data?.parentID) {
+			knownChildSessions.add(sessionID);
+			return "";
+		}
 		const sessionChanged = sessionID !== rootSessionID;
 		rootSessionID = sessionID;
 		await persistPaneSessionMap(sessionID);
@@ -378,12 +383,15 @@ export const TrackerNotifyPlugin = async ({ client, directory, $ }) => {
 				if (part?.type === "text" && part?.text && part?.messageID) {
 					const role = messageRoles.get(part.messageID);
 					if (role === "user" || (!role && !taskActive)) {
+					// Only register messages from the root session; subagent (child) sessions must not overwrite the status line
+					if (!knownChildSessions.has(observedSessionID)) {
 						const text = part.text?.trim();
 						if (text && text.length > 0) {
 							lastUserMessage = text.slice(0, MAX_SUMMARY_CHARS);
 							persistLastUserMessage(lastUserMessage);
 						}
 					}
+				}
 					if (role === "assistant") {
 						await updatePhase("responding");
 					}

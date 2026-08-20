@@ -70,7 +70,7 @@ func hotReload(workspaceRoot, featurePath string, skipAnalyze bool) error {
 		return fmt.Errorf("failed to send hot reload key: %w", err)
 	}
 
-	result := monitorHotReload(logfile, linesBefore, device, featurePath)
+	result := monitorHotReload(logfile, linesBefore, device, featurePath, workspaceRoot, paneID)
 	fmt.Println(result)
 	return nil
 }
@@ -195,7 +195,7 @@ func countLines(path string) int {
 	return strings.Count(string(data), "\n") + 1
 }
 
-func monitorHotReload(logfile string, linesBefore int, device string, featurePath string) string {
+func monitorHotReload(logfile string, linesBefore int, device string, featurePath string, workspaceRoot string, paneID string) string {
 	for i := 0; i < 100; i++ {
 		time.Sleep(300 * time.Millisecond)
 		newLines, err := readLinesAfter(logfile, linesBefore)
@@ -215,14 +215,35 @@ func monitorHotReload(logfile string, linesBefore int, device string, featurePat
 			return "Page refreshed"
 		}
 		if strings.Contains(lower, "no client connected") || strings.Contains(lower, "no connected devices") || strings.Contains(lower, "hot reload rejected") {
-			if device == "web-server" {
-				_ = syncChromeForFeature(featurePath, true)
-				_ = refreshChromeForFeature(featurePath)
-			}
-			return "Reconnected browser"
+			return restartFlutterServer(workspaceRoot, paneID, device, logfile)
 		}
 	}
-	return "Timeout waiting for reload confirmation"
+	return restartFlutterServer(workspaceRoot, paneID, device, logfile)
+}
+
+func restartFlutterServer(workspaceRoot, paneID, device, logfile string) string {
+	runCmd := gatedWorkspaceCommand(
+		workspaceRoot,
+		bootstrapRepoReadyPath(workspaceRoot),
+		fmt.Sprintf("cd %s; ./ensure-server.sh %s; exec ${SHELL:-/bin/zsh}", shellQuote(workspaceRoot), shellQuote(device)),
+	)
+	if err := runTmux("respawn-pane", "-k", "-t", paneID, runCmd); err != nil {
+		return fmt.Sprintf("Failed to restart server: %v", err)
+	}
+	if waitFlutterServerReady(logfile) {
+		return "Restarted Flutter server"
+	}
+	return "Restarted Flutter server ( readiness unconfirmed )"
+}
+
+func waitFlutterServerReady(logfile string) bool {
+	for i := 0; i < 100; i++ {
+		time.Sleep(300 * time.Millisecond)
+		if flutterServerReady(logfile) {
+			return true
+		}
+	}
+	return false
 }
 
 func readLinesAfter(path string, startLine int) (string, error) {

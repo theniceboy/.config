@@ -162,17 +162,19 @@ func main() {
 
 func run(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: agent <start|resume|list|destroy|init|config|setup|tmux|tracker|goal|browser|feature|hot-reload>")
+		return fmt.Errorf("usage: agent <start|restore|list|destroy|close|init|config|setup|tmux|tracker|goal|browser|feature|hot-reload>")
 	}
 	switch args[0] {
 	case "start":
 		return runStart(args[1:])
-	case "resume":
-		return runResume(args[1:])
+	case "restore":
+		return runRestore(args[1:])
 	case "list":
 		return runList(args[1:]...)
 	case "destroy":
 		return runDestroy(args[1:])
+	case "close":
+		return runClose(args[1:])
 	case "init":
 		return runInit(args[1:])
 	case "config":
@@ -586,6 +588,8 @@ func stopRunningApp(record *agentRecord) {
 		return
 	}
 	if paneID := strings.TrimSpace(record.Panes.Run); paneID != "" {
+		_ = runTmux("send-keys", "-t", paneID, "q")
+		time.Sleep(500 * time.Millisecond)
 		if pid := paneProcessID(paneID); pid > 0 {
 			_ = killProcessGroup(pid)
 		}
@@ -757,10 +761,20 @@ func runBootstrap(args []string) error {
 	return nil
 }
 
-func runResume(args []string) error {
+func runRestore(args []string) error {
+	fs := flag.NewFlagSet("agent restore", flag.ContinueOnError)
+	var agentID string
+	fs.StringVar(&agentID, "id", "", "agent id")
+	fs.SetOutput(os.Stderr)
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if strings.TrimSpace(agentID) == "" && fs.NArg() > 0 {
+		agentID = sanitizeFeatureName(fs.Arg(0))
+	}
 	repoRoot, err := repoRoot()
 	if err != nil {
-		return fmt.Errorf("agent resume defaults to the current repo; run inside a git repo")
+		return fmt.Errorf("agent restore defaults to the current repo; run inside a git repo")
 	}
 	reg, err := loadRegistry()
 	if err != nil {
@@ -773,10 +787,7 @@ func runResume(args []string) error {
 	if len(recordsByID) == 0 {
 		return fmt.Errorf("no agents found in %s", filepath.Join(repoRoot, ".agents"))
 	}
-	var agentID string
-	if len(args) > 0 {
-		agentID = sanitizeFeatureName(args[0])
-	} else {
+	if strings.TrimSpace(agentID) == "" {
 		ids := make([]string, 0, len(recordsByID))
 		for id := range recordsByID {
 			ids = append(ids, id)
@@ -831,6 +842,12 @@ func runResume(args []string) error {
 	}
 	if err := launchAgentLayout(record); err != nil {
 		return err
+	}
+	if sid := latestOpencodeSessionID(record.RepoCopyPath); sid != "" {
+		fmt.Fprintf(os.Stderr, "agent restore: restoring opencode session %s\n", sid)
+		_ = resumeAIPane(record.Panes.AI, sid)
+	} else {
+		_ = primeAgentAIPane(record.Panes.AI)
 	}
 	return nil
 }
@@ -981,6 +998,38 @@ func runList(args ...string) error {
 	return nil
 }
 
+type restoreAgentItem struct {
+	id    string
+	title string
+}
+
+// restorableAgentItems returns agents under <repoRoot>/.agents whose tmux window
+// is not currently alive (closed, destroyed-but-workspace-kept, or rebooted),
+// each with its latest opencode session title. Candidates for `agent restore`.
+func restorableAgentItems(repoRoot string) []restoreAgentItem {
+	repoRoot = strings.TrimSpace(repoRoot)
+	if repoRoot == "" {
+		return nil
+	}
+	reg, err := loadRegistry()
+	if err != nil {
+		reg = &registry{Agents: map[string]*agentRecord{}}
+	}
+	records, err := loadWorkspaceAgentRecords(repoRoot, reg)
+	if err != nil || len(records) == 0 {
+		return nil
+	}
+	var items []restoreAgentItem
+	for id, rec := range records {
+		if windowAlive(rec.TmuxSessionID, rec.TmuxWindowID) {
+			continue
+		}
+		items = append(items, restoreAgentItem{id: id, title: latestOpencodeSessionTitle(rec.RepoCopyPath)})
+	}
+	sort.Slice(items, func(i, j int) bool { return items[i].id < items[j].id })
+	return items
+}
+
 func runDestroy(args []string) error {
 	fs := flag.NewFlagSet("agent destroy", flag.ContinueOnError)
 	var agentID string
@@ -1027,6 +1076,58 @@ func runDestroy(args []string) error {
 	if err := os.RemoveAll(record.WorkspaceRoot); err != nil {
 		return err
 	}
+	if windowAlive(record.TmuxSessionID, windowID) {
+		if destroyingCurrentWindow {
+			return runTmux("run-shell", "-b", fmt.Sprintf("sleep 0.2; tmux kill-window -t %s", shellQuote(windowID)))
+		}
+		_ = runTmux("kill-window", "-t", windowID)
+	}
+	return nil
+}
+
+// runClose tears down a live agent like destroy but preserves the workspace
+// (repo copy + agent.json) on disk, so `agent restore` can bring it back with
+// its opencode session. No uncommitted-changes confirmation is required since
+// nothing is deleted.
+func runClose(args []string) error {
+	fs := flag.NewFlagSet("agent close", flag.ContinueOnError)
+	var agentID string
+	fs.StringVar(&agentID, "id", "", "agent id")
+	fs.SetOutput(os.Stderr)
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if agentID == "" && fs.NArg() > 0 {
+		agentID = fs.Arg(0)
+	}
+	if agentID == "" {
+		ctx, err := detectCurrentAgentFromTmux("")
+		if err != nil {
+			return err
+		}
+		agentID = ctx.ID
+	}
+	target, err := loadDestroyTarget(agentID)
+	if err != nil {
+		return err
+	}
+	reg := target.Reg
+	record := target.Record
+	windowID := target.WindowID
+	destroyingCurrentWindow := target.DestroyingCurrentWindow
+	stopRunningApp(record)
+	if record.URL != "" {
+		_ = closeChromeTab(record.URL)
+	}
+	delete(reg.Agents, agentID)
+	if reg.FocusedAgentID == agentID {
+		reg.FocusedAgentID = ""
+	}
+	if err := saveRegistry(reg); err != nil {
+		return err
+	}
+	_ = stopWorkspaceBootstrap(record.WorkspaceRoot)
+	fmt.Fprintf(os.Stderr, "agent %s closed (workspace preserved at %s); run `agent restore %s` to restore\n", agentID, record.WorkspaceRoot, agentID)
 	if windowAlive(record.TmuxSessionID, windowID) {
 		if destroyingCurrentWindow {
 			return runTmux("run-shell", "-b", fmt.Sprintf("sleep 0.2; tmux kill-window -t %s", shellQuote(windowID)))
@@ -1973,11 +2074,7 @@ func launchAgentLayout(record *agentRecord) (err error) {
 	return nil
 }
 
-func primeAgentAIPane(paneID string) error {
-	paneID = strings.TrimSpace(paneID)
-	if paneID == "" {
-		return nil
-	}
+func waitPaneShell(paneID string) {
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
 		out, err := runTmuxOutput("display-message", "-p", "-t", paneID, "#{pane_current_command}")
@@ -1992,10 +2089,75 @@ func primeAgentAIPane(paneID string) error {
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	if err := runTmux("send-keys", "-t", paneID, "-l", "op"); err != nil {
+}
+
+func sendToPane(paneID, line string) error {
+	if err := runTmux("send-keys", "-t", paneID, "-l", line); err != nil {
 		return err
 	}
 	return runTmux("send-keys", "-t", paneID, "Enter")
+}
+
+func primeAgentAIPane(paneID string) error {
+	paneID = strings.TrimSpace(paneID)
+	if paneID == "" {
+		return nil
+	}
+	waitPaneShell(paneID)
+	return sendToPane(paneID, "op")
+}
+
+// resumeAIPane launches opencode resumed to a specific session id.
+func resumeAIPane(paneID, sid string) error {
+	paneID = strings.TrimSpace(paneID)
+	sid = strings.TrimSpace(sid)
+	if paneID == "" || sid == "" {
+		return nil
+	}
+	waitPaneShell(paneID)
+	return sendToPane(paneID, "op -s "+sid)
+}
+
+func opencodeDBPath() string {
+	if v := strings.TrimSpace(os.Getenv("OPENCODE_DB")); v != "" {
+		return v
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		home = os.Getenv("HOME")
+	}
+	return filepath.Join(home, ".local", "share", "opencode", "opencode.db")
+}
+
+// latestOpencodeSessionID returns the most recent MAIN opencode session
+// (parent_id IS NULL) whose working directory matches dir, or "" if none.
+func latestOpencodeSession(dir string) (string, string) {
+	dir = strings.TrimSpace(dir)
+	if dir == "" {
+		return "", ""
+	}
+	esc := strings.ReplaceAll(dir, "'", "''")
+	q := "SELECT id, COALESCE(title,'') FROM session WHERE directory='" + esc + "' AND parent_id IS NULL ORDER BY time_updated DESC LIMIT 1;"
+	out, err := exec.Command("sqlite3", opencodeDBPath(), q).Output()
+	if err != nil {
+		return "", ""
+	}
+	row := strings.TrimSpace(string(out))
+	if row == "" {
+		return "", ""
+	}
+	id, title, _ := strings.Cut(row, "|")
+	return id, title
+}
+
+func latestOpencodeSessionID(dir string) string {
+	id, _ := latestOpencodeSession(dir)
+	return id
+}
+
+func latestOpencodeSessionTitle(dir string) string {
+	_, title := latestOpencodeSession(dir)
+	return title
 }
 
 func agentRunPaneCommand(record *agentRecord) string {

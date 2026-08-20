@@ -24,7 +24,10 @@ const (
 	paletteModeTracker
 	paletteModeGoals
 	paletteModeAgent
+	paletteModeSwitchDevice
 	paletteModeOpencodeFork
+	paletteModeRestoreAgent
+	paletteModeLLMQuotas
 )
 
 type palettePromptField int
@@ -49,6 +52,8 @@ const (
 	paletteActionPromptStartAgent paletteActionKind = iota
 	paletteActionOpenActivityMonitor
 	paletteActionConfirmDestroy
+	paletteActionCloseAgent
+	paletteActionRestoreAgent
 	paletteActionReloadTmuxConfig
 	paletteActionOpenStatusRight
 	paletteActionOpenSnippets
@@ -61,10 +66,13 @@ const (
 	paletteActionBrowserCopyLogs
 	paletteActionBrowserClearLogs
 	paletteActionBrowserReload
+	paletteActionRestartAgentServer
+	paletteActionSwitchAgentDevice
 	paletteActionOpenOpencodeFork
 	paletteActionForkOpencodeHorizontal
 	paletteActionForkOpencodeVertical
 	paletteActionForkOpencodeWindow
+	paletteActionOpenLLMQuotas
 )
 
 type paletteAction struct {

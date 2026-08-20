@@ -8,6 +8,10 @@
 		},
 		"plan": {
 			"color": "#8be9fd"
+		},
+		"explore": {
+			"model": "cliproxy/gpt-5.6-luna(high)",
+			"disable": true
 		}
 	},
 	"disabled_providers": [
@@ -50,15 +54,31 @@
 		"external_directory": "allow"
 	},
 	"mcp": {
+		"docs": {
+			"enabled": false
+		},
 		"web": {
 			"type": "remote",
 			"url": "http://127.0.0.1:8775/searcher/mcp",
 			"enabled": true
 		},
+		"zai-vision": {
+			"type": "local",
+			"command": [
+				"npx",
+				"-y",
+				"@z_ai/mcp-server@latest"
+			],
+			"environment": {
+				"Z_AI_API_KEY": "{env:ZAI_API_KEY}",
+				"Z_AI_MODE": "ZAI"
+			},
+			"enabled": true
+		},
 		"rednote": {
 			"type": "remote",
 			"url": "http://127.0.0.1:8776/rednote-evidence/mcp",
-			"enabled": true
+			"enabled": false
 		},
 		"pinchtab": {
 			"type": "local",
@@ -108,12 +128,40 @@
 					"tool_call": true,
 					"reasoning": true,
 					"limit": {
-						"context": 272000,
+						"context": 1050000,
+						"output": 128000
+					}
+				},
+				"gpt-5.6-sol-fast": {
+					"name": "gpt-5.6-sol-fast",
+					"attachment": true,
+					"modalities": {
+						"input": ["text", "image"],
+						"output": ["text"]
+					},
+					"tool_call": true,
+					"reasoning": true,
+					"limit": {
+						"context": 1050000,
 						"output": 128000
 					}
 				},
 				"gpt-5.6-terra": {
 					"name": "gpt-5.6-terra",
+					"attachment": true,
+					"modalities": {
+						"input": ["text", "image"],
+						"output": ["text"]
+					},
+					"tool_call": true,
+					"reasoning": true,
+					"limit": {
+						"context": 272000,
+						"output": 128000
+					}
+				},
+				"gpt-5.6-terra-fast": {
+					"name": "gpt-5.6-terra-fast",
 					"attachment": true,
 					"modalities": {
 						"input": ["text", "image"],
@@ -140,6 +188,34 @@
 						"output": 128000
 					}
 				},
+				"gpt-5.6-luna(high)": {
+					"name": "gpt-5.6-luna(high)",
+					"attachment": true,
+					"modalities": {
+						"input": ["text", "image"],
+						"output": ["text"]
+					},
+					"tool_call": true,
+					"reasoning": true,
+					"limit": {
+						"context": 272000,
+						"output": 128000
+					}
+				},
+				"gpt-5.6-luna-fast": {
+					"name": "gpt-5.6-luna-fast",
+					"attachment": true,
+					"modalities": {
+						"input": ["text", "image"],
+						"output": ["text"]
+					},
+					"tool_call": true,
+					"reasoning": true,
+					"limit": {
+						"context": 272000,
+						"output": 128000
+					}
+				},
 				"gpt-5.5": {
 					"name": "gpt-5.5",
 					"attachment": true,
@@ -154,8 +230,36 @@
 						"output": 128000
 					}
 				},
+				"gpt-5.5-fast": {
+					"name": "gpt-5.5-fast",
+					"attachment": true,
+					"modalities": {
+						"input": ["text", "image"],
+						"output": ["text"]
+					},
+					"tool_call": true,
+					"reasoning": true,
+					"limit": {
+						"context": 272000,
+						"output": 128000
+					}
+				},
 				"gpt-5.4": {
 					"name": "gpt-5.4",
+					"attachment": true,
+					"modalities": {
+						"input": ["text", "image"],
+						"output": ["text"]
+					},
+					"tool_call": true,
+					"reasoning": true,
+					"limit": {
+						"context": 272000,
+						"output": 128000
+					}
+				},
+				"gpt-5.4-fast": {
+					"name": "gpt-5.4-fast",
 					"attachment": true,
 					"modalities": {
 						"input": ["text", "image"],

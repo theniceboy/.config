@@ -14,6 +14,11 @@
 - Keep explanations compact unless the user asks for more detail.
 - For security warnings, destructive actions, or anything where brevity could cause confusion, switch to clear normal wording first.
 
+## Image Handling
+
+- If the selected model cannot process an image directly, use the `zai-vision` MCP tools.
+- Give `zai-vision` the image's local file path; do not rely on a pasted image to invoke the MCP.
+
 ## Adaptive Burst Workflow
 
 ### How to Burst

@@ -66,6 +66,11 @@ func runTrackerCommand(args []string) error {
 		env.Message = env.Summary
 	}
 	command := strings.TrimSpace(rest[0])
+	if command == "acknowledge" && windowID != "" {
+		if !claimEventOnce(eventDedupeWindow, "ack", client, sessionID, windowID) {
+			return nil
+		}
+	}
 	switch command {
 	case "start_task", "finish_task", "update_task", "update_phase", "acknowledge", "delete_task", "notify":
 		ctx, err := resolveTrackerContext(env.Session, env.SessionID, env.Window, env.WindowID, env.Pane)

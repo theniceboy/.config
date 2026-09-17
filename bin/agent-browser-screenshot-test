@@ -1,0 +1,85 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+out_path="${1:-/tmp/agent-browser-active-tab.jpg}"
+port="${AGENT_BROWSER_TEST_PORT:-9224}"
+max_size="${AGENT_BROWSER_SCREENSHOT_MAX:-1400}"
+quality="${AGENT_BROWSER_SCREENSHOT_QUALITY:-60}"
+raw_path="$(mktemp /tmp/agent-browser-active-tab-raw.XXXXXX.png)"
+
+cleanup() {
+  rm -f "$raw_path"
+}
+
+trap cleanup EXIT
+
+node - "$port" "$raw_path" <<'NODE'
+const { execFileSync } = require("node:child_process")
+const { writeFileSync } = require("node:fs")
+
+const port = process.argv[2]
+const outPath = process.argv[3]
+
+function osascript(script) {
+  return execFileSync("osascript", ["-e", script], { encoding: "utf8" }).trim()
+}
+
+function topLevelPages(targets) {
+  return targets.filter((target) => target?.type === "page" && !target?.parentId)
+}
+
+async function sendCDP(wsUrl, method, params = {}) {
+  return new Promise((resolve, reject) => {
+    const ws = new WebSocket(wsUrl)
+    const id = 1
+    const timer = setTimeout(() => reject(new Error("CDP request timed out")), 5000)
+
+    ws.onopen = () => ws.send(JSON.stringify({ id, method, params }))
+    ws.onerror = (event) => {
+      clearTimeout(timer)
+      reject(new Error(String(event.message || "websocket error")))
+    }
+    ws.onmessage = (event) => {
+      const message = JSON.parse(event.data)
+      if (message.id !== id) return
+
+      clearTimeout(timer)
+      ws.close()
+      if (message.error) {
+        reject(new Error(JSON.stringify(message.error)))
+      } else {
+        resolve(message.result)
+      }
+    }
+  })
+}
+
+(async () => {
+  const activeIndex = Number(osascript('tell application "Google Chrome for Testing" to get active tab index of window 1'))
+  if (!Number.isInteger(activeIndex) || activeIndex < 1) {
+    throw new Error("unable to resolve active tab index")
+  }
+
+  const targets = topLevelPages(await fetch(`http://127.0.0.1:${port}/json/list`).then((response) => {
+    if (!response.ok) throw new Error(`target list request failed: ${response.status}`)
+    return response.json()
+  }))
+  const page = targets[activeIndex - 1]
+  if (!page?.webSocketDebuggerUrl) {
+    throw new Error(`no page target found for active tab index ${activeIndex}`)
+  }
+
+  const result = await sendCDP(page.webSocketDebuggerUrl, "Page.captureScreenshot", {
+    format: "png",
+    captureBeyondViewport: true,
+  })
+
+  writeFileSync(outPath, Buffer.from(result.data, "base64"))
+})().catch((error) => {
+  console.error(error instanceof Error ? error.message : String(error))
+  process.exit(1)
+})
+NODE
+
+sips -s format jpeg -s formatOptions "$quality" -Z "$max_size" "$raw_path" --out "$out_path" >/dev/null
+printf '%s\n' "$out_path"

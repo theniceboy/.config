@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+label="${1:-CREATED TAB}"
+port="${AGENT_BROWSER_TEST_PORT:-9224}"
+
+node - "$port" "$label" <<'NODE'
+const { execFileSync } = require("node:child_process")
+
+const port = process.argv[2]
+const label = process.argv[3]
+const timestamp = new Date().toLocaleTimeString()
+const html = `<!doctype html>
+<title>Agent Browser Created Tab</title>
+<body style="font-family: system-ui; display: grid; place-items: center; min-height: 100vh; margin: 0; background: #1b1b2f; color: #f8f8ff;">
+  <main style="text-align: center;">
+    <h1 style="font-size: 64px; margin: 0;">${label}</h1>
+    <p style="font-size: 24px;">Created at ${timestamp}</p>
+  </main>
+</body>`
+const url = `data:text/html,${encodeURIComponent(html)}`
+
+function osascript(script) {
+  return execFileSync("osascript", ["-e", script], { encoding: "utf8" }).trim()
+}
+
+async function sendCDP(wsUrl, method, params = {}) {
+  return new Promise((resolve, reject) => {
+    const ws = new WebSocket(wsUrl)
+    const id = 1
+    const timer = setTimeout(() => reject(new Error("CDP request timed out")), 5000)
+
+    ws.onopen = () => ws.send(JSON.stringify({ id, method, params }))
+    ws.onerror = (event) => {
+      clearTimeout(timer)
+      reject(new Error(String(event.message || "websocket error")))
+    }
+    ws.onmessage = (event) => {
+      const message = JSON.parse(event.data)
+      if (message.id !== id) return
+
+      clearTimeout(timer)
+      ws.close()
+      if (message.error) {
+        reject(new Error(JSON.stringify(message.error)))
+      } else {
+        resolve(message.result)
+      }
+    }
+  })
+}
+
+(async () => {
+  const version = await fetch(`http://127.0.0.1:${port}/json/version`).then((response) => {
+    if (!response.ok) throw new Error(`CDP version request failed: ${response.status}`)
+    return response.json()
+  })
+
+  await sendCDP(version.webSocketDebuggerUrl, "Target.createTarget", {
+    url,
+    background: true,
+  })
+
+  osascript('tell application "Google Chrome for Testing" to tell window 1 to set active tab index to (count of tabs)')
+})().catch((error) => {
+  console.error(error instanceof Error ? error.message : String(error))
+  process.exit(1)
+})
+NODE
+
+printf 'created and activated a new tab in Google Chrome for Testing\n'

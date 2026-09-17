@@ -1,0 +1,113 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+duration="${1:-5}"
+port="${AGENT_BROWSER_TEST_PORT:-9224}"
+expression="${AGENT_BROWSER_LOG_EVAL:-}"
+
+node - "$port" "$duration" "$expression" <<'NODE'
+const { execFileSync } = require("node:child_process")
+
+const port = process.argv[2]
+const durationSeconds = Number(process.argv[3] || 5)
+const expression = process.argv[4] || ""
+
+function osascript(script) {
+  return execFileSync("osascript", ["-e", script], { encoding: "utf8" }).trim()
+}
+
+function topLevelPages(targets) {
+  return targets.filter((target) => target?.type === "page" && !target?.parentId)
+}
+
+function send(ws, method, params = {}) {
+  const id = ++send.lastId
+  ws.send(JSON.stringify({ id, method, params }))
+  return id
+}
+send.lastId = 0
+
+function formatArgs(args = []) {
+  return args.map((arg) => {
+    if (Object.prototype.hasOwnProperty.call(arg, "value")) {
+      return String(arg.value)
+    }
+    if (arg.description) {
+      return String(arg.description)
+    }
+    if (arg.type) {
+      return `[${arg.type}]`
+    }
+    return "[unknown]"
+  }).join(" ")
+}
+
+(async () => {
+  const activeIndex = Number(osascript('tell application "Google Chrome for Testing" to get active tab index of window 1'))
+  if (!Number.isInteger(activeIndex) || activeIndex < 1) {
+    throw new Error("unable to resolve active tab index")
+  }
+
+  const targets = topLevelPages(await fetch(`http://127.0.0.1:${port}/json/list`).then((response) => {
+    if (!response.ok) throw new Error(`target list request failed: ${response.status}`)
+    return response.json()
+  }))
+  const page = targets[activeIndex - 1]
+  if (!page?.webSocketDebuggerUrl) {
+    throw new Error(`no page target found for active tab index ${activeIndex}`)
+  }
+
+  console.log(`Listening to tab ${activeIndex}: ${page.title || "(untitled)"}`)
+  console.log(page.url)
+
+  await new Promise((resolve, reject) => {
+    const ws = new WebSocket(page.webSocketDebuggerUrl)
+    const timer = setTimeout(() => {
+      ws.close()
+      resolve()
+    }, Math.max(1, durationSeconds) * 1000)
+
+    ws.onopen = () => {
+      send(ws, "Runtime.enable")
+      send(ws, "Log.enable")
+      if (expression) {
+        send(ws, "Runtime.evaluate", { expression })
+      }
+    }
+
+    ws.onerror = (event) => {
+      clearTimeout(timer)
+      reject(new Error(String(event.message || "websocket error")))
+    }
+
+    ws.onmessage = (event) => {
+      const message = JSON.parse(event.data)
+      if (message.method === "Runtime.consoleAPICalled") {
+        const { type, args } = message.params || {}
+        console.log(`[console.${type || "log"}] ${formatArgs(args)}`)
+        return
+      }
+      if (message.method === "Runtime.exceptionThrown") {
+        const details = message.params?.exceptionDetails || {}
+        const text = details.text || details.exception?.description || details.exception?.value || "exception"
+        console.log(`[exception] ${text}`)
+        return
+      }
+      if (message.method === "Log.entryAdded") {
+        const entry = message.params?.entry || {}
+        const level = entry.level || "info"
+        const text = entry.text || ""
+        console.log(`[log.${level}] ${text}`)
+      }
+    }
+
+    ws.onclose = () => {
+      clearTimeout(timer)
+      resolve()
+    }
+  })
+})().catch((error) => {
+  console.error(error instanceof Error ? error.message : String(error))
+  process.exit(1)
+})
+NODE

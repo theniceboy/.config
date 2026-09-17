@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+target="${1:-active}"
+
+osascript - "$target" <<'OSA'
+on run argv
+  set targetTab to item 1 of argv
+  tell application "Google Chrome for Testing"
+    if (count of windows) is 0 then error "Google Chrome for Testing has no windows"
+    tell window 1
+      set tabCount to count of tabs
+      if tabCount < 2 then error "need at least two tabs to run close-tab test"
+      if targetTab is "active" then
+        close active tab
+      else
+        set targetIndex to (targetTab as integer)
+        if tabCount < targetIndex then error "tab " & targetIndex & " does not exist"
+        close tab targetIndex
+      end if
+    end tell
+  end tell
+end run
+OSA
+
+printf 'closed %s tab in Google Chrome for Testing\n' "$target"

@@ -7,14 +7,13 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import subprocess
 import sys
 import time
 
 CACHE_FILE = "/tmp/tmux-mem-usage.json"
 LOCK_FILE = "/tmp/tmux-mem-usage.lock"
-STALE_SECONDS = 5
+STALE_SECONDS = 15
 
 
 def is_fresh() -> bool:
@@ -29,22 +28,6 @@ def run(cmd: str) -> str:
     return r.stdout
 
 
-def parse_mem(s: str) -> float:
-    s = s.strip()
-    if not s or s == "-":
-        return 0.0
-    m = re.match(r"([\d.]+)([KMGB]?)", s, re.IGNORECASE)
-    if not m:
-        return 0.0
-    v = float(m.group(1))
-    u = m.group(2).upper()
-    if u == "K":
-        return v / 1024
-    if u == "G":
-        return v * 1024
-    return v
-
-
 def fmt(mb: float) -> str:
     if mb >= 1024:
         return f"{mb / 1024:.1f}G"
@@ -52,13 +35,13 @@ def fmt(mb: float) -> str:
 
 
 def get_top_mem() -> dict[int, float]:
-    out = run("top -l 1 -o mem -n 9999 -stats pid,mem,cmprs 2>/dev/null")
+    # ps rss (MB, excludes compressed pages) instead of `top -l 1` — ~10x cheaper
+    out = run("ps -axo pid=,rss=")
     result: dict[int, float] = {}
     for line in out.strip().split("\n"):
         parts = line.split()
-        if len(parts) >= 3 and parts[0].isdigit():
-            pid = int(parts[0])
-            result[pid] = parse_mem(parts[1]) + parse_mem(parts[2])
+        if len(parts) >= 2 and parts[0].isdigit():
+            result[int(parts[0])] = int(parts[1]) / 1024
     return result
 
 

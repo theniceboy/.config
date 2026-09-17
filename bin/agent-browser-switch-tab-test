@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+target="${1:-2}"
+case "$target" in
+  1|2) ;;
+  *)
+    printf 'usage: %s [1|2]\n' "${0##*/}" >&2
+    exit 2
+    ;;
+esac
+
+osascript - "$target" <<'OSA'
+on run argv
+  set targetIndex to (item 1 of argv) as integer
+  tell application "Google Chrome for Testing"
+    if (count of windows) is 0 then error "Google Chrome for Testing has no windows"
+    if (count of tabs of window 1) < targetIndex then error "tab " & targetIndex & " does not exist"
+    set active tab index of window 1 to targetIndex
+  end tell
+end run
+OSA
+
+printf 'activated tab %s in Google Chrome for Testing\n' "$target"

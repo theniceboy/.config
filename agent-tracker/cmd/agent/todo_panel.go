@@ -318,6 +318,10 @@ func (m *todoPanelModel) updateList(key string) (tea.Model, tea.Cmd) {
 		m.moveSelection(-1)
 	case "e", "down":
 		m.moveSelection(1)
+	case ",":
+		m.moveSelection(-5)
+	case ".":
+		m.moveSelection(5)
 	case "ctrl+u":
 		return m.moveSelectedTodo(-1)
 	case "ctrl+e":

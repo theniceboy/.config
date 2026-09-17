@@ -159,6 +159,12 @@ func (m *trackerPanelModel) updateNormal(key string) (tea.Model, tea.Cmd) {
 	case "e", "down", "ctrl+e":
 		m.moveSelection(1)
 		return m, nil
+	case ",":
+		m.moveSelection(-5)
+		return m, nil
+	case ".":
+		m.moveSelection(5)
+		return m, nil
 	case "enter", "p":
 		return m.runPrimaryAction()
 	case "c":

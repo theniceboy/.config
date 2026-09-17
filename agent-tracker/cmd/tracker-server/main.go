@@ -270,7 +270,7 @@ func (s *server) handleCommand(env ipc.Envelope) error {
 		if err != nil {
 			return err
 		}
-		if err := s.acknowledgeTask(target.SessionID, target.WindowID, target.PaneID); err != nil {
+		if err := s.acknowledgeTask(target); err != nil {
 			return err
 		}
 		s.broadcastStateAsync()
@@ -281,7 +281,7 @@ func (s *server) handleCommand(env ipc.Envelope) error {
 		if err != nil {
 			return err
 		}
-		if err := s.deleteTask(target.SessionID, target.WindowID, target.PaneID); err != nil {
+		if err := s.deleteTask(target); err != nil {
 			return err
 		}
 		s.broadcastStateAsync()
@@ -292,6 +292,38 @@ func (s *server) handleCommand(env ipc.Envelope) error {
 	}
 }
 
+// taskForTarget resolves the record for a window/pane regardless of which
+// session id it was registered under: tmux window/pane ids are global, and
+// windows can move between sessions after the task started.
+func (s *server) taskForTarget(target tmuxTarget) (string, *taskRecord, bool) {
+	key := taskKey(target.SessionID, target.WindowID, target.PaneID)
+	if t, ok := s.tasks[key]; ok {
+		return key, t, true
+	}
+	if target.PaneID != "" {
+		for k, t := range s.tasks {
+			if t.WindowID == target.WindowID && t.Pane == target.PaneID {
+				return k, t, true
+			}
+		}
+	}
+	return "", nil, false
+}
+
+func (s *server) rekeyTask(oldKey string, t *taskRecord, target tmuxTarget) string {
+	newKey := taskKey(target.SessionID, target.WindowID, target.PaneID)
+	if oldKey == newKey {
+		return oldKey
+	}
+	delete(s.tasks, oldKey)
+	t.SessionID = target.SessionID
+	if name := strings.TrimSpace(target.SessionName); name != "" {
+		t.SessionName = name
+	}
+	s.tasks[newKey] = t
+	return newKey
+}
+
 func (s *server) startTask(target tmuxTarget, summary string) error {
 	if target.SessionID == "" || target.WindowID == "" {
 		return fmt.Errorf("cannot create task: missing session or window ID")
@@ -300,8 +332,7 @@ func (s *server) startTask(target tmuxTarget, summary string) error {
 	now := time.Now()
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	key := taskKey(target.SessionID, target.WindowID, target.PaneID)
-	t, ok := s.tasks[key]
+	key, t, ok := s.taskForTarget(target)
 	if !ok {
 		s.tasks[key] = &taskRecord{
 			SessionID:    target.SessionID,
@@ -316,6 +347,7 @@ func (s *server) startTask(target tmuxTarget, summary string) error {
 		}
 		return nil
 	}
+	key = s.rekeyTask(key, t, target)
 	mergeTaskNamesFromTarget(t, target)
 	if !(t.Status == statusInProgress && strings.TrimSpace(t.Summary) != "") {
 		t.Summary = summary
@@ -337,8 +369,7 @@ func (s *server) updateTaskSummary(target tmuxTarget, summary string) error {
 	now := time.Now()
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	key := taskKey(target.SessionID, target.WindowID, target.PaneID)
-	t, ok := s.tasks[key]
+	key, t, ok := s.taskForTarget(target)
 	if !ok {
 		t = &taskRecord{
 			SessionID:    target.SessionID,
@@ -350,7 +381,9 @@ func (s *server) updateTaskSummary(target tmuxTarget, summary string) error {
 			Status:       statusInProgress,
 			Acknowledged: true,
 		}
-		s.tasks[key] = t
+		s.tasks[taskKey(target.SessionID, target.WindowID, target.PaneID)] = t
+	} else {
+		key = s.rekeyTask(key, t, target)
 	}
 	mergeTaskNamesFromTarget(t, target)
 	t.Summary = summary
@@ -370,9 +403,10 @@ func (s *server) updatePhase(target tmuxTarget, phase string) error {
 	target = normalizeTargetNames(target)
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	key := taskKey(target.SessionID, target.WindowID, target.PaneID)
-	if t, ok := s.tasks[key]; ok {
+	key, t, ok := s.taskForTarget(target)
+	if ok {
 		t.Phase = phase
+		s.rekeyTask(key, t, target)
 		mergeTaskNamesFromTarget(t, target)
 	}
 	return nil
@@ -386,8 +420,7 @@ func (s *server) finishTask(target tmuxTarget, note string) (bool, error) {
 	now := time.Now()
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	key := taskKey(target.SessionID, target.WindowID, target.PaneID)
-	t, ok := s.tasks[key]
+	key, t, ok := s.taskForTarget(target)
 	wasCompleted := false
 	if !ok {
 		t = &taskRecord{
@@ -398,9 +431,10 @@ func (s *server) finishTask(target tmuxTarget, note string) (bool, error) {
 			Pane:        target.PaneID,
 			StartedAt:   now,
 		}
-		s.tasks[key] = t
+		s.tasks[taskKey(target.SessionID, target.WindowID, target.PaneID)] = t
 	} else {
 		wasCompleted = t.Status == statusCompleted
+		s.rekeyTask(key, t, target)
 	}
 	if t.Summary == "" {
 		t.Summary = note
@@ -414,22 +448,30 @@ func (s *server) finishTask(target tmuxTarget, note string) (bool, error) {
 	}
 	// Auto-acknowledge if user is currently in this pane
 	t.Acknowledged = isActivePane(target.PaneID)
-	return !wasCompleted, nil
+	// "interrupted" = user-initiated abort; they're at the keyboard, don't notify
+	return !wasCompleted && note != "interrupted", nil
 }
 
-func (s *server) acknowledgeTask(sessionID, windowID, paneID string) error {
+func (s *server) acknowledgeTask(target tmuxTarget) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if t, ok := s.tasks[taskKey(sessionID, windowID, paneID)]; ok {
+	key, t, ok := s.taskForTarget(target)
+	if ok {
 		t.Acknowledged = true
+		s.rekeyTask(key, t, target)
 	}
 	return nil
 }
 
-func (s *server) deleteTask(sessionID, windowID, paneID string) error {
+func (s *server) deleteTask(target tmuxTarget) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	delete(s.tasks, taskKey(sessionID, windowID, paneID))
+	delete(s.tasks, taskKey(target.SessionID, target.WindowID, target.PaneID))
+	for k, t := range s.tasks {
+		if t.WindowID == target.WindowID && t.Pane == target.PaneID {
+			delete(s.tasks, k)
+		}
+	}
 	return nil
 }
 
@@ -798,7 +840,7 @@ func notificationActionForTarget(target tmuxTarget) *notificationAction {
 		shellQuote(session), shellQuote(window), shellQuote(pane))
 	return &notificationAction{
 		Command:     "sh -lc " + strconv.Quote(cmd),
-		ActivateApp: "com.googlecode.iterm2",
+		ActivateApp: "net.kovidgoyal.kitty",
 	}
 }
 
@@ -831,10 +873,9 @@ func sendSystemNotification(title, message string, action *notificationAction) e
 				}
 			}
 			cmd := exec.Command(bin, args...)
-			if err := cmd.Run(); err != nil {
-				return err
+			if err := cmd.Run(); err == nil {
+				return nil
 			}
-			return nil
 		}
 		scriptLines := []string{fmt.Sprintf("display notification %s with title %s", strconv.Quote(message), strconv.Quote(title))}
 		cmd := exec.Command("osascript", "-e", strings.Join(scriptLines, "\n"))

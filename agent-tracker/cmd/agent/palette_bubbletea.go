@@ -70,6 +70,8 @@ type paletteModel struct {
 	deviceSwitch            *deviceSwitchPanelModel
 	restoreAgent            *restoreAgentPanelModel
 	quotas                  *llmQuotaPanelModel
+	memory                  *memoryPanelModel
+	board                   *boardPanelModel
 }
 
 type paletteStyles struct {
@@ -195,7 +197,7 @@ func loadPaletteRuntime(args []string) (*paletteRuntime, error) {
 	fs.StringVar(&currentWindowName, "window-name", "", "current window name")
 	fs.StringVar(&currentWindowIndex, "window-index", "", "current window index")
 	fs.StringVar(&currentPaneIndex, "pane-index", "", "current pane index")
-	fs.StringVar(&modeFlag, "mode", "", "initial panel mode (goals, tracker, todos, activity, status, quotas)")
+	fs.StringVar(&modeFlag, "mode", "", "initial panel mode (goals, tracker, todos, activity, status, quotas, memory, board)")
 	fs.SetOutput(nil)
 	if err := fs.Parse(args); err != nil {
 		return nil, err
@@ -225,6 +227,10 @@ func loadPaletteRuntime(args []string) (*paletteRuntime, error) {
 		runtime.startMode = paletteModeStatusRight
 	case "quotas", "llm-quotas":
 		runtime.startMode = paletteModeLLMQuotas
+	case "memory", "base-memory":
+		runtime.startMode = paletteModeMemory
+	case "board":
+		runtime.startMode = paletteModeBoard
 	default:
 		runtime.startMode = paletteModeList
 	}
@@ -541,6 +547,20 @@ func (r *paletteRuntime) buildActions() []paletteAction {
 		},
 		paletteAction{
 			Section:  "System",
+			Title:    "Memory — agent context toggles",
+			Subtitle: "Loaded memory files, token estimates and global memory toggle",
+			Keywords: []string{"memory", "tokens", "files", "base", "context", "toggle", "enable", "disable", "opencode"},
+			Kind:     paletteActionOpenMemory,
+		},
+		paletteAction{
+			Section:  "System",
+			Title:    "Board",
+			Subtitle: "Browse ~/base work items (read-only, via board export)",
+			Keywords: []string{"board", "items", "todo", "doing", "work", "projectone", "hq", "projecttwo"},
+			Kind:     paletteActionOpenBoard,
+		},
+		paletteAction{
+			Section:  "System",
 			Title:    "Activity Monitor",
 			Subtitle: "View CPU, memory and process usage",
 			Keywords: []string{"activity", "monitor", "cpu", "memory", "processes", "top", "ps"},
@@ -735,8 +755,8 @@ func buildAgentStartArgs(feature, device string, keepWorktree, pull bool) []stri
 	if keepWorktree {
 		args = append(args, "--keep-worktree")
 	}
-	if pull {
-		args = append(args, "--pull")
+	if !pull {
+		args = append(args, "--no-pull")
 	}
 	if isPaletteNoDeviceOption(device) {
 		args = append(args, "--no-device")
@@ -971,7 +991,8 @@ func (r *paletteRuntime) launchOpenCodeFork(kind string) error {
 	if err := waitForShellPane(paneID, 2*time.Second); err != nil {
 		return err
 	}
-	if err := paletteTmuxRunner("send-keys", "-t", paneID, "-l", "op -s "+sessionID); err != nil {
+	launcher := "op"
+	if err := paletteTmuxRunner("send-keys", "-t", paneID, "-l", launcher+" -s "+sessionID); err != nil {
 		return err
 	}
 	return paletteTmuxRunner("send-keys", "-t", paneID, "Enter")
@@ -1111,10 +1132,19 @@ func newPaletteModel(runtime *paletteRuntime, state paletteUIState) *paletteMode
 	if state.Mode == paletteModeLLMQuotas {
 		model.quotas = newLLMQuotaPanelModel()
 	}
+	if state.Mode == paletteModeMemory {
+		model.openMemoryPanel()
+	}
+	if state.Mode == paletteModeBoard {
+		model.openBoardPanel()
+	}
 	return model
 }
 
 func (m *paletteModel) Init() tea.Cmd {
+	if m.memory != nil {
+		return m.memory.Init()
+	}
 	if m.goals != nil {
 		return goalPanelTickCmd()
 	}
@@ -1370,6 +1400,77 @@ func (m *paletteModel) openOpencodeForkPanel() {
 	m.state.ShowAltHints = false
 }
 
+func (m *paletteModel) openMemoryPanel() {
+	m.noteSecondaryPageOpen()
+	if m.memory == nil {
+		m.memory = newMemoryPanelModel(m.currentMemoryWindowID())
+	} else {
+		m.memory.windowID = m.currentMemoryWindowID()
+		m.memory.windowName = ""
+		m.memory.reload()
+		m.memory.contentOffset = 0
+		m.memory.requestBack = false
+	}
+	if m.runtime != nil {
+		m.memory.paneID = m.runtime.paneID
+		m.memory.reload()
+	}
+	m.state.Mode = paletteModeMemory
+	m.state.Message = ""
+	m.state.ShowAltHints = false
+}
+
+func (m *paletteModel) openBoardPanel() {
+	m.noteSecondaryPageOpen()
+	if m.board == nil {
+		m.board = newBoardPanelModel()
+	} else {
+		m.board.reload()
+		m.board.cursor = 0
+		m.board.offset = 0
+		m.board.detailOffset = 0
+		m.board.requestBack = false
+	}
+	m.state.Mode = paletteModeBoard
+	m.state.Message = ""
+	m.state.ShowAltHints = false
+}
+
+func (m *paletteModel) updateBoardPanel(key string) (tea.Model, tea.Cmd) {
+	if m.board == nil {
+		m.board = newBoardPanelModel()
+	}
+	m.board.handleKey(key)
+	if m.board.requestBack {
+		m.board.requestBack = false
+		m.state.Mode = paletteModeList
+		m.state.Message = m.board.currentStatus()
+		return m, nil
+	}
+	return m, nil
+}
+
+func (m *paletteModel) currentMemoryWindowID() string {
+	if m.runtime != nil {
+		return m.runtime.windowID
+	}
+	return ""
+}
+
+func (m *paletteModel) updateMemoryPanel(key string) (tea.Model, tea.Cmd) {
+	if m.memory == nil {
+		m.memory = newMemoryPanelModel(m.currentMemoryWindowID())
+	}
+	m.memory.handleKey(key)
+	if m.memory.requestBack {
+		m.memory.requestBack = false
+		m.state.Mode = paletteModeList
+		m.state.Message = m.memory.currentStatus()
+		return m, nil
+	}
+	return m, m.memory.requestUsage()
+}
+
 func (m *paletteModel) updateAgentPanel(key string) (tea.Model, tea.Cmd) {
 	if key == "esc" || key == "ctrl+c" || key == "alt+n" {
 		m.state.Mode = paletteModeList
@@ -1493,6 +1594,17 @@ func (m *paletteModel) agentPanelCopyLogs() (tea.Model, tea.Cmd) {
 
 func (m *paletteModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case memoryUsageMsg:
+		if m.memory != nil {
+			m.memory.acceptUsage(msg)
+		}
+		return m, nil
+	case memoryPanelTickMsg:
+		if m.state.Mode == paletteModeMemory && m.memory != nil && msg.panel == m.memory && msg.generation == m.memory.pollGeneration {
+			m.memory.reload()
+			return m, tea.Batch(m.memory.requestUsage(), m.memory.tick())
+		}
+		return m, nil
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
@@ -1530,7 +1642,7 @@ func (m *paletteModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
-		if m.state.Mode != paletteModeActivity && m.state.Mode != paletteModeTodos && m.state.Mode != paletteModeDevices && m.state.Mode != paletteModeStatusRight && m.state.Mode != paletteModeTracker && m.state.Mode != paletteModeGoals && m.state.Mode != paletteModeLLMQuotas && m.state.Mode != paletteModeAgent && m.state.Mode != paletteModeSwitchDevice && m.state.Mode != paletteModeOpencodeFork && m.state.Mode != paletteModeRestoreAgent {
+		if m.state.Mode != paletteModeActivity && m.state.Mode != paletteModeTodos && m.state.Mode != paletteModeDevices && m.state.Mode != paletteModeStatusRight && m.state.Mode != paletteModeTracker && m.state.Mode != paletteModeGoals && m.state.Mode != paletteModeLLMQuotas && m.state.Mode != paletteModeAgent && m.state.Mode != paletteModeSwitchDevice && m.state.Mode != paletteModeOpencodeFork && m.state.Mode != paletteModeRestoreAgent && m.state.Mode != paletteModeMemory && m.state.Mode != paletteModeBoard {
 			if isAltFooterToggleKey(msg) {
 				m.state.ShowAltHints = !m.state.ShowAltHints
 				return m, nil
@@ -1574,6 +1686,10 @@ func (m *paletteModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m.closePalette()
 			case paletteModeRestoreAgent:
 				return m.closePalette()
+			case paletteModeMemory:
+				return m.closePalette()
+			case paletteModeBoard:
+				return m.closePalette()
 			}
 		}
 		if m.state.Mode == paletteModeAgent {
@@ -1587,6 +1703,12 @@ func (m *paletteModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.state.Mode == paletteModeOpencodeFork {
 			return m.updateOpencodeForkPanel(key)
+		}
+		if m.state.Mode == paletteModeMemory {
+			return m.updateMemoryPanel(key)
+		}
+		if m.state.Mode == paletteModeBoard {
+			return m.updateBoardPanel(key)
 		}
 		if m.state.Mode == paletteModeActivity {
 			if m.activity == nil {
@@ -1911,6 +2033,14 @@ func (m *paletteModel) updateList(key string) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
+	if key == "alt+m" {
+		m.openMemoryPanel()
+		return m, m.memory.Init()
+	}
+	if key == "alt+b" {
+		m.openBoardPanel()
+		return m, nil
+	}
 	if key == "alt+c" {
 		m.openPrompt(palettePromptStartAgent, "", m.runtime.mainRepoRoot)
 		return m, nil
@@ -2020,6 +2150,12 @@ func (m *paletteModel) selectAction(action paletteAction) (tea.Model, tea.Cmd) {
 		return m, nil
 	case paletteActionRestoreAgent:
 		m.openRestoreAgentPanel(action.RepoRoot)
+		return m, nil
+	case paletteActionOpenMemory:
+		m.openMemoryPanel()
+		return m, m.memory.Init()
+	case paletteActionOpenBoard:
+		m.openBoardPanel()
 		return m, nil
 	case paletteActionBrowserLogs:
 		return m.runBrowserLogsPaste()
@@ -2451,6 +2587,22 @@ func (m *paletteModel) View() string {
 		m.restoreAgent.width = width
 		m.restoreAgent.height = height
 		return m.restoreAgent.View()
+	}
+	if m.state.Mode == paletteModeMemory {
+		if m.memory == nil {
+			m.memory = newMemoryPanelModel(m.currentMemoryWindowID())
+		}
+		m.memory.width = width
+		m.memory.height = height
+		return m.memory.View()
+	}
+	if m.state.Mode == paletteModeBoard {
+		if m.board == nil {
+			m.board = newBoardPanelModel()
+		}
+		m.board.width = width
+		m.board.height = height
+		return m.board.View()
 	}
 	return m.renderListView(styles, width, height)
 }
@@ -3203,8 +3355,8 @@ func renderPaletteFooter(styles paletteStyles, width int, message string, showAl
 			{{"Enter", "run"}, {"Esc", "close"}, {footerHintToggleKey, "more"}},
 		},
 		[][][2]string{
-			{{"Alt-C", "create"}, {"Alt-F", "fork"}, {"Alt-R", "goals"}, {"Alt-D", "tracker"}, {"Alt-Q", "quotas"}, {"Alt-A", "agent"}, {"Alt-W", "activity"}, {"Alt-P", "snippets"}, {"Alt-T", "todos"}, {"Alt-S", "close"}, {footerHintToggleKey, "hide"}},
-			{{"Alt-C", "create"}, {"Alt-R", "goals"}, {"Alt-D", "tracker"}, {"Alt-Q", "quotas"}, {"Alt-A", "agent"}, {"Alt-W", "activity"}, {"Alt-T", "todos"}, {"Alt-S", "close"}, {footerHintToggleKey, "hide"}},
+			{{"Alt-C", "create"}, {"Alt-F", "fork"}, {"Alt-R", "goals"}, {"Alt-D", "tracker"}, {"Alt-Q", "quotas"}, {"Alt-A", "agent"}, {"Alt-W", "activity"}, {"Alt-P", "snippets"}, {"Alt-T", "todos"}, {"Alt-M", "memory"}, {"Alt-S", "close"}, {footerHintToggleKey, "hide"}},
+			{{"Alt-C", "create"}, {"Alt-R", "goals"}, {"Alt-D", "tracker"}, {"Alt-Q", "quotas"}, {"Alt-A", "agent"}, {"Alt-W", "activity"}, {"Alt-T", "todos"}, {"Alt-M", "memory"}, {"Alt-S", "close"}, {footerHintToggleKey, "hide"}},
 			{{"Alt-R", "goals"}, {"Alt-D", "tracker"}, {"Alt-Q", "quotas"}, {"Alt-S", "close"}},
 		},
 	)

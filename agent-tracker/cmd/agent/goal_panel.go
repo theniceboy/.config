@@ -271,6 +271,10 @@ func (m *goalPanelModel) updateList(key string) (tea.Model, tea.Cmd) {
 		m.moveCursor(-1)
 	case "e", "down":
 		m.moveCursor(1)
+	case ",":
+		m.moveCursor(-5)
+	case ".":
+		m.moveCursor(5)
 	case "alt+u":
 		return m.moveSibling(-1)
 	case "alt+e":

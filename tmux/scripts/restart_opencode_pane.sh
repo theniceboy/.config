@@ -56,7 +56,7 @@ kill_opencode_on_tty() {
   tty_name="${pane_tty#/dev/}"
   while IFS= read -r pid; do
     [[ -n "$pid" ]] && pids+=("$pid")
-  done < <(ps -t "$tty_name" -o pid= -o args= 2>/dev/null | awk '/\/opt\/homebrew\/bin\/opencode|\/opt\/homebrew\/lib\/node_modules\/opencode-ai\/bin\/\.opencode|opencode-darwin-arm64\/bin\/opencode/ { print $1 }')
+  done < <(ps -t "$tty_name" -o pid= -o args= 2>/dev/null | awk '/\/opt\/homebrew\/bin\/opencode|\/opt\/homebrew\/lib\/node_modules\/opencode-ai\/bin\/\.opencode|opencode-darwin-arm64\/bin\/opencode|\.opencode\/bin\/opencode2/ { print $1 }')
 
   if [[ ${#pids[@]} -eq 0 ]]; then
     return 0
@@ -82,4 +82,15 @@ if ! wait_for_shell; then
   fi
 fi
 
-tmux send-keys -t "$pane_id" "OP_TRACKER_NOTIFY=1 op -s ${session_id}" C-m
+v2_db="$HOME/.local/share/opencode-v2/opencode.db"
+esc="${session_id//\'/\'\'}"
+if [[ -f "$v2_db" ]] && sqlite3 "$v2_db" "SELECT 1 FROM session_v2 WHERE id='$esc' LIMIT 1;" 2>/dev/null | grep -q 1; then
+  launcher="op -s"
+elif [[ -f "$v2_db" ]] && sqlite3 "$v2_db" "SELECT 1 FROM op2_tombstone WHERE id='$esc' LIMIT 1;" 2>/dev/null | grep -q 1; then
+  command op-restore "$session_id" >/dev/null 2>&1 || true
+  launcher="op -s"
+else
+  launcher="OP_TRACKER_NOTIFY=1 op1 -s"
+fi
+
+tmux send-keys -t "$pane_id" "${launcher} ${session_id}" C-m

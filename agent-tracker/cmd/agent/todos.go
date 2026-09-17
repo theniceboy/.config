@@ -383,9 +383,19 @@ func countOpenTmuxTodos(scope todoScope, scopeID string) (int, error) {
 	return count, nil
 }
 
+// currentTmuxPaneTarget returns the pane the command was invoked from, so
+// "current window" tracks the invoking pane instead of the client's view.
+func currentTmuxPaneTarget() []string {
+	if pane := strings.TrimSpace(os.Getenv("TMUX_PANE")); pane != "" {
+		return []string{"-t", pane}
+	}
+	return nil
+}
+
 func getCurrentTmuxScopeInfo() (sessionID, windowID string) {
-	sessionID, _ = runTmuxOutput("display-message", "-p", "#{session_id}")
-	windowID, _ = runTmuxOutput("display-message", "-p", "#{window_id}")
+	target := currentTmuxPaneTarget()
+	sessionID, _ = runTmuxOutput(append([]string{"display-message", "-p"}, append(target, "#{session_id}")...)...)
+	windowID, _ = runTmuxOutput(append([]string{"display-message", "-p"}, append(target, "#{window_id}")...)...)
 	return strings.TrimSpace(sessionID), strings.TrimSpace(windowID)
 }
 

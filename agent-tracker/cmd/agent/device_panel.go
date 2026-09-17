@@ -83,6 +83,10 @@ func (m *devicePanelModel) updateList(key string) (tea.Model, tea.Cmd) {
 		m.selected = clampInt(m.selected-1, 0, len(m.devices)-1)
 	case "ctrl+e", "alt+e", "down", "e":
 		m.selected = clampInt(m.selected+1, 0, len(m.devices)-1)
+	case ",":
+		m.selected = clampInt(m.selected-5, 0, len(m.devices)-1)
+	case ".":
+		m.selected = clampInt(m.selected+5, 0, len(m.devices)-1)
 	case "a":
 		m.mode = devicePanelModeAdd
 		m.addText = nil

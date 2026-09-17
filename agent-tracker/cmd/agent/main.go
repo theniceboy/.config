@@ -108,10 +108,10 @@ type keyConfig struct {
 }
 
 type repoConfig struct {
-	BaseBranch    string   `yaml:"base_branch,omitempty"`
-	DefaultDevice string   `yaml:"default_device,omitempty"`
-	CopyIgnore    []string `yaml:"copy_ignore,omitempty"`
-	AgentKeyPaths []string `yaml:"agent_key_paths,omitempty"`
+	BaseBranch    string   `yaml:"base_branch,omitempty" json:"base_branch,omitempty"`
+	DefaultDevice string   `yaml:"default_device,omitempty" json:"default_device,omitempty"`
+	CopyIgnore    []string `yaml:"copy_ignore,omitempty" json:"copy_ignore,omitempty"`
+	AgentKeyPaths []string `yaml:"agent_key_paths,omitempty" json:"agent_key_paths,omitempty"`
 }
 
 type featureConfig struct {
@@ -162,7 +162,7 @@ func main() {
 
 func run(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: agent <start|restore|list|destroy|close|init|config|setup|tmux|tracker|goal|browser|feature|hot-reload>")
+		return fmt.Errorf("usage: agent <start|restore|list|destroy|close|init|config|setup|tmux|tracker|goal|todos|browser|feature|hot-reload>")
 	}
 	switch args[0] {
 	case "start":
@@ -189,6 +189,8 @@ func run(args []string) error {
 		return runTracker(args[1:])
 	case "goal":
 		return runGoal(args[1:])
+	case "todos":
+		return runTodos(args[1:])
 	case "browser":
 		return runBrowserCommand(args[1:])
 	case "feature":
@@ -209,14 +211,34 @@ func runStart(args []string) error {
 	var noDevice bool
 	var keepWorktree bool
 	var pull bool
+	var noPull bool
+	var promptText string
+	var promptFile string
 	fs.StringVar(&feature, "name", "", "feature name")
 	fs.StringVar(&device, "d", "", "flutter device")
 	fs.BoolVar(&noDevice, "no-device", false, "leave the run pane idle until a device is chosen")
 	fs.BoolVar(&keepWorktree, "keep-worktree", false, "copy the current repo worktree into the new agent")
-	fs.BoolVar(&pull, "pull", false, "git fetch + fast-forward the source branch before creating the agent")
+	fs.BoolVar(&pull, "pull", true, "git fetch + fast-forward the source branch before creating the agent (default on)")
+	fs.BoolVar(&noPull, "no-pull", false, "skip pulling the source branch before creating the agent")
+	fs.StringVar(&promptText, "prompt", "", "initial prompt delivered to the agent's opencode session")
+	fs.StringVar(&promptFile, "prompt-file", "", "path to a file containing the initial prompt")
 	fs.SetOutput(os.Stderr)
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+	if noPull {
+		pull = false
+	}
+	if strings.TrimSpace(promptText) != "" && strings.TrimSpace(promptFile) != "" {
+		return fmt.Errorf("-prompt and -prompt-file are mutually exclusive")
+	}
+	initialPrompt := promptText
+	if strings.TrimSpace(promptFile) != "" {
+		data, readErr := os.ReadFile(promptFile)
+		if readErr != nil {
+			return readErr
+		}
+		initialPrompt = string(data)
 	}
 	repoRoot, err := repoRoot()
 	if err != nil {
@@ -300,6 +322,11 @@ func runStart(args []string) error {
 	if err := prepareAgentContext(repoRoot, repoCopyPath, repoCfg.AgentKeyPaths, false); err != nil {
 		return err
 	}
+	if browserEnabled {
+		if err := ensureAgentBrowserMCP(repoCopyPath, workspaceRoot, feature, url); err != nil {
+			return fmt.Errorf("agent_browser mcp: %w", err)
+		}
+	}
 	if isFlutter {
 		if err := writeFlutterHelperScripts(workspaceRoot, repoCopyPath, url, device); err != nil {
 			return err
@@ -313,9 +340,9 @@ func runStart(args []string) error {
 		WorkspaceRoot:  workspaceRoot,
 		RepoCopyPath:   repoCopyPath,
 		Branch:         feature,
-		SourceBranch:    sourceBranch,
-		KeepWorktree:    keepWorktree,
-		Pull:            pull,
+		SourceBranch:   sourceBranch,
+		KeepWorktree:   keepWorktree,
+		Pull:           pull,
 		Runtime:        runtime,
 		Device:         device,
 		FeatureConfig:  featureConfigPath,
@@ -346,7 +373,20 @@ func runStart(args []string) error {
 		_ = os.RemoveAll(workspaceRoot)
 		return err
 	}
-	_ = primeAgentAIPane(record.Panes.AI)
+	if strings.TrimSpace(initialPrompt) == "" {
+		_ = primeAgentAIPane(record.Panes.AI)
+		return nil
+	}
+	promptPath := filepath.Join(workspaceRoot, "prompt.md")
+	if err := os.WriteFile(promptPath, []byte(initialPrompt), 0o644); err != nil {
+		return err
+	}
+	sid, perr := primeAgentAIPaneWithPrompt(record.Panes.AI, promptPath, record.RepoCopyPath)
+	if perr != nil {
+		fmt.Fprintf(os.Stderr, "warning: agent started but prompt not confirmed sent: %v\n", perr)
+		return nil
+	}
+	fmt.Printf("opencode session: %s\n", sid)
 	return nil
 }
 
@@ -718,7 +758,7 @@ func runBootstrap(args []string) error {
 	repoCopyPath := filepath.Join(workspaceRoot, "repo")
 	if startOptions.Pull {
 		if pullErr := pullSourceBranch(repoRoot, repoCfg); pullErr != nil {
-			fmt.Fprintf(os.Stderr, "warning: pull source branch failed (continuing): %v\n", pullErr)
+			return fmt.Errorf("pull source branch failed: %w — fix the source repo (commit/merge/rebase), then rerun agent start", pullErr)
 		}
 	}
 	if err = copyGitMetadata(repoRoot, repoCopyPath); err != nil {
@@ -824,6 +864,11 @@ func runRestore(args []string) error {
 	if err := prepareAgentContext(record.RepoRoot, record.RepoCopyPath, repoCfg.AgentKeyPaths, true); err != nil {
 		return err
 	}
+	if strings.TrimSpace(record.Device) == "web-server" && strings.TrimSpace(record.URL) != "" {
+		if err := ensureAgentBrowserMCP(record.RepoCopyPath, record.WorkspaceRoot, record.ID, record.URL); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: agent_browser mcp: %v\n", err)
+		}
+	}
 	if err := removeLegacyRuntimeProject(record.WorkspaceRoot); err != nil {
 		return err
 	}
@@ -843,9 +888,9 @@ func runRestore(args []string) error {
 	if err := launchAgentLayout(record); err != nil {
 		return err
 	}
-	if sid := latestOpencodeSessionID(record.RepoCopyPath); sid != "" {
-		fmt.Fprintf(os.Stderr, "agent restore: restoring opencode session %s\n", sid)
-		_ = resumeAIPane(record.Panes.AI, sid)
+	if sid, _ := latestOpencodeSession(record.RepoCopyPath); sid != "" {
+		fmt.Fprintf(os.Stderr, "agent restore: restoring opencode session %s via op\n", sid)
+		_ = resumeAIPane(record.Panes.AI, "op", sid)
 	} else {
 		_ = primeAgentAIPane(record.Panes.AI)
 	}
@@ -1465,6 +1510,9 @@ func runTmuxOnFocus(args []string) error {
 	fs.SetOutput(os.Stderr)
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+	if windowID != "" && !claimEventOnce(eventDedupeWindow, "onfocus", sessionID, windowID) {
+		return nil
 	}
 	if !tmuxWindowIsActive(sessionID, windowID) {
 		return nil
@@ -2107,47 +2155,99 @@ func primeAgentAIPane(paneID string) error {
 	return sendToPane(paneID, "op")
 }
 
+// The TUI --prompt flag only pre-fills the composer; Enter must be sent to
+// submit. Early Enters are no-ops until the composer exists.
+func primeAgentAIPaneWithPrompt(paneID, promptPath, repoCopyPath string) (string, error) {
+	paneID = strings.TrimSpace(paneID)
+	if paneID == "" {
+		return "", nil
+	}
+	waitPaneShell(paneID)
+	if err := sendToPane(paneID, fmt.Sprintf("op --prompt \"$(cat %s)\"", shellQuote(promptPath))); err != nil {
+		return "", err
+	}
+	return waitForOpencodeSession(paneID, repoCopyPath)
+}
+
+// session_v2 rows appear only after the first message actually sends, so poll
+// the db between Enter attempts instead of trusting the TUI banner.
+func waitForOpencodeSession(paneID, dir string) (string, error) {
+	dbPath := opencodeV2DBPath()
+	if dbPath == "" {
+		return "", fmt.Errorf("opencode v2 db not found")
+	}
+	startMS := time.Now().UnixMilli()
+	uri := "file:" + dbPath + "?mode=ro"
+	query := fmt.Sprintf(
+		"SELECT id FROM session_v2 WHERE directory = '%s' AND time_created >= %d ORDER BY time_created DESC LIMIT 1",
+		strings.ReplaceAll(dir, "'", "''"), startMS)
+	for i := 0; i < 25; i++ {
+		_ = runTmux("send-keys", "-t", paneID, "Enter")
+		time.Sleep(4 * time.Second)
+		out, err := exec.Command("sqlite3", uri, query).Output()
+		if err != nil {
+			continue
+		}
+		if sid := strings.TrimSpace(string(out)); sid != "" {
+			return sid, nil
+		}
+	}
+	return "", fmt.Errorf("session never appeared for %s", dir)
+}
+
 // resumeAIPane launches opencode resumed to a specific session id.
-func resumeAIPane(paneID, sid string) error {
+func resumeAIPane(paneID, launcher, sid string) error {
 	paneID = strings.TrimSpace(paneID)
 	sid = strings.TrimSpace(sid)
 	if paneID == "" || sid == "" {
 		return nil
 	}
 	waitPaneShell(paneID)
-	return sendToPane(paneID, "op -s "+sid)
+	return sendToPane(paneID, launcher+" -s "+sid)
 }
 
-func opencodeDBPath() string {
-	if v := strings.TrimSpace(os.Getenv("OPENCODE_DB")); v != "" {
-		return v
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		home = os.Getenv("HOME")
-	}
-	return filepath.Join(home, ".local", "share", "opencode", "opencode.db")
-}
-
-// latestOpencodeSessionID returns the most recent MAIN opencode session
+// latestOpencodeSession returns the most recent MAIN opencode session
 // (parent_id IS NULL) whose working directory matches dir, or "" if none.
+// Checks live sessions first, then tombstones (closed sessions).
 func latestOpencodeSession(dir string) (string, string) {
 	dir = strings.TrimSpace(dir)
 	if dir == "" {
 		return "", ""
 	}
 	esc := strings.ReplaceAll(dir, "'", "''")
-	q := "SELECT id, COALESCE(title,'') FROM session WHERE directory='" + esc + "' AND parent_id IS NULL ORDER BY time_updated DESC LIMIT 1;"
-	out, err := exec.Command("sqlite3", opencodeDBPath(), q).Output()
+	if v2db := opencodeV2DBPath(); v2db != "" {
+		for _, q := range []string{
+			"SELECT id, COALESCE(title,'') FROM session_v2 WHERE directory='" + esc + "' AND parent_id IS NULL ORDER BY time_updated DESC LIMIT 1;",
+			"SELECT id, COALESCE(title,'') FROM op2_tombstone WHERE directory='" + esc + "' AND parent_id IS NULL ORDER BY time_updated DESC LIMIT 1;",
+		} {
+			out, err := exec.Command("sqlite3", v2db, q).Output()
+			if err != nil {
+				continue
+			}
+			row := strings.TrimSpace(string(out))
+			if row == "" {
+				continue
+			}
+			id, title, _ := strings.Cut(row, "|")
+			return id, title
+		}
+	}
+	return "", ""
+}
+
+func opencodeV2DBPath() string {
+	if v := strings.TrimSpace(os.Getenv("OPENCODE_V2_DB")); v != "" {
+		return v
+	}
+	home, err := os.UserHomeDir()
 	if err != nil {
-		return "", ""
+		home = os.Getenv("HOME")
 	}
-	row := strings.TrimSpace(string(out))
-	if row == "" {
-		return "", ""
+	p := filepath.Join(home, ".local", "share", "opencode-v2", "opencode.db")
+	if _, err := os.Stat(p); err != nil {
+		return ""
 	}
-	id, title, _ := strings.Cut(row, "|")
-	return id, title
+	return p
 }
 
 func latestOpencodeSessionID(dir string) string {
@@ -2365,7 +2465,7 @@ func ensureFlutterWebRepo(repoRoot string) error {
 }
 
 func requiredAgentExcludeEntries(repoRoot string, isFlutter bool) []string {
-	entries := []string{".agent.yaml"}
+	entries := []string{".agent", ".agent.yaml"}
 	entries = append(entries, ".agents")
 	if isFlutter {
 		entries = append(entries, "web_dev_config.yaml")
@@ -2459,7 +2559,7 @@ func dirExists(path string) bool {
 }
 
 func defaultAgentKeyPaths() []string {
-	return []string{"AGENTS.md", ".agent-prompts", "opencode.json"}
+	return []string{"AGENTS.md", ".agent", ".agent-prompts", "opencode.json"}
 }
 
 func bootstrapStateDirPath(workspaceRoot string) string {
@@ -2537,12 +2637,12 @@ func pullSourceBranch(repoRoot string, repoCfg *repoConfig) error {
 		return fmt.Errorf("git fetch origin: %w", err)
 	}
 	if remoteExists(repoRoot, "origin/"+branch) {
-		mergeCmd := exec.Command("git", "merge", "--ff-only", "origin/"+branch)
+		mergeCmd := exec.Command("git", "merge", "--no-edit", "origin/"+branch)
 		mergeCmd.Dir = repoRoot
 		mergeCmd.Stdout = os.Stderr
 		mergeCmd.Stderr = os.Stderr
 		if err := mergeCmd.Run(); err != nil {
-			return fmt.Errorf("git merge --ff-only origin/%s: %w", branch, err)
+			return fmt.Errorf("git merge --no-edit origin/%s: %w", branch, err)
 		}
 	}
 	return nil
@@ -2581,6 +2681,57 @@ func prepareAgentContext(repoRoot, repoCopyPath string, keyPaths []string, ignor
 		return err
 	}
 	return copySelectedRepoPaths(repoRoot, repoCopyPath, keyPaths, ignoreExisting)
+}
+
+// ensureAgentBrowserMCP merges an agent_browser entry into the workspace
+// copy's .agent/mcp.json (registered disabled; the v2 project-bridge plugin
+// picks it up). Idempotent; runs after prepareAgentContext since the sync
+// overwrites .agent/ from source.
+func ensureAgentBrowserMCP(repoCopyPath, workspaceRoot, feature, url string) error {
+	if strings.TrimSpace(url) == "" {
+		return nil
+	}
+	agentBin := strings.TrimSpace(os.Getenv("AGENT_BIN"))
+	if agentBin == "" {
+		home, _ := os.UserHomeDir()
+		agentBin = filepath.Join(home, ".config", "agent-tracker", "bin", "agent")
+	}
+	agentDir := filepath.Join(repoCopyPath, ".agent")
+	if err := os.MkdirAll(agentDir, 0o755); err != nil {
+		return err
+	}
+	path := filepath.Join(agentDir, "mcp.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			return err
+		}
+		data = []byte(`{"mcpServers":{}}`)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(data, &doc); err != nil {
+		return fmt.Errorf("parse %s: %w", path, err)
+	}
+	servers, _ := doc["mcpServers"].(map[string]any)
+	if servers == nil {
+		servers = map[string]any{}
+		doc["mcpServers"] = servers
+	}
+	servers["agent_browser"] = map[string]any{
+		"command": agentBin,
+		"args":    []string{"browser", "mcp", "--workspace", workspaceRoot},
+		"env": map[string]string{
+			"AGENT_WORKSPACE":   workspaceRoot,
+			"AGENT_FEATURE":     feature,
+			"AGENT_BROWSER_URL": url,
+		},
+		"disabled": true,
+	}
+	out, err := json.MarshalIndent(doc, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, append(out, '\n'), 0o644)
 }
 
 func copySelectedRepoPaths(srcRoot, destRoot string, paths []string, ignoreExisting bool) error {
@@ -2680,15 +2831,63 @@ func applyRepoCopyIgnores(sourceRepoRoot, repoCopyPath string, extraIgnores []st
 	if err != nil {
 		return err
 	}
-	if err := markGitPathsSkipWorktree(repoCopyPath, trackedPaths); err != nil {
+	trackedSet := make(map[string]bool, len(trackedPaths))
+	for _, trackedPath := range trackedPaths {
+		trackedSet[trackedPath] = true
+	}
+	cullPaths := make([]string, 0, len(relPaths))
+	for _, relPath := range relPaths {
+		if trackedSet[relPath] && !matchesCopyIgnorePattern(relPath, extraIgnores) {
+			continue
+		}
+		cullPaths = append(cullPaths, relPath)
+	}
+	if len(cullPaths) == 0 {
+		return nil
+	}
+	markable := make([]string, 0, len(cullPaths))
+	for _, relPath := range cullPaths {
+		if trackedSet[relPath] {
+			markable = append(markable, relPath)
+		}
+	}
+	if err := markGitPathsSkipWorktree(repoCopyPath, markable); err != nil {
 		return err
 	}
-	for _, relPath := range relPaths {
+	for _, relPath := range cullPaths {
 		if err := os.RemoveAll(filepath.Join(repoCopyPath, relPath)); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func matchesCopyIgnorePattern(relPath string, extraIgnores []string) bool {
+	relPath = filepath.ToSlash(filepath.Clean(relPath))
+	for _, value := range copyRepoExcludeValues(extraIgnores) {
+		pattern := strings.TrimSpace(value)
+		if pattern == "" || pattern == ".git" {
+			continue
+		}
+		if strings.Contains(pattern, "/") {
+			if ok, _ := filepath.Match(pattern, relPath); ok {
+				return true
+			}
+			if strings.HasPrefix(relPath, strings.TrimSuffix(pattern, "/")+"/") {
+				return true
+			}
+			continue
+		}
+		for _, segment := range strings.Split(relPath, "/") {
+			if segment == pattern {
+				return true
+			}
+			if ok, _ := filepath.Match(pattern, segment); ok {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func repoCopyIgnoredPaths(sourceRepoRoot, repoCopyPath string, extraIgnores []string) ([]string, error) {
@@ -2870,7 +3069,7 @@ func loadRepoConfig(repoRoot string) (*repoConfig, error) {
 		return nil, err
 	}
 	cfg := defaultRepoConfig()
-	if err := yaml.Unmarshal(data, cfg); err != nil {
+	if err := unmarshalRepoConfig(data, path, cfg); err != nil {
 		return nil, err
 	}
 	normalizeRepoConfig(cfg)
@@ -2887,7 +3086,7 @@ func loadRepoConfigOrDefault(repoRoot string) (*repoConfig, error) {
 		return nil, err
 	}
 	cfg := defaultRepoConfig()
-	if err := yaml.Unmarshal(data, cfg); err != nil {
+	if err := unmarshalRepoConfig(data, path, cfg); err != nil {
 		return nil, err
 	}
 	normalizeRepoConfig(cfg)
@@ -2895,7 +3094,18 @@ func loadRepoConfigOrDefault(repoRoot string) (*repoConfig, error) {
 }
 
 func repoConfigPath(repoRoot string) string {
+	jsonPath := filepath.Join(repoRoot, ".agent", "project.json")
+	if fileExists(jsonPath) {
+		return jsonPath
+	}
 	return filepath.Join(repoRoot, ".agent.yaml")
+}
+
+func unmarshalRepoConfig(data []byte, path string, cfg *repoConfig) error {
+	if strings.HasSuffix(path, ".json") {
+		return json.Unmarshal(data, cfg)
+	}
+	return yaml.Unmarshal(data, cfg)
 }
 
 func defaultRepoConfig() *repoConfig {
@@ -2945,11 +3155,29 @@ func containsString(values []string, target string) bool {
 
 func saveRepoConfig(repoRoot string, cfg *repoConfig) error {
 	normalizeRepoConfig(cfg)
-	data, err := yaml.Marshal(cfg)
-	if err != nil {
-		return err
+	jsonPath := filepath.Join(repoRoot, ".agent", "project.json")
+	yamlPath := filepath.Join(repoRoot, ".agent.yaml")
+	path := yamlPath
+	if fileExists(jsonPath) || !fileExists(yamlPath) {
+		path = jsonPath
 	}
-	path := repoConfigPath(repoRoot)
+	var data []byte
+	var err error
+	if strings.HasSuffix(path, ".json") {
+		data, err = json.MarshalIndent(cfg, "", "  ")
+		if err != nil {
+			return err
+		}
+		data = append(data, '\n')
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			return err
+		}
+	} else {
+		data, err = yaml.Marshal(cfg)
+		if err != nil {
+			return err
+		}
+	}
 	return os.WriteFile(path, data, 0o644)
 }
 

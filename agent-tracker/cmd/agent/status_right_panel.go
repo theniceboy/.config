@@ -86,6 +86,10 @@ func (m *statusRightPanelModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.selected = clampInt(m.selected-1, 0, maxInt(0, len(m.entries)-1))
 		case "ctrl+e", "alt+e", "down", "e":
 			m.selected = clampInt(m.selected+1, 0, maxInt(0, len(m.entries)-1))
+		case ",":
+			m.selected = clampInt(m.selected-5, 0, maxInt(0, len(m.entries)-1))
+		case ".":
+			m.selected = clampInt(m.selected+5, 0, maxInt(0, len(m.entries)-1))
 		case "enter", " ":
 			m.toggleSelected()
 		}

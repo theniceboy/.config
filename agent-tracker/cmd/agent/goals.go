@@ -90,7 +90,7 @@ func saveGoalStore(store *GoalStore) error {
 	if err != nil {
 		return err
 	}
-	tmp := path + ".tmp"
+	tmp := fmt.Sprintf("%s.tmp.%d.%d", path, os.Getpid(), time.Now().UnixNano())
 	if err := os.WriteFile(tmp, data, 0644); err != nil {
 		return err
 	}

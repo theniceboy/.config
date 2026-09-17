@@ -5,45 +5,23 @@ window_id="${1:-}"
 unread="${2:-0}"
 watching="${3:-0}"
 watch_failed="${4:-0}"
+questions="${5:-}"
 [[ -z "$window_id" ]] && exit 0
 
-has_bell=0
-has_watch=0
-has_question=0
-has_fail=0
-
-[[ "$unread" == "1" ]] && has_bell=1
-[[ "$unread" == "1" && "$watch_failed" == "1" ]] && has_fail=1
-
-[[ "$watching" == "1" ]] && has_watch=1
-
-question_pane=$(tmux list-panes -t "$window_id" -F '#{@op_question_pending}' 2>/dev/null | grep -F -m1 -x '1' || true)
-[[ -n "$question_pane" ]] && has_question=1
-
-CACHE_FILE="/tmp/tmux-tracker-cache.json"
-if [[ -f "$CACHE_FILE" ]]; then
-  state=$(cat "$CACHE_FILE" 2>/dev/null || true)
-  if [[ -n "$state" ]]; then
-    result=$(echo "$state" | jq -r --arg wid "$window_id" '
-      .tasks // []
-      | map(select(.window_id == $wid))
-      | if any(.status == "completed" and .acknowledged != true) then "waiting"
-        elif any(.status == "in_progress") then "in_progress"
-        else empty end
-    ' 2>/dev/null || true)
-    case "$result" in
-      waiting) has_bell=1 ;;
-      in_progress) has_watch=1 ;;
-    esac
-  fi
-fi
-
-if (( has_question )); then
+if [[ "$questions" == *1* ]]; then
   printf '❓'
-elif (( has_fail )); then
+elif [[ "$unread" == 1 && "$watch_failed" == 1 ]]; then
   printf '❌'
-elif (( has_bell )); then
+elif [[ "$unread" == 1 ]]; then
   printf '🔔'
-elif (( has_watch )); then
-  printf '⏳'
+else
+  if [[ -s /tmp/tmux-tracker-cache.json ]]; then
+    jq -jr --arg wid "$window_id" --arg watching "$watching" '
+      [.tasks[]? | select(.window_id == $wid)]
+      | if any(.status == "completed" and .acknowledged != true) then "🔔"
+        elif $watching == "1" or any(.status == "in_progress") then "⏳"
+        else "" end
+    ' /tmp/tmux-tracker-cache.json 2>/dev/null && exit 0
+  fi
+  [[ "$watching" != 1 ]] || printf '⏳'
 fi

@@ -9,8 +9,9 @@ new_window() {
 
 # invoked by pane-focus-in event
 update_mru_pane_ids() {
+    current_pane_id="${1:-}"
+    [[ -n "$current_pane_id" ]] || return
     o_data=($(tmux show -gqv '@mru_pane_ids'))
-    current_pane_id=$(tmux display-message -p '#D')
     n_data=($current_pane_id)
     for i in ${!o_data[@]}; do
         [[ $current_pane_id != ${o_data[i]} ]] && n_data+=(${o_data[i]})

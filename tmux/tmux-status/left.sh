@@ -67,52 +67,48 @@ if [[ -f "$CACHE_FILE" ]]; then
 fi
 
 question_state=$(tmux list-panes -a -F '#{session_id}::#{@op_question_pending}' 2>/dev/null || true)
+window_state=$(tmux list-windows -a -F '#{session_id}::#{@unread}::#{@watching}::#{@watch_failed}' 2>/dev/null || true)
 
-get_session_icon() {
-  local sid="$1"
-  local has_question=0 has_bell=0 has_watch=0 has_fail=0
+tracker_icons=""
+if [[ -n "$tracker_state" ]]; then
+  tracker_icons=$(printf '%s' "$tracker_state" | jq -r '
+    (.tasks // []) | group_by(.session_id // "")[]
+    | (.[0].session_id // "") as $sid | select($sid != "")
+    | if any(.[]; .status == "completed" and .acknowledged != true) then [$sid, "waiting"]
+      elif any(.[]; .status == "in_progress") then [$sid, "in_progress"]
+      else empty end | @tsv' 2>/dev/null || true)
+fi
 
-  local question_pane
-  question_pane=$(grep -F -m1 -x "${sid}::1" <<< "$question_state" || true)
-  [[ -n "$question_pane" ]] && has_question=1
+sep=$'\037'
+q_enc=${question_state//$'\n'/$sep}
+w_enc=${window_state//$'\n'/$sep}
+t_enc=${tracker_icons//$'\n'/$sep}
+s_enc=${sessions//$'\n'/$sep}
 
-  local unread_win
-  unread_win=$(tmux list-windows -t "$sid" -F '#{@unread}' 2>/dev/null | grep -m1 '^1$' || true)
-  [[ -n "$unread_win" ]] && has_bell=1
-
-  local failed_win
-  failed_win=$(tmux list-windows -t "$sid" -F '#{@unread}:#{@watch_failed}' 2>/dev/null | grep -m1 '^1:1$' || true)
-  [[ -n "$failed_win" ]] && has_fail=1
-
-  local watching_win
-  watching_win=$(tmux list-windows -t "$sid" -F '#{@watching}' 2>/dev/null | grep -m1 '^1$' || true)
-  [[ -n "$watching_win" ]] && has_watch=1
-
-  if [[ -n "$tracker_state" ]]; then
-    local result
-    result=$(echo "$tracker_state" | jq -r --arg sid "$sid" '
-      .tasks // []
-      | map(select(.session_id == $sid))
-      | if any(.status == "completed" and .acknowledged != true) then "waiting"
-        elif any(.status == "in_progress") then "in_progress"
-        else empty end
-    ' 2>/dev/null || true)
-    case "$result" in
-      waiting) has_bell=1 ;;
-      in_progress) has_watch=1 ;;
-    esac
-  fi
-
-  if (( has_question )); then
-    printf '❓'
-  elif (( has_fail )); then
-    printf '❌'
-  elif (( has_bell )); then
-    printf '🔔'
-  elif (( has_watch )); then
-    printf '⏳'
-  fi
-}
+session_icons=$(awk -v q="$q_enc" -v w="$w_enc" -v t="$t_enc" -v sess="$s_enc" 'BEGIN {
+  FS = "::"
+  nq = split(q, L, "\037"); for (i = 1; i <= nq; i++) { split(L[i], a, "::"); if (a[2] == "1") Q[a[1]] = 1 }
+  nw = split(w, L, "\037"); for (i = 1; i <= nw; i++) {
+    split(L[i], b, "::"); s = b[1]
+    if (b[2] == "1") { U[s] = 1; if (b[4] == "1") F[s] = 1 }
+    if (b[3] == "1") W[s] = 1
+  }
+  nt = split(t, L, "\037"); for (i = 1; i <= nt; i++) {
+    split(L[i], c, "\t")
+    if (c[2] == "waiting") U[c[1]] = 1
+    else if (c[2] == "in_progress") W[c[1]] = 1
+  }
+  ns = split(sess, L, "\037")
+  for (i = 1; i <= ns; i++) {
+    split(L[i], d, "::"); sid = d[1]; icon = ""
+    if (Q[sid]) icon = "❓"
+    else if (F[sid]) icon = "❌"
+    else if (U[sid]) icon = "🔔"
+    else if (W[sid]) icon = "⏳"
+    print sid "\t" icon
+  }
+}' 2>/dev/null || true)
+unset sep q_enc w_enc t_enc s_enc
 
 rendered=""
 prev_bg=""
@@ -152,7 +148,7 @@ while IFS= read -r entry; do
     label="${label:0:max_width-1}…"
   fi
 
-  task_icon=$(get_session_icon "$session_id")
+  task_icon=$(grep -m1 -F "$session_id"$'\t' <<< "$session_icons" 2>/dev/null | cut -f2) || task_icon=""
 
   if [[ -z "$prev_bg" ]]; then
     rendered+="#[fg=${segment_bg},bg=${status_bg}]${left_cap}"

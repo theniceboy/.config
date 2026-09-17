@@ -431,7 +431,7 @@ func resolveGoalWindowID(window string) string {
 	if os.Getenv("TMUX") == "" {
 		return ""
 	}
-	out, err := runTmuxOutput("display-message", "-p", "#{window_id}")
+	out, err := runTmuxOutput(append([]string{"display-message", "-p"}, append(currentTmuxPaneTarget(), "#{window_id}")...)...)
 	if err != nil {
 		return ""
 	}

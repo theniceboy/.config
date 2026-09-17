@@ -241,6 +241,12 @@ func (m *activityMonitorBT) updateCopyMenu(key string) (tea.Model, tea.Cmd) {
 	case "e", "down", "ctrl+e":
 		m.copyOptionIndex = clampInt(m.copyOptionIndex+1, 0, len(m.copyOptions)-1)
 		return m, nil
+	case ",":
+		m.copyOptionIndex = clampInt(m.copyOptionIndex-5, 0, len(m.copyOptions)-1)
+		return m, nil
+	case ".":
+		m.copyOptionIndex = clampInt(m.copyOptionIndex+5, 0, len(m.copyOptions)-1)
+		return m, nil
 	case "enter", "y", "Y":
 		option := m.copyOptions[clampInt(m.copyOptionIndex, 0, len(m.copyOptions)-1)]
 		if err := activityClipboardWriter(option.Value); err != nil {
@@ -278,6 +284,10 @@ func (m *activityMonitorBT) updateNormal(key string) (tea.Model, tea.Cmd) {
 		m.moveSelection(-1)
 	case "e", "down":
 		m.moveSelection(1)
+	case ",":
+		m.moveSelection(-5)
+	case ".":
+		m.moveSelection(5)
 	case "n", "left":
 		m.shiftSort(-1)
 	case "i", "right":

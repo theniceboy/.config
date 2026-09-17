@@ -28,6 +28,8 @@ const (
 	paletteModeOpencodeFork
 	paletteModeRestoreAgent
 	paletteModeLLMQuotas
+	paletteModeMemory
+	paletteModeBoard
 )
 
 type palettePromptField int
@@ -73,6 +75,8 @@ const (
 	paletteActionForkOpencodeVertical
 	paletteActionForkOpencodeWindow
 	paletteActionOpenLLMQuotas
+	paletteActionOpenMemory
+	paletteActionOpenBoard
 )
 
 type paletteAction struct {
@@ -220,7 +224,7 @@ func detectPaletteMainRepoRoot(currentPath string, record *agentRecord) string {
 	if idx := strings.Index(clean, needle); idx >= 0 {
 		return clean[:idx]
 	}
-	if fileExists(filepath.Join(clean, ".agent.yaml")) {
+	if hasAgentConfig(clean) {
 		return clean
 	}
 	cmd := exec.Command("git", "rev-parse", "--show-toplevel")
@@ -233,7 +237,7 @@ func detectPaletteMainRepoRoot(currentPath string, record *agentRecord) string {
 	if repoRoot == "" {
 		return ""
 	}
-	if fileExists(filepath.Join(repoRoot, ".agent.yaml")) {
+	if hasAgentConfig(repoRoot) {
 		return repoRoot
 	}
 	if idx := strings.Index(repoRoot, needle); idx >= 0 {
@@ -280,4 +284,10 @@ func startAgentSubtitle(mainRepoRoot, currentPath string) string {
 
 func runPalette(args []string) error {
 	return runBubbleTeaPalette(args)
+}
+
+func hasAgentConfig(dir string) bool {
+	return fileExists(filepath.Join(dir, ".agent", "project.json")) ||
+		fileExists(filepath.Join(dir, ".agent.yaml")) ||
+		fileExists(filepath.Join(dir, ".agent", "mcp.json"))
 }

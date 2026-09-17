@@ -80,6 +80,11 @@ var statusNow = time.Now
 var statusHostname = os.Hostname
 var statusDetectCurrentAgentFromTmux = detectCurrentAgentFromTmux
 var statusLoadRegistry = loadRegistry
+
+// memoryCacheFreshFor mirrors STALE_SECONDS in mem_usage_cache.py; skipping
+// the python spawn while fresh avoids a cold start on every status refresh.
+const memoryCacheFreshFor = 15 * time.Second
+
 var statusMemoryCachePath = func() string { return "/tmp/tmux-mem-usage.json" }
 var statusMemoryCacheRefreshScript = func() string {
 	return filepath.Join(os.Getenv("HOME"), ".config", "tmux", "tmux-status", "mem_usage_cache.py")
@@ -244,11 +249,23 @@ type statusNetworkCounter struct {
 }
 
 type statusNetworkRateCache struct {
-	Interface string `json:"interface"`
-	InBytes   uint64 `json:"in_bytes"`
-	OutBytes  uint64 `json:"out_bytes"`
-	SampledAt int64  `json:"sampled_at_unix_ms"`
+	Interface  string  `json:"interface"`
+	InBytes    uint64  `json:"in_bytes"`
+	OutBytes   uint64  `json:"out_bytes"`
+	SampledAt  int64   `json:"sampled_at_unix_ms"`
+	LastDown   float64 `json:"last_down_bps"`
+	LastUp     float64 `json:"last_up_bps"`
+	LastRateAt int64   `json:"last_rate_at_unix_ms"`
 }
+
+// Forced status redraws (refresh-client -S hooks) can invoke right-status many
+// times per second, so the baseline must not be advanced until it spans a
+// usable window; otherwise rates collapse to "--".
+const (
+	networkRateMinWindowMS = 250
+	networkRateKeepMS      = 500
+	networkRateReuseMS     = 5000
+)
 
 func runTmuxRightStatus(args []string) error {
 	fs := flag.NewFlagSet("agent tmux right-status", flag.ContinueOnError)
@@ -326,12 +343,16 @@ func renderTmuxRightStatus(args tmuxRightStatusArgs) string {
 			segments = append(segments, statusSegment{FG: "#1d1f21", BG: "#8fbcbb", Text: label, Bold: true})
 		}
 	}
+	memoryStart := len(segments)
 	if statusRightModuleEnabled(statusRightModuleMemory) {
 		if label := loadMemoryStatusLabel(args.PaneID); label != "" {
-			segments = append(segments, statusSegment{FG: "#eceff4", BG: "#5e81ac", Text: label})
+			segments = append(segments, statusSegment{FG: "#eceff4", BG: "#5e81ac", Text: label, NoRightPadding: true})
 		}
 	}
 	segments = append(segments, loadSplitMemoryStatusSegments(args)...)
+	if len(segments) > memoryStart {
+		segments[len(segments)-1].Text += " "
+	}
 	if statusRightModuleEnabled(statusRightModuleFlashMoe) {
 		if segment, ok := loadFlashMoeStatusSegment(); ok {
 			segments = append(segments, segment)
@@ -735,25 +756,44 @@ func loadNetworkStatusLabel() string {
 	}
 	now := statusNow().UnixMilli()
 	previous, _ := loadNetworkRateCache()
-	rate := " ↓-- ↑-- "
-	if previous.Interface == iface && previous.SampledAt > 0 && now > previous.SampledAt && current.InBytes >= previous.InBytes && current.OutBytes >= previous.OutBytes {
-		seconds := float64(now-previous.SampledAt) / 1000
-		if seconds >= 0.25 {
-			down := float64(current.InBytes-previous.InBytes) / seconds
-			up := float64(current.OutBytes-previous.OutBytes) / seconds
-			rate = fmt.Sprintf(" %s ↓%s ↑%s ", statusIconNetwork, formatByteRate(down), formatByteRate(up))
-		}
-	}
-	_ = saveNetworkRateCache(statusNetworkRateCache{
+
+	updated := statusNetworkRateCache{
 		Interface: iface,
 		InBytes:   current.InBytes,
 		OutBytes:  current.OutBytes,
 		SampledAt: now,
-	})
-	if rate == " ↓-- ↑-- " {
+	}
+	down, up := -1.0, -1.0
+	validBaseline := previous.Interface == iface && previous.SampledAt > 0 && now > previous.SampledAt &&
+		current.InBytes >= previous.InBytes && current.OutBytes >= previous.OutBytes
+	if validBaseline {
+		updated.LastDown = previous.LastDown
+		updated.LastUp = previous.LastUp
+		updated.LastRateAt = previous.LastRateAt
+		elapsed := now - previous.SampledAt
+		if elapsed >= networkRateMinWindowMS {
+			seconds := float64(elapsed) / 1000
+			down = float64(current.InBytes-previous.InBytes) / seconds
+			up = float64(current.OutBytes-previous.OutBytes) / seconds
+			updated.LastDown = down
+			updated.LastUp = up
+			updated.LastRateAt = now
+		} else if previous.LastRateAt > 0 && now-previous.LastRateAt <= networkRateReuseMS {
+			down = previous.LastDown
+			up = previous.LastUp
+		}
+		if elapsed < networkRateKeepMS {
+			updated.Interface = previous.Interface
+			updated.InBytes = previous.InBytes
+			updated.OutBytes = previous.OutBytes
+			updated.SampledAt = previous.SampledAt
+		}
+	}
+	_ = saveNetworkRateCache(updated)
+	if down < 0 {
 		return fmt.Sprintf(" %s ↓-- ↑-- ", statusIconNetwork)
 	}
-	return rate
+	return fmt.Sprintf(" %s ↓%s ↑%s ", statusIconNetwork, formatByteRate(down), formatByteRate(up))
 }
 
 func loadPrimaryNetworkInterface() string {
@@ -898,7 +938,7 @@ func loadMemoryStatusLabel(paneID string) string {
 	if value == "" {
 		return ""
 	}
-	return fmt.Sprintf(" %s %s ", statusIconMemory, value)
+	return fmt.Sprintf(" %s %s", statusIconMemory, value)
 }
 
 func loadSplitMemoryStatusSegments(args tmuxRightStatusArgs) []statusSegment {
@@ -913,17 +953,17 @@ func loadSplitMemoryStatusSegments(args tmuxRightStatusArgs) []statusSegment {
 	}
 	if statusRightModuleEnabled(statusRightModuleWindowMemory) {
 		if value := strings.TrimSpace(cache.Window[windowKey]); value != "" {
-			segments = append(segments, statusSegment{FG: "#eceff4", BG: "#4c566a", Text: fmt.Sprintf(" %s %s ", statusIconWindow, value)})
+			segments = append(segments, statusSegment{FG: "#eceff4", BG: "#4c566a", Text: fmt.Sprintf(" %s %s", statusIconWindow, value), NoRightPadding: true})
 		}
 	}
 	if statusRightModuleEnabled(statusRightModuleSessionMemory) {
 		if value := strings.TrimSpace(cache.Session[strings.TrimSpace(args.SessionName)]); value != "" {
-			segments = append(segments, statusSegment{FG: "#eceff4", BG: "#434c5e", Text: fmt.Sprintf(" %s %s ", statusIconSession, value)})
+			segments = append(segments, statusSegment{FG: "#eceff4", BG: "#434c5e", Text: fmt.Sprintf(" %s %s", statusIconSession, value), NoRightPadding: true})
 		}
 	}
 	if statusRightModuleEnabled(statusRightModuleTotalMemory) {
 		if value := strings.TrimSpace(cache.Total); value != "" {
-			segments = append(segments, statusSegment{FG: "#eceff4", BG: "#3b4252", Text: fmt.Sprintf(" %s %s ", statusIconTotal, value)})
+			segments = append(segments, statusSegment{FG: "#eceff4", BG: "#3b4252", Text: fmt.Sprintf(" %s %s", statusIconTotal, value), NoRightPadding: true})
 		}
 	}
 	return segments
@@ -1011,6 +1051,10 @@ func goalPathTitles(store *GoalStore, goalID string) []string {
 func refreshMemoryUsageCache() {
 	script := statusMemoryCacheRefreshScript()
 	if strings.TrimSpace(script) == "" || !fileExists(script) {
+		return
+	}
+	cache := statusMemoryCachePath()
+	if info, err := os.Stat(cache); err == nil && time.Since(info.ModTime()) < memoryCacheFreshFor {
 		return
 	}
 	_ = statusCommandStart("python3", script)
@@ -1189,25 +1233,34 @@ func statusRightModuleEnabled(module string) bool {
 func (cfg statusRightConfig) moduleEnabled(module string) bool {
 	switch module {
 	case statusRightModuleCPU:
-		return derefBool(cfg.CPU, defaultStatusRightModuleEnabled(module))
+		return derefBool(cfg.CPU, cfg.moduleFallbackEnabled(module))
 	case statusRightModuleNetwork:
-		return derefBool(cfg.Network, defaultStatusRightModuleEnabled(module))
+		return derefBool(cfg.Network, cfg.moduleFallbackEnabled(module))
 	case statusRightModuleMemory:
-		return derefBool(cfg.Memory, defaultStatusRightModuleEnabled(module))
+		return derefBool(cfg.Memory, cfg.moduleFallbackEnabled(module))
 	case statusRightModuleWindowMemory:
-		return derefBool(cfg.WindowMemory, derefBool(cfg.MemoryTotals, defaultStatusRightModuleEnabled(module)))
+		return derefBool(cfg.WindowMemory, cfg.moduleFallbackEnabled(module))
 	case statusRightModuleSessionMemory:
-		return derefBool(cfg.SessionMemory, derefBool(cfg.MemoryTotals, defaultStatusRightModuleEnabled(module)))
+		return derefBool(cfg.SessionMemory, cfg.moduleFallbackEnabled(module))
 	case statusRightModuleTotalMemory:
-		return derefBool(cfg.TotalMemory, derefBool(cfg.MemoryTotals, defaultStatusRightModuleEnabled(module)))
+		return derefBool(cfg.TotalMemory, cfg.moduleFallbackEnabled(module))
 	case statusRightModuleScratch:
-		return derefBool(cfg.Scratch, defaultStatusRightModuleEnabled(module))
+		return derefBool(cfg.Scratch, cfg.moduleFallbackEnabled(module))
 	case statusRightModuleFlashMoe:
-		return derefBool(cfg.FlashMoe, defaultStatusRightModuleEnabled(module))
+		return derefBool(cfg.FlashMoe, cfg.moduleFallbackEnabled(module))
 	case statusRightModuleHost:
-		return derefBool(cfg.Host, defaultStatusRightModuleEnabled(module))
+		return derefBool(cfg.Host, cfg.moduleFallbackEnabled(module))
 	default:
 		return false
+	}
+}
+
+func (cfg statusRightConfig) moduleFallbackEnabled(module string) bool {
+	switch module {
+	case statusRightModuleWindowMemory, statusRightModuleSessionMemory, statusRightModuleTotalMemory:
+		return derefBool(cfg.MemoryTotals, defaultStatusRightModuleEnabled(module))
+	default:
+		return defaultStatusRightModuleEnabled(module)
 	}
 }
 
@@ -1229,7 +1282,7 @@ func toggleStatusRightModule(module string) error {
 
 func (cfg *statusRightConfig) setModuleEnabled(module string, enabled bool) {
 	value := boolPtr(enabled)
-	if enabled == defaultStatusRightModuleEnabled(module) {
+	if enabled == cfg.moduleFallbackEnabled(module) {
 		value = nil
 	}
 	switch module {

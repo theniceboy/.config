@@ -30,9 +30,7 @@ if [[ -z "${content:-}" ]]; then
   exit 0
 fi
 
-# normalize CRLF -> LF
-content=$(printf '%s' "$content" | tr -d '\r')
-
-tmux set-buffer -- "$content"
+# normalize CRLF -> LF; stdin because set-buffer rejects long commands
+printf '%s' "$content" | tr -d '\r' | tmux load-buffer -
 tmux paste-buffer -p -d
 

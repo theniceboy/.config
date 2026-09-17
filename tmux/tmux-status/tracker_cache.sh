@@ -2,7 +2,7 @@
 set -euo pipefail
 
 CACHE_FILE="/tmp/tmux-tracker-cache.json"
-CACHE_MAX_AGE=1
+CACHE_MAX_AGE=2
 
 agent_bin="$HOME/.config/agent-tracker/bin/agent"
 

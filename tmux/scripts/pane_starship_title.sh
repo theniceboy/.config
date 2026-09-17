@@ -11,6 +11,20 @@ pane_cmd="${6:-}"
 pane_watching="${7:-}"
 ps_line=""
 
+cache_dir="$HOME/.cache/tmux/pane-titles"
+mkdir -p "$cache_dir" 2>/dev/null || true
+cache_file="$cache_dir/$pid.cache"
+cache_key="$pane_tty|$pane_title|$width|$pane_path|$pane_cmd|$pane_watching"
+if [[ "$pid" =~ ^[0-9]+$ ]] && [[ -s "$cache_file" ]] && [[ -n $(find "$cache_file" -mtime -15s 2>/dev/null) ]]; then
+  { IFS= read -r cached_key || true
+    IFS= read -r cached_title || true
+  } < "$cache_file"
+  if [[ "$cached_key" == "key:$cache_key" ]]; then
+    printf '%s' "$cached_title"
+    exit 0
+  fi
+fi
+
 # Best-effort: inherit venv/conda from the pane's process env
 if [[ -n "$pid" ]]; then
   ps_line=$(ps e -p "$pid" -o command= 2>/dev/null || true)
@@ -52,22 +66,6 @@ trim_to_width() {
   printf '%s…' "${text:0:$((max - 1))}"
 }
 
-opencode_active() {
-  local tty_name tty_ps
-  [[ "$pane_title" == OC\ \|* ]] && return 0
-  [[ "$pane_cmd" == "op" || "$pane_cmd" == "opencode" ]] && return 0
-  tty_name="${pane_tty#/dev/}"
-  tty_ps=""
-  if [[ -n "$tty_name" ]]; then
-    tty_ps=$(ps -t "$tty_name" -o command= 2>/dev/null || true)
-  elif [[ -n "$ps_line" ]]; then
-    tty_ps="$ps_line"
-  fi
-  [[ "$pane_cmd" == "node" && "$tty_ps" == *"/bin/opencode"* ]] && return 0
-  [[ "$pane_cmd" == "node" && "$tty_ps" == *"opencode-ai/bin/.opencode"* ]] && return 0
-  return 1
-}
-
 fallback() {
   # <cmd> — <last dir>
   local last_dir
@@ -85,9 +83,9 @@ if [[ "$pane_watching" == "1" ]]; then
   title="⏳ $title"
 fi
 
-if ! opencode_active; then
-  printf '%s' "$title"
-  exit 0
+if [[ "$pid" =~ ^[0-9]+$ ]]; then
+  tmp="$cache_file.tmp$$"
+  { printf 'key:%s\n%s' "$cache_key" "$title"; } > "$tmp" 2>/dev/null && mv "$tmp" "$cache_file" 2>/dev/null || true
 fi
 
 printf '%s' "$title"

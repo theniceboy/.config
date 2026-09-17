@@ -938,7 +938,7 @@ def main():
 
     schedule_npm_updates(runner)
     runner.add_task("Homebrew Update", action=create_brew_update_action())
-    runner.add_task("Agent Tracker Build", "cd ~/.config/agent-tracker && ./install.sh")
+    runner.add_task("Yazi Plugins Update", command="ya pkg upgrade")
 
     success = runner.run_all()
     sys.exit(0 if success else 1)

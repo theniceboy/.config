@@ -197,7 +197,12 @@ def main() -> int:
         )
         args += ["-execute", "sh -lc " + shlex.quote(switch_cmd)]
 
-    subprocess.check_output(args)
+    try:
+        subprocess.check_output(args)
+    except subprocess.CalledProcessError as e:
+        print(f"terminal-notifier failed (rc={e.returncode}); banner not shown", file=sys.stderr)
+    except FileNotFoundError:
+        print("terminal-notifier not found; banner not shown", file=sys.stderr)
 
     return 0
 

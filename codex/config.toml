@@ -1,5 +1,4 @@
 tui    = { theme = { name = "dark-zen-garden" }, spinner = { name = "brailleDotsClassic" }, alternate_screen = true, notifications = true }
-notify = ["/usr/bin/python3", "/Users/david/.config/codex/notify.py"]
 
 model                    = "gpt-5.2"
 model_verbosity          = "medium"  # low|medium|high
@@ -11,6 +10,8 @@ sandbox_mode    = "danger-full-access"
 exec_timeout_ms = 900000               # 15 minutes
 rmcp_client     = true
 
+
+notify = ["/Users/david/.config/codex/computer-use/Codex Computer Use.app/Contents/SharedSupport/SkyComputerUseClient.app/Contents/MacOS/SkyComputerUseClient", "turn-ended", "--previous-notify", "[\"\\/usr\\/bin\\/python3\",\"\\/Users\\/david\\/.config\\/codex\\/notify.py\"]"]
 
 [notice]
 hide_gpt5_1_migration_prompt = true

@@ -245,7 +245,7 @@
           "BTTTriggerClass" : "BTTTriggerTypeKeyboardShortcut",
           "BTTPredefinedActionType" : 49,
           "BTTPredefinedActionName" : "Launch Application \/ Open File \/ Start Apple Script …",
-          "BTTLaunchPath" : "file:\/\/\/Applications\/iTerm.app\/",
+          "BTTLaunchPath" : "file:\/\/\/Applications\/Kitty.app\/",
           "BTTAdditionalConfiguration" : "524320",
           "BTTEnabled2" : 1,
           "BTTKeyboardShortcutKeyboardType" : 2301,

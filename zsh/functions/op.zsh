@@ -1,17 +1,52 @@
+# v2 launcher (default `op`): shared managed service (config/db pinned via
+# `opencode2 service set env`). The TUI registers its pane via
+# plugins/tracker-bridge; `run` and `mini` (no TUI plugin in mini) register
+# via the op-run-register DB poll below.
 op() {
-  if ! typeset -f _op_run >/dev/null; then
-    local src=${funcfiletrace[1]%:*}
-    local dir=${src:h}
-    local common="$dir/_op_common.zsh"
-    if [ ! -f "$common" ]; then
-      common="${XDG_CONFIG_HOME:-$HOME/.config}/zsh/functions/_op_common.zsh"
+  case "$1" in
+    run|mini)
+      local sub="$1"
+      shift
+      __op_client_with_registrar "$sub" "$@"
+      return
+      ;;
+  esac
+  OPENCODE_CONFIG_DIR="$HOME/.config/opencode" \
+  OPENCODE_DB="$HOME/.local/share/opencode-v2/opencode.db" \
+  "$HOME/.opencode/bin/opencode2" "$@"
+}
+
+__op_client_with_registrar() {
+  local sub="$1"
+  shift
+  local -a args=("$@")
+  local sid="" a i=1
+  while (( i <= $# )); do
+    a="${args[i]}"
+    if [[ ( "$a" == "-s" || "$a" == "--session" ) && (( i < $# )) ]]; then
+      sid="${args[i+1]}"
+      break
     fi
-    if [ ! -f "$common" ]; then
-      print -u2 "op: missing _op_common.zsh at $common"
-      return 1
+    if [[ "$a" == --session=* ]]; then
+      sid="${a#--session=}"
+      break
     fi
-    source "$common" || return 1
+    (( i++ ))
+  done
+
+  local reg=""
+  if [[ -n "${TMUX_PANE:-}" ]]; then
+    "$HOME/.local/bin/op-run-register" "$sid" "$HOME/.local/share/opencode-v2/opencode.db" "$PWD" "$TMUX_PANE" & reg=$!
   fi
 
-  OP_TRACKER_NOTIFY=1 _op_run op "$@"
+  OPENCODE_CONFIG_DIR="$HOME/.config/opencode" \
+  OPENCODE_DB="$HOME/.local/share/opencode-v2/opencode.db" \
+  "$HOME/.opencode/bin/opencode2" "$sub" "${args[@]}"
+  local rc=$?
+
+  if [[ -n "$reg" ]]; then
+    kill -TERM "$reg" 2>/dev/null
+    wait "$reg" 2>/dev/null
+  fi
+  return $rc
 }

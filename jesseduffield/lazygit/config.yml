@@ -4,9 +4,9 @@ git:
   merging:
     manualcommit: false
   skiphookprefix: WIP
-  pagers:
+  diffRenderers:
     - colorArg: always
-      pager: delta --dark --paging=never --24-bit-color=never --syntax-theme="OneHalfDark"
+      command: delta --dark --paging=never --24-bit-color=never --syntax-theme="OneHalfDark"
 gui:
   showRootItemInFileTree: false
   border: "rounded"

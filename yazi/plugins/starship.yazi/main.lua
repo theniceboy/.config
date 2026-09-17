@@ -14,6 +14,18 @@ local save = ya.sync(function(st, outputs)
     render()
 end)
 
+-- Url.is_regular is deprecated since v26.8.15, Url.spec.is_regular should be used
+---@return boolean
+local url_is_regular = ya.sync(function(_, path)
+    local url = Url(path)
+
+    if url.spec then
+        return url.spec.is_regular
+    end
+
+    return url.is_regular
+end)
+
 -- Helper function for accessing the `config_file` state variable
 ---@return string
 local get_config_file = ya.sync(function(st)
@@ -48,8 +60,7 @@ return {
         -- Check setup args
         if args ~= nil then
             if args.config_file ~= nil then
-                local url = Url(args.config_file)
-                if url.is_regular then
+                if url_is_regular(args.config_file) then
                     local config_file = args.config_file
 
                     -- Manually replace '~' and '$HOME' at the start of the path with the OS environment variable

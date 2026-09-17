@@ -15,62 +15,70 @@ ya pkg add yazi-rs/plugins:git
 Add the following to your `~/.config/yazi/init.lua`:
 
 ```lua
-require("git"):setup()
+require("git"):setup {
+	-- Order of status signs showing in the linemode
+	order = 1500,
+}
 ```
 
 And register it as fetchers in your `~/.config/yazi/yazi.toml`:
 
 ```toml
 [[plugin.prepend_fetchers]]
-id  = "git"
-url = "*"
-run = "git"
+url   = "*"
+run   = "git"
+group = "git"
 
 [[plugin.prepend_fetchers]]
-id  = "git"
-url = "*/"
-run = "git"
+url   = "*/"
+run   = "git"
+group = "git"
 ```
 
 ## Advanced
 
-> [!NOTE]
-> The following configuration must be put before `require("git"):setup()`
+You can customize the [Style](https://yazi-rs.github.io/docs/configuration/theme#types.style) of the status sign with:
 
-You can customize the [Style](https://yazi-rs.github.io/docs/plugins/layout#style) of the status sign with:
-
-- `th.git.modified`
-- `th.git.added`
-- `th.git.untracked`
-- `th.git.ignored`
-- `th.git.deleted`
-- `th.git.updated`
+- `[git].unknown` - status cannot/not yet determined
+- `[git].ignored` - ignored file
+- `[git].untracked` - untracked file
+- `[git].unstaged` - unstaged file
+- `[git].staged` - staged file
+- `[git].added` - staged new file
+- `[git].deleted` - deleted file
+- `[git].updated` - updated file
+- `[git].clean` - clean file
 
 For example:
 
-```lua
--- ~/.config/yazi/init.lua
-th.git = th.git or {}
-th.git.modified = ui.Style():fg("blue")
-th.git.deleted = ui.Style():fg("red"):bold()
+```toml
+# theme.toml / flavor.toml
+[git]
+unstaged = { fg = "blue" }
+deleted  = { fg = "red", bold = true }
 ```
 
 You can also customize the text of the status sign with:
 
-- `th.git.modified_sign`
-- `th.git.added_sign`
-- `th.git.untracked_sign`
-- `th.git.ignored_sign`
-- `th.git.deleted_sign`
-- `th.git.updated_sign`
+- `[git].unknown_sign` - status cannot/not yet determined
+- `[git].ignored_sign` - ignored file
+- `[git].untracked_sign` - untracked file
+- `[git].unstaged_sign` - unstaged file
+- `[git].staged_sign` - staged file
+- `[git].added_sign` - staged new file
+- `[git].deleted_sign` - deleted file
+- `[git].updated_sign` - updated file
+- `[git].clean_sign` - clean file
 
 For example:
 
-```lua
--- ~/.config/yazi/init.lua
-th.git = th.git or {}
-th.git.modified_sign = "M"
-th.git.deleted_sign = "D"
+```toml
+# theme.toml / flavor.toml
+[git]
+unknown_sign  = " "
+unstaged_sign = "M"
+deleted_sign  = "D"
+clean_sign    = "✔"
 ```
 
 ## License

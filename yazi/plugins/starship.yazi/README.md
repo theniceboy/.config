@@ -71,10 +71,10 @@ local old_build = Tab.build
 Tab.build = function(self, ...)
     local bar = function(c, x, y)
         if x <= 0 or x == self._area.w - 1 then
-            return ui.Bar(ui.Bar.TOP):area(ui.Rect.default)
+            return ui.Bar(ui.Edge.TOP)
         end
 
-        return ui.Bar(ui.Bar.TOP)
+        return ui.Bar(ui.Edge.TOP)
             :area(ui.Rect({
                 x = x,
                 y = math.max(0, y),
@@ -87,19 +87,15 @@ Tab.build = function(self, ...)
     local c = self._chunks
     self._chunks = {
         c[1]:pad(ui.Pad.y(1)),
-        c[2]:pad(ui.Pad(1, c[3].w > 0 and 0 or 1, 1, c[1].w > 0 and 0 or 1)),
+        c[2]:pad(ui.Pad.y(1)),
         c[3]:pad(ui.Pad.y(1)),
     }
 
-    local style = th.mgr.border_style
     self._base = ya.list_merge(self._base or {}, {
-        ui.Bar(ui.Bar.RIGHT):area(self._chunks[1]):style(style),
-        ui.Bar(ui.Bar.LEFT):area(self._chunks[1]):style(style),
-
-        bar("┬", c[1].right - 1, c[1].y),
-        bar("┴", c[1].right - 1, c[1].bottom - 1),
-        bar("┬", c[2].right, c[2].y),
-        bar("┴", c[2].right, c[2].bottom - 1),
+        bar("┬", c[2].x, c[1].y),
+        bar("┴", c[2].x, c[1].bottom - 1),
+        bar("┬", c[2].right - 1, c[2].y),
+        bar("┴", c[2].right - 1, c[2].bottom - 1),
     })
 
     old_build(self, ...)
@@ -113,4 +109,8 @@ end
 
 ## Thanks
 
-- [sxyazi](https://github.com/sxyazi) for providing the code for this plugin and the demo video [in this comment](https://github.com/sxyazi/yazi/issues/767#issuecomment-1977082834)
+- [sxyazi](https://github.com/sxyazi) for creating and maintaining Yazi, and also
+  for providing the initial code and the demo video for this plugin
+  in [this comment](https://github.com/sxyazi/yazi/issues/767#issuecomment-1977082834)
+- The authors and maintainers of [starship](https://github.com/starship/starship), which has been my
+  prompt of choice for many years

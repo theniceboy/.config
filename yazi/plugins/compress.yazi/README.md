@@ -125,6 +125,7 @@ desc = "Archive selected files (password+header+level)"
 - `-p` Password protect (zip/7z/rar)
 - `-h` Encrypt header (7z/rar)
 - `-l` Set compression level (all compression algorithims)
+- `-s` Silence success message
 - `<extention>` Specify a default extention (eg., `7z`, `tar.gz`)
 
 #### Combining multiple flags:

@@ -1,32 +1,32 @@
 [[plugin.deps]]
 use = "llanosrocas/yaziline"
-rev = "e79b067"
-hash = "f590c5b7d0730e8d6023b1b34ddf7ead"
+rev = "029b27d"
+hash = "ceeb45e796faf0d9eed10831ffec7701"
 
 [[plugin.deps]]
 use = "Rolv-Apneseth/starship"
-rev = "eca1861"
-hash = "e519d894e94ded741e06aae4d4775981"
+rev = "ea92cf4"
+hash = "9776f378459072b6c2875eae5addc49d"
 
 [[plugin.deps]]
 use = "yazi-rs/plugins:git"
-rev = "57f1863"
-hash = "36a484acf6a0a0219c543ccb4cee218f"
+rev = "044c3cc"
+hash = "5bb0bfab901d3601c370eafdd66edd31"
 
 [[plugin.deps]]
 use = "yazi-rs/plugins:smart-enter"
-rev = "57f1863"
-hash = "56fdabc96fc1f4d53c96eb884b02a5be"
+rev = "044c3cc"
+hash = "187cc58ba7ac3befd49c342129e6f1b6"
 
 [[plugin.deps]]
 use = "h-hg/yamb"
-rev = "5f2e22e"
-hash = "699fe07e0d2d1b4af8dafb84168eeb04"
+rev = "971b858"
+hash = "da4534745930e827a44d4585bbd965eb"
 
 [[plugin.deps]]
 use = "KKV9/compress"
-rev = "e6007f7"
-hash = "e0b1051849756dd72fca874c320259a"
+rev = "80e5268"
+hash = "868db729374b97871bc30b96d0e9061f"
 
 [flavor]
 deps = []

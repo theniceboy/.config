@@ -1,5 +1,5 @@
 require("yaziline"):setup {
-	separator_style = "curvy",
+	separator_style = "empty",
 	select_symbol = "",
 	yank_symbol = "󰆐",
 	filename_max_length = 24, -- trim when filename > 24

@@ -1,10 +1,13 @@
 --- @since 25.6.11
 local path_sep = package.config:sub(1, 1)
 
-local get_hovered_path = ya.sync(function(state)
+local get_hovered_path = ya.sync(function(_)
+	local is_virtual = (Url(cx.active.current.hovered.url).spec and Url(cx.active.current.hovered.url).spec.is_virtual)
+		or (not Url(cx.active.current.hovered.url).spec and Url(cx.active.current.hovered.url).scheme.is_virtual)
+
 	local h = cx.active.current.hovered
 	if h then
-		local path = tostring(h.url)
+		local path = tostring(is_virtual and h.url or h.url.path)
 		if h.cha.is_dir then
 			return path .. path_sep
 		end
@@ -65,7 +68,7 @@ local save_to_file = function(mb_path, bookmarks)
 end
 
 local fzf_find = function(cli, mb_path)
-	local permit = ya.hide()
+	local permit = (ui.hide or ya.hide)()
 	local cmd = string.format('%s < "%s"', cli, mb_path)
 	local handle = io.popen(cmd, "r")
 	local result = ""
@@ -79,9 +82,37 @@ local fzf_find = function(cli, mb_path)
 	return path
 end
 
+local generate_key = function(bookmarks)
+	local keys = get_state_attr("keys")
+	local key2rank = get_state_attr("key2rank")
+	local mb = {}
+	for _, item in pairs(bookmarks) do
+		if #item.key == 1 and key2rank[item.key] then
+			table.insert(mb, item.key)
+		end
+	end
+	if #mb == 0 then
+		return keys[1]
+	end
+	table.sort(mb, function(a, b)
+		return key2rank[a] < key2rank[b]
+	end)
+	local idx = 1
+	for _, key in ipairs(keys) do
+		if idx > #mb or key2rank[key] < key2rank[mb[idx]] then
+			return key
+		end
+		idx = idx + 1
+	end
+	return nil
+end
+
 local which_find = function(bookmarks)
 	local cands = {}
-	for path, item in pairs(bookmarks) do
+	for _, item in pairs(bookmarks) do
+		if not item.key or item.key == "" then
+			item.key = generate_key(bookmarks)
+		end
 		if #item.tag ~= 0 then
 			table.insert(cands, { desc = item.tag, on = item.key, path = item.path })
 		end
@@ -111,7 +142,7 @@ local action_jump = function(bookmarks, path, jump_notify)
 	if string.sub(path, -1) == path_sep then
 		ya.emit("cd", { path, raw = true })
 	else
-		ya.emit("reveal", { path, no_dummy = true, raw = true })
+		ya.emit("reveal", { path, no_dummy = not fs.cha(Url(path), false), raw = true })
 	end
 	if jump_notify then
 		ya.notify({
@@ -121,31 +152,6 @@ local action_jump = function(bookmarks, path, jump_notify)
 			level = "info",
 		})
 	end
-end
-
-local generate_key = function(bookmarks)
-	local keys = get_state_attr("keys")
-	local key2rank = get_state_attr("key2rank")
-	local mb = {}
-	for _, item in pairs(bookmarks) do
-		if #item.key == 1 then
-			table.insert(mb, item.key)
-		end
-	end
-	if #mb == 0 then
-		return keys[1]
-	end
-	table.sort(mb, function(a, b)
-		return key2rank[a] < key2rank[b]
-	end)
-	local idx = 1
-	for _, key in ipairs(keys) do
-		if idx > #mb or key2rank[key] < key2rank[mb[idx]] then
-			return key
-		end
-		idx = idx + 1
-	end
-	return nil
 end
 
 local action_save = function(mb_path, bookmarks, path)
@@ -208,11 +214,10 @@ local action_save = function(mb_path, bookmarks, path)
 		if event ~= 1 then
 			return
 		end
-		key = value or ""
-		if key == "" then
-			key = ""
+		if not value or value == "" then
 			break
 		elseif #key == 1 then
+			key = value
 			-- check the key
 			local key_obj = nil
 			for _, item in pairs(bookmarks) do

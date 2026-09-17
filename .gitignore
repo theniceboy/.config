@@ -93,3 +93,23 @@ agent-tracker/run
 !/opencode/
 /agent-tracker/bin/agent
 /agent-tracker/tracker-server
+
+# jcode configuration
+!/jcode/
+/jcode/*
+!/jcode/config.toml
+!/jcode/mcp.json
+!/jcode/external/
+/jcode/external/*
+!/jcode/external/AGENTS.md
+!/jcode/hooks/
+!/jcode/hooks/**
+!/jcode/skills/
+!/jcode/skills/**
+/agent-tracker/test/docker/__pycache__
+/tmux/scripts/__pycache__
+
+# local secrets, never track
+/opencode/service.json
+bin/__pycache__/*
+/jcode/

@@ -1,0 +1,41 @@
+{
+  "theme": {
+    "name": "dracula"
+  },
+  "keybinds": {
+    "model.cycle_favorite": "<leader>f",
+    "session.line.up": "none",
+    "session.line.down": "none",
+    "session.half.page.up": "ctrl+alt+u",
+    "session.half.page.down": "ctrl+alt+e",
+    "input.move.left": "left,ctrl+b,ctrl+l",
+    "input.word.backward": "alt+b,alt+left,ctrl+left,ctrl+shift+l",
+    "input.move.right": "right,ctrl+f,ctrl+y",
+    "input.word.forward": "alt+f,alt+right,ctrl+right,ctrl+shift+y"
+  },
+  "diffs": {
+    "wrap": "word",
+    "view": "auto",
+    "tree": true,
+    "single": false
+  },
+  "session": {
+    "sidebar": "auto",
+    "scrollbar": true,
+    "thinking": "hide",
+    "new_location": "launch"
+  },
+  "animations": true,
+  "tabs": {
+    "enabled": false
+  },
+  "prompt": {
+    "editor": false
+  },
+  "terminal": {
+    "copy": "select"
+  },
+  "attention": {
+    "enabled": false
+  }
+}

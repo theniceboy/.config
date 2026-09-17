@@ -1,0 +1,1 @@
+/Users/david/.config/opencode-v2/bridge/tracker-notify.ts

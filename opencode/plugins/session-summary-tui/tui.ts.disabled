@@ -1,0 +1,98 @@
+import { Plugin } from "@opencode/plugin/tui"
+import { execFile } from "child_process"
+import { homedir } from "os"
+import { join } from "path"
+import { appendFileSync } from "fs"
+
+const DB = join(homedir(), ".local/share/opencode-v2/opencode.db")
+const SQLITE = "sqlite3"
+const utf16hex = (s: string) => [...s].map((c) => c.charCodeAt(0).toString(16).padStart(4, "0")).join("")
+const KEY_PREFIX = `plugin:${utf16hex("session-summary")}:summary:`
+
+const log = (...a: unknown[]) => {
+  try {
+    appendFileSync("/tmp/session-summary-tui.log", `[${new Date().toISOString()}] ${a.map(String).join(" ")}\n`)
+  } catch {}
+}
+
+const readSummary = (sessionID: string): Promise<string | null> =>
+  new Promise((resolve) => {
+    const sql = `SELECT value FROM kv WHERE key = '${KEY_PREFIX}${sessionID}';`
+    execFile(
+      SQLITE,
+      [DB, sql],
+      { timeout: 5000, maxBuffer: 1024 * 1024 },
+      (err, stdout) => {
+        if (err) {
+          log("sqlite failed", String(err))
+          return resolve(null)
+        }
+        try {
+          const state = JSON.parse(stdout.trim())
+          resolve(state?.summary ?? null)
+        } catch (e) {
+          log("parse failed", String(e))
+          resolve(null)
+        }
+      },
+    )
+  })
+
+export default Plugin.define({
+  id: "session-summary-tui",
+  setup(context: any) {
+    let registered = false
+
+    const show = async () => {
+      try {
+        const route = context.ui.router.current()
+        const sessionID = route?.type === "session" ? route.sessionID : undefined
+        if (!sessionID) {
+          await context.ui.dialog.alert({ title: "Agent summary", message: "No active session." })
+          return
+        }
+        const summary = await readSummary(sessionID)
+        const body =
+          typeof summary === "string" && summary.length
+            ? summary
+            : "No summary yet — it appears after the first completed turn."
+        await context.ui.dialog.alert({ title: "Agent summary", message: body })
+      } catch (error) {
+        log("show failed", String(error))
+        await context.ui.dialog.alert({ title: "Agent summary", message: `unavailable: ${String(error)}` })
+      }
+    }
+
+    return context.ui.slot({
+      append: "app",
+      render: () => {
+        if (registered) return null
+        registered = true
+        try {
+          context.keymap.layer(() => ({
+            mode: "global",
+            priority: 10,
+            commands: [
+              {
+                id: "base.summary.show",
+                title: "Memory: show agent session summary",
+                group: "Memory",
+                bind: "alt+m",
+                palette: true,
+                slash: { name: "summary" },
+                enabled: () => true,
+                run: show,
+              },
+            ],
+            bindings: ["base.summary.show"],
+          }))
+          log("keymap layer registered")
+        } catch (e) {
+          registered = false
+          log("keymap layer failed", String(e))
+        }
+        return null
+      },
+    })
+  },
+})

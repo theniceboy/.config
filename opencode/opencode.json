@@ -1,292 +1,585 @@
 {
-	"$schema": "https://opencode.ai/config.json",
-	"autoupdate": false,
-	"small_model": "zai-coding-plan/glm-4.7",
-	"agent": {
-		"build": {
-			"color": "#ff79c6"
-		},
-		"plan": {
-			"color": "#8be9fd"
-		},
-		"explore": {
-			"model": "cliproxy/gpt-5.6-luna(high)",
-			"disable": true
-		}
-	},
-	"disabled_providers": [
-		"openai",
-		"zai",
-		"zhipuai",
-		"zhipuai-coding-plan",
-		"zen",
-		"cloudflare",
-		"cloudflare-ai-gateway",
-		"cloudflare-workers-ai",
-		"amazon-bedrock"
-	],
-	"compaction": {
-		"auto": false
-	},
-	"plugin": [
-		"opencode-anthropic-auth@0.0.13"
-	],
-	"lsp": {
-		"dart": {
-			"command": [
-				"dart",
-				"language-server"
-			],
-			"extensions": [
-				".dart"
-			]
-		},
-		"biome": {
-			"disabled": true
-		}
-	},
-	"permission": {
-		"edit": "allow",
-		"bash": "allow",
-		"webfetch": "deny",
-		"consult": "deny",
-		"doom_loop": "allow",
-		"external_directory": "allow"
-	},
-	"mcp": {
-		"docs": {
-			"enabled": false
-		},
-		"web": {
-			"type": "remote",
-			"url": "http://127.0.0.1:8775/searcher/mcp",
-			"enabled": true
-		},
-		"zai-vision": {
-			"type": "local",
-			"command": [
-				"npx",
-				"-y",
-				"@z_ai/mcp-server@latest"
-			],
-			"environment": {
-				"Z_AI_API_KEY": "{env:ZAI_API_KEY}",
-				"Z_AI_MODE": "ZAI"
-			},
-			"enabled": true
-		},
-		"rednote": {
-			"type": "remote",
-			"url": "http://127.0.0.1:8776/rednote-evidence/mcp",
-			"enabled": false
-		},
-		"pinchtab": {
-			"type": "local",
-			"command": [
-				"node",
-				"/Users/david/.config/opencode/tool/pinchtab-mcp.mjs"
-			],
-			"enabled": false
-		},
-		"sentry": {
-			"type": "local",
-			"command": [
-				"npx",
-				"-y",
-				"mcp-remote@latest",
-				"https://mcp.sentry.dev/mcp"
-			],
-			"enabled": false
-		},
-		"google-maps": {
-			"type": "local",
-			"command": [
-				"npx",
-				"-y",
-				"@cablate/mcp-google-map",
-				"--stdio"
-			],
-			"enabled": false
-		}
-	},
-	"provider": {
-		"cliproxy": {
-			"api": "openai",
-			"name": "CLIProxyAPI (dmini)",
-			"options": {
-				"apiKey": "{env:CLIPROXY_API_KEY}",
-				"baseURL": "{env:CLIPROXY_BASE_URL}"
-			},
-			"models": {
-				"gpt-5.6-sol": {
-					"name": "gpt-5.6-sol",
-					"attachment": true,
-					"modalities": {
-						"input": ["text", "image"],
-						"output": ["text"]
-					},
-					"tool_call": true,
-					"reasoning": true,
-					"limit": {
-						"context": 1050000,
-						"output": 128000
-					}
-				},
-				"gpt-5.6-sol-fast": {
-					"name": "gpt-5.6-sol-fast",
-					"attachment": true,
-					"modalities": {
-						"input": ["text", "image"],
-						"output": ["text"]
-					},
-					"tool_call": true,
-					"reasoning": true,
-					"limit": {
-						"context": 1050000,
-						"output": 128000
-					}
-				},
-				"gpt-5.6-terra": {
-					"name": "gpt-5.6-terra",
-					"attachment": true,
-					"modalities": {
-						"input": ["text", "image"],
-						"output": ["text"]
-					},
-					"tool_call": true,
-					"reasoning": true,
-					"limit": {
-						"context": 272000,
-						"output": 128000
-					}
-				},
-				"gpt-5.6-terra-fast": {
-					"name": "gpt-5.6-terra-fast",
-					"attachment": true,
-					"modalities": {
-						"input": ["text", "image"],
-						"output": ["text"]
-					},
-					"tool_call": true,
-					"reasoning": true,
-					"limit": {
-						"context": 272000,
-						"output": 128000
-					}
-				},
-				"gpt-5.6-luna": {
-					"name": "gpt-5.6-luna",
-					"attachment": true,
-					"modalities": {
-						"input": ["text", "image"],
-						"output": ["text"]
-					},
-					"tool_call": true,
-					"reasoning": true,
-					"limit": {
-						"context": 272000,
-						"output": 128000
-					}
-				},
-				"gpt-5.6-luna(high)": {
-					"name": "gpt-5.6-luna(high)",
-					"attachment": true,
-					"modalities": {
-						"input": ["text", "image"],
-						"output": ["text"]
-					},
-					"tool_call": true,
-					"reasoning": true,
-					"limit": {
-						"context": 272000,
-						"output": 128000
-					}
-				},
-				"gpt-5.6-luna-fast": {
-					"name": "gpt-5.6-luna-fast",
-					"attachment": true,
-					"modalities": {
-						"input": ["text", "image"],
-						"output": ["text"]
-					},
-					"tool_call": true,
-					"reasoning": true,
-					"limit": {
-						"context": 272000,
-						"output": 128000
-					}
-				},
-				"gpt-5.5": {
-					"name": "gpt-5.5",
-					"attachment": true,
-					"modalities": {
-						"input": ["text", "image"],
-						"output": ["text"]
-					},
-					"tool_call": true,
-					"reasoning": true,
-					"limit": {
-						"context": 272000,
-						"output": 128000
-					}
-				},
-				"gpt-5.5-fast": {
-					"name": "gpt-5.5-fast",
-					"attachment": true,
-					"modalities": {
-						"input": ["text", "image"],
-						"output": ["text"]
-					},
-					"tool_call": true,
-					"reasoning": true,
-					"limit": {
-						"context": 272000,
-						"output": 128000
-					}
-				},
-				"gpt-5.4": {
-					"name": "gpt-5.4",
-					"attachment": true,
-					"modalities": {
-						"input": ["text", "image"],
-						"output": ["text"]
-					},
-					"tool_call": true,
-					"reasoning": true,
-					"limit": {
-						"context": 272000,
-						"output": 128000
-					}
-				},
-				"gpt-5.4-fast": {
-					"name": "gpt-5.4-fast",
-					"attachment": true,
-					"modalities": {
-						"input": ["text", "image"],
-						"output": ["text"]
-					},
-					"tool_call": true,
-					"reasoning": true,
-					"limit": {
-						"context": 272000,
-						"output": 128000
-					}
-				},
-				"gpt-5.4-mini": {
-					"name": "gpt-5.4-mini",
-					"attachment": true,
-					"modalities": {
-						"input": ["text", "image"],
-						"output": ["text"]
-					},
-					"tool_call": true,
-					"reasoning": true,
-					"limit": {
-						"context": 272000,
-						"output": 128000
-					}
-				}
-			}
-		}
-	}
+  "$schema": "https://opencode.ai/config.json",
+  "autoupdate": false,
+  "compaction": {
+    "auto": false
+  },
+  "providers": {
+    "pcc": {
+      "name": "Apple PCC (local)",
+      "package": "@opencode-ai/ai/providers/openai-compatible",
+      "settings": {
+        "baseURL": "http://127.0.0.1:8791/v1"
+      },
+      "models": {
+        "pcc": {
+          "name": "Apple PCC",
+          "limit": {
+            "context": 65536,
+            "output": 8192
+          },
+          "reasoning": false,
+          "tool_call": true,
+          "modalities": {
+            "input": ["text"],
+            "output": ["text"]
+          }
+        },
+        "pcc-reasoning": {
+          "name": "Apple PCC (moderate reasoning)",
+          "limit": {
+            "context": 65536,
+            "output": 8192
+          },
+          "reasoning": true,
+          "tool_call": true,
+          "modalities": {
+            "input": ["text"],
+            "output": ["text"]
+          }
+        },
+        "pcc-deep": {
+          "name": "Apple PCC (deep reasoning)",
+          "limit": {
+            "context": 65536,
+            "output": 8192
+          },
+          "reasoning": true,
+          "tool_call": true,
+          "modalities": {
+            "input": ["text"],
+            "output": ["text"]
+          }
+        }
+      }
+    },
+    "cliproxy": {
+      "name": "CLIProxyAPI (dmini)",
+      "env": [
+        "CLIPROXY_API_KEY"
+      ],
+      "package": "@opencode-ai/ai/providers/openai-compatible",
+      "settings": {
+        "baseURL": "{env:CLIPROXY_BASE_URL}"
+      },
+      "models": {
+        "gpt-6-astra(xhigh)": {
+          "name": "gpt-6-astra(xhigh)",
+          "limit": {
+            "context": 1050000,
+            "output": 128000
+          },
+          "attachment": true,
+          "reasoning": true,
+          "tool_call": true,
+          "modalities": {
+            "input": [
+              "text",
+              "image"
+            ],
+            "output": [
+              "text"
+            ]
+          }
+        },
+        "gpt-5.6-sol": {
+          "name": "gpt-5.6-sol",
+          "limit": {
+            "context": 1050000,
+            "output": 128000
+          },
+          "attachment": true,
+          "reasoning": true,
+          "tool_call": true,
+          "modalities": {
+            "input": [
+              "text",
+              "image"
+            ],
+            "output": [
+              "text"
+            ]
+          }
+        },
+        "gpt-5.6-sol-fast": {
+          "name": "gpt-5.6-sol-fast",
+          "limit": {
+            "context": 1050000,
+            "output": 128000
+          },
+          "attachment": true,
+          "reasoning": true,
+          "tool_call": true,
+          "modalities": {
+            "input": [
+              "text",
+              "image"
+            ],
+            "output": [
+              "text"
+            ]
+          }
+        },
+        "gpt-5.6-sol-fast(xhigh)": {
+          "name": "gpt-5.6-sol-fast(xhigh)",
+          "limit": {
+            "context": 1050000,
+            "output": 128000
+          },
+          "attachment": true,
+          "reasoning": true,
+          "tool_call": true,
+          "modalities": {
+            "input": [
+              "text",
+              "image"
+            ],
+            "output": [
+              "text"
+            ]
+          }
+        },
+        "gpt-5.6-sol(high)": {
+          "name": "gpt-5.6-sol(high)",
+          "limit": {
+            "context": 1050000,
+            "output": 128000
+          },
+          "attachment": true,
+          "reasoning": true,
+          "tool_call": true,
+          "modalities": {
+            "input": [
+              "text",
+              "image"
+            ],
+            "output": [
+              "text"
+            ]
+          }
+        },
+        "gpt-5.6-sol(xhigh)": {
+          "name": "gpt-5.6-sol(xhigh)",
+          "limit": {
+            "context": 1050000,
+            "output": 128000
+          },
+          "attachment": true,
+          "reasoning": true,
+          "tool_call": true,
+          "modalities": {
+            "input": [
+              "text",
+              "image"
+            ],
+            "output": [
+              "text"
+            ]
+          }
+        },
+        "gpt-5.6-terra": {
+          "name": "gpt-5.6-terra",
+          "limit": {
+            "context": 272000,
+            "output": 128000
+          },
+          "attachment": true,
+          "reasoning": true,
+          "tool_call": true,
+          "modalities": {
+            "input": [
+              "text",
+              "image"
+            ],
+            "output": [
+              "text"
+            ]
+          }
+        },
+        "gpt-5.6-terra-fast": {
+          "name": "gpt-5.6-terra-fast",
+          "limit": {
+            "context": 272000,
+            "output": 128000
+          },
+          "attachment": true,
+          "reasoning": true,
+          "tool_call": true,
+          "modalities": {
+            "input": [
+              "text",
+              "image"
+            ],
+            "output": [
+              "text"
+            ]
+          }
+        },
+        "gpt-5.6-luna": {
+          "name": "gpt-5.6-luna",
+          "limit": {
+            "context": 272000,
+            "output": 128000
+          },
+          "attachment": true,
+          "reasoning": true,
+          "tool_call": true,
+          "modalities": {
+            "input": [
+              "text",
+              "image"
+            ],
+            "output": [
+              "text"
+            ]
+          }
+        },
+        "gpt-5.6-luna(high)": {
+          "name": "gpt-5.6-luna(high)",
+          "limit": {
+            "context": 272000,
+            "output": 128000
+          },
+          "attachment": true,
+          "reasoning": true,
+          "tool_call": true,
+          "modalities": {
+            "input": [
+              "text",
+              "image"
+            ],
+            "output": [
+              "text"
+            ]
+          }
+        },
+        "gpt-5.6-luna(max)": {
+          "name": "gpt-5.6-luna(max)",
+          "limit": {
+            "context": 272000,
+            "output": 128000
+          },
+          "attachment": true,
+          "reasoning": true,
+          "tool_call": true,
+          "modalities": {
+            "input": [
+              "text",
+              "image"
+            ],
+            "output": [
+              "text"
+            ]
+          }
+        },
+        "gpt-5.6-luna-fast": {
+          "name": "gpt-5.6-luna-fast",
+          "limit": {
+            "context": 272000,
+            "output": 128000
+          },
+          "attachment": true,
+          "reasoning": true,
+          "tool_call": true,
+          "modalities": {
+            "input": [
+              "text",
+              "image"
+            ],
+            "output": [
+              "text"
+            ]
+          }
+        },
+        "gpt-5.5": {
+          "name": "gpt-5.5",
+          "limit": {
+            "context": 272000,
+            "output": 128000
+          },
+          "attachment": true,
+          "reasoning": true,
+          "tool_call": true,
+          "modalities": {
+            "input": [
+              "text",
+              "image"
+            ],
+            "output": [
+              "text"
+            ]
+          }
+        },
+        "gpt-5.5-fast": {
+          "name": "gpt-5.5-fast",
+          "limit": {
+            "context": 272000,
+            "output": 128000
+          },
+          "attachment": true,
+          "reasoning": true,
+          "tool_call": true,
+          "modalities": {
+            "input": [
+              "text",
+              "image"
+            ],
+            "output": [
+              "text"
+            ]
+          }
+        },
+        "gpt-5.4": {
+          "name": "gpt-5.4",
+          "limit": {
+            "context": 272000,
+            "output": 128000
+          },
+          "attachment": true,
+          "reasoning": true,
+          "tool_call": true,
+          "modalities": {
+            "input": [
+              "text",
+              "image"
+            ],
+            "output": [
+              "text"
+            ]
+          }
+        },
+        "gpt-5.4-fast": {
+          "name": "gpt-5.4-fast",
+          "limit": {
+            "context": 272000,
+            "output": 128000
+          },
+          "attachment": true,
+          "reasoning": true,
+          "tool_call": true,
+          "modalities": {
+            "input": [
+              "text",
+              "image"
+            ],
+            "output": [
+              "text"
+            ]
+          }
+        },
+        "gpt-5.4-mini": {
+          "name": "gpt-5.4-mini",
+          "limit": {
+            "context": 272000,
+            "output": 128000
+          },
+          "attachment": true,
+          "reasoning": true,
+          "tool_call": true,
+          "modalities": {
+            "input": [
+              "text",
+              "image"
+            ],
+            "output": [
+              "text"
+            ]
+          }
+        }
+      }
+    }
+  },
+  "permissions": [
+    {
+      "action": "global_memory_write",
+      "resource": "*",
+      "effect": "ask"
+    },
+    {
+      "action": "board_board_add",
+      "resource": "*",
+      "effect": "ask"
+    },
+    {
+      "action": "board_board_edit",
+      "resource": "*",
+      "effect": "ask"
+    },
+    {
+      "action": "board_board_move",
+      "resource": "*",
+      "effect": "ask"
+    },
+    {
+      "action": "board_board_remove",
+      "resource": "*",
+      "effect": "ask"
+    },
+    {
+      "action": "board_board_migrate",
+      "resource": "*",
+      "effect": "ask"
+    },
+    {
+      "action": "edit",
+      "resource": "*",
+      "effect": "allow"
+    },
+    {
+      "action": "shell",
+      "resource": "*",
+      "effect": "allow"
+    },
+    {
+      "action": "webfetch",
+      "resource": "*",
+      "effect": "deny"
+    },
+    {
+      "action": "external_directory",
+      "resource": "*",
+      "effect": "allow"
+    },
+    {
+      "action": "read",
+      "resource": "/Users/david/base/.memory",
+      "effect": "deny"
+    },
+    {
+      "action": "read",
+      "resource": "/Users/david/base/.memory/*",
+      "effect": "deny"
+    },
+    {
+      "action": "edit",
+      "resource": "/Users/david/base/.memory",
+      "effect": "deny"
+    },
+    {
+      "action": "edit",
+      "resource": "/Users/david/base/.memory/*",
+      "effect": "deny"
+    }
+  ],
+  "mcp": {
+    "servers": {
+      "web": {
+        "type": "remote",
+        "url": "http://127.0.0.1:8775/searcher/mcp"
+      },
+      "zai-vision": {
+        "type": "local",
+        "command": [
+          "npx",
+          "-y",
+          "@z_ai/mcp-server@latest"
+        ],
+        "environment": {
+          "Z_AI_API_KEY": "{env:ZAI_API_KEY}",
+          "Z_AI_MODE": "ZAI"
+        }
+      },
+      "rednote": {
+        "type": "remote",
+        "url": "http://127.0.0.1:8776/rednote-evidence/mcp",
+        "disabled": true
+      },
+      "pinchtab": {
+        "type": "local",
+        "command": [
+          "node",
+          "/Users/david/.config/opencode/tool/pinchtab-mcp.mjs"
+        ],
+        "disabled": true
+      },
+      "sentry": {
+        "type": "local",
+        "command": [
+          "npx",
+          "-y",
+          "mcp-remote@latest",
+          "https://mcp.sentry.dev/mcp"
+        ],
+        "disabled": true
+      },
+      "google-maps": {
+        "type": "local",
+        "command": [
+          "npx",
+          "-y",
+          "@cablate/mcp-google-map",
+          "--stdio"
+        ],
+        "disabled": true
+      },
+      "board": {
+        "type": "local",
+        "command": [
+          "python3",
+          "-B",
+          "-u",
+          "/Users/david/base/scripts/board-mcp.py",
+          "serve"
+        ]
+      },
+      "global_memory": {
+        "type": "local",
+        "command": [
+          "python3",
+          "-B",
+          "-u",
+          "/Users/david/base/scripts/memory-mcp.py",
+          "serve",
+          "global"
+        ],
+        "codemode": false
+      },
+      "repo_memory": {
+        "type": "local",
+        "command": [
+          "python3",
+          "-B",
+          "-u",
+          "/Users/david/base/scripts/memory-mcp.py",
+          "serve",
+          "repo"
+        ],
+        "codemode": false
+      }
+    }
+  },
+  "lsp": {
+    "dart": {
+      "command": [
+        "dart",
+        "language-server"
+      ],
+      "extensions": [
+        ".dart"
+      ]
+    },
+    "biome": {
+      "disabled": true
+    }
+  },
+  "agent": {
+    "build": {
+      "color": "#ff79c6"
+    },
+    "plan": {
+      "color": "#8be9fd"
+    },
+    "explore": {
+      "model": "cliproxy/gpt-5.6-luna(high)",
+      "disabled": true
+    }
+  },
+  "agents": {
+    "plan": {
+      "permissions": [
+        { "action": "global_memory_write", "resource": "*", "effect": "deny" },
+        { "action": "repo_memory_write", "resource": "*", "effect": "deny" }
+      ]
+    }
+  }
 }

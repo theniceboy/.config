@@ -38,6 +38,17 @@ function ansiToStyledText(ansi: string): StyledText {
   return new StyledText(chunks)
 }
 
+function cssColor(c: any): string | undefined {
+  if (!c) return undefined
+  if (typeof c === "string") return c
+  try {
+    const [r, g, b] = c.toInts()
+    return "#" + [r, g, b].map((v) => v.toString(16).padStart(2, "0")).join("")
+  } catch {
+    return undefined
+  }
+}
+
 export default Plugin.define({
   id: "david.diagram",
   setup(context: any) {
@@ -46,7 +57,14 @@ export default Plugin.define({
     if (!renderer || typeof context?.markdown?.registerCodeBlockRenderer !== "function") return
     return context.markdown.registerCodeBlockRenderer("mermaid", (token: any, render: any) => {
       try {
-        const ascii = renderMermaidASCII(token.text, { colorMode: "truecolor" })
+        const t = context.theme
+        const theme = {
+          fg: cssColor(t?.text?.default),
+          border: cssColor(t?.text?.subdued),
+          line: cssColor(t?.text?.subdued),
+          arrow: cssColor(t?.text?.default),
+        }
+        const ascii = renderMermaidASCII(token.text, { colorMode: "truecolor", theme })
         debug("rendered", String(token.text).split("\n")[0], "->", `${ascii.length} chars`)
         return new TextRenderable(renderer, { content: ansiToStyledText(ascii) })
       } catch (error) {

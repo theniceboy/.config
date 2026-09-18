@@ -1,9 +1,20 @@
 import { Plugin } from "@opencode/plugin/tui"
 import { StyledText, TextRenderable, RGBA } from "@opentui/core"
-import { appendFileSync } from "node:fs"
+import { appendFileSync, readFileSync } from "node:fs"
 import { renderMermaidASCII } from "/Users/david/.config/opencode-v2/diagram-vendor/node_modules/beautiful-mermaid"
 
 const DEBUG = process.env.DIAGRAM_TUI_DEBUG === "1"
+
+const SETTINGS_PATH = "/Users/david/.config/opencode/plugins/diagram/settings.json"
+const DEFAULT_SETTINGS = { paddingX: 4, paddingY: 2, boxBorderPadding: 0 }
+
+function loadSettings() {
+  try {
+    return { ...DEFAULT_SETTINGS, ...JSON.parse(readFileSync(SETTINGS_PATH, "utf8")) }
+  } catch {
+    return { ...DEFAULT_SETTINGS }
+  }
+}
 
 function debug(...parts: unknown[]) {
   if (!DEBUG) return
@@ -64,7 +75,7 @@ export default Plugin.define({
           line: cssColor(t?.text?.subdued),
           arrow: cssColor(t?.text?.default),
         }
-        const ascii = renderMermaidASCII(token.text, { colorMode: "truecolor", theme })
+        const ascii = renderMermaidASCII(token.text, { colorMode: "truecolor", theme, ...loadSettings() })
         debug("rendered", String(token.text).split("\n")[0], "->", `${ascii.length} chars`)
         return new TextRenderable(renderer, { content: ansiToStyledText(ascii) })
       } catch (error) {

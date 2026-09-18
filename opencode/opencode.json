@@ -459,6 +459,11 @@
       "action": "edit",
       "resource": "/Users/david/base/.memory/*",
       "effect": "deny"
+    },
+    {
+      "action": "skill",
+      "resource": "report",
+      "effect": "deny"
     }
   ],
   "mcp": {

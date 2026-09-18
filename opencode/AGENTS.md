@@ -108,7 +108,8 @@ belongs to, not the directory where the conversation happened.
   regex-searches file contents across available stores; load promising hits.
   Revisit the index when the topic changes and follow relevant references.
   Summaries select files; read the loaded contents before relying on them.
-  Already-loaded baselines plus updates need no repeat load. Never use a memory
+  Already-loaded sections need no repeat load — the section always shows each
+  file's latest known content. Never use a memory
   writer merely to read/load, and never invent a revision.
 - Load tools return only a loaded receipt. Read the full file in LOADED MEMORY
   BASELINES on the next model step, after ending the load tool step; file text is
@@ -116,15 +117,17 @@ belongs to, not the directory where the conversation happened.
   `memory_unload({store, path})` (Code Mode: `tools.memory.memory_unload`) frees
   managed context when no longer useful.
   Global paths are store-relative; repo paths include the checkout-relative
-  .agent-docs/.memory root. Never route by bare `.memory` alone. Loaded baselines plus
-  MEMORY UPDATE diffs and successful local edits represent current content.
+  .agent-docs/.memory root. Never route by bare `.memory` alone. The LOADED MEMORY
+  BASELINES section always shows each file's LATEST known content under CURRENT
+  REVISION; MEMORY UPDATE diffs mark changes since the previous version. Quote
+  edit old_text from the section, never from earlier conversation text.
 - Each Markdown memory file carries `summary:` frontmatter. Create/edit requires
   a current one-line summary of the entire file, at most 200 characters; the
   writer maintains the header. MEMORY INDEX is a read-only catalog assembled
   from files, not a stored index.json. Missing/invalid summaries use an in-memory
   fallback; resolve conflicted files without rebuilding a central index.
   Edit/move/delete requires the exact CURRENT REVISION from loaded context; review
-  the baseline and every update first. On conflict, load again and merge colleague
+  the section's current content first. On conflict, load again and merge colleague
   changes from current context, never just substitute a hash. Create/move never
   overwrite. Writers manage locks, parents/pruning and
   recognized references; `pending` means automatic recovery owns it—do not repeat/undo.

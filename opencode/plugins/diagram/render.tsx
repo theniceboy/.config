@@ -1,5 +1,5 @@
 import { Plugin } from "@opencode/plugin/tui"
-import { TextRenderable } from "@opentui/core"
+import { StyledText, TextRenderable, RGBA } from "@opentui/core"
 import { appendFileSync } from "node:fs"
 import { renderMermaidASCII } from "/Users/david/.config/opencode-v2/diagram-vendor/node_modules/beautiful-mermaid"
 
@@ -13,6 +13,31 @@ function debug(...parts: unknown[]) {
   } catch {}
 }
 
+function chunk(text: string, fg?: any) {
+  return { __isChunk: true as const, text, ...(fg ? { fg } : {}) }
+}
+
+function ansiToStyledText(ansi: string): StyledText {
+  const chunks: any[] = []
+  let fg: any
+  let pos = 0
+  const re = /\x1b\[([0-9;]*)m/g
+  let match: RegExpExecArray | null
+  while ((match = re.exec(ansi))) {
+    if (match.index > pos) chunks.push(chunk(ansi.slice(pos, match.index), fg))
+    const params = match[1]
+    if (params === "0" || params === "") fg = undefined
+    else {
+      const parts = params.split(";").map(Number)
+      if (parts[0] === 38 && parts[1] === 2 && parts.length >= 5) fg = RGBA.fromInts(parts[2], parts[3], parts[4])
+      else if (parts[0] === 39) fg = undefined
+    }
+    pos = re.lastIndex
+  }
+  if (pos < ansi.length) chunks.push(chunk(ansi.slice(pos), fg))
+  return new StyledText(chunks)
+}
+
 export default Plugin.define({
   id: "david.diagram",
   setup(context: any) {
@@ -21,9 +46,9 @@ export default Plugin.define({
     if (!renderer || typeof context?.markdown?.registerCodeBlockRenderer !== "function") return
     return context.markdown.registerCodeBlockRenderer("mermaid", (token: any, render: any) => {
       try {
-        const ascii = renderMermaidASCII(token.text)
+        const ascii = renderMermaidASCII(token.text, { colorMode: "truecolor" })
         debug("rendered", String(token.text).split("\n")[0], "->", `${ascii.length} chars`)
-        return new TextRenderable(renderer, { content: ascii })
+        return new TextRenderable(renderer, { content: ansiToStyledText(ascii) })
       } catch (error) {
         debug("failed:", (error as Error)?.message)
         return render?.defaultRender?.()

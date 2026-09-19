@@ -2763,7 +2763,7 @@ func (m *paletteModel) renderSidebar(styles paletteStyles, width, height int) st
 				lines = append(lines, renderPaletteStat(styles, "···", fmt.Sprintf("+%d more", len(jobs)-3), width, 9))
 				break
 			}
-			lines = append(lines, renderPaletteStat(styles, "⏳", fmt.Sprintf("%s · %s", job.Title, job.elapsedLabel(statusNow())), width, 9))
+			lines = append(lines, renderPaletteStat(styles, jobSpinnerFrame(statusNow()), fmt.Sprintf("%s · %s", job.Title, job.elapsedLabel(statusNow())), width, 9))
 		}
 		lines = append(lines, "")
 	}

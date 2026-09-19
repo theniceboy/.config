@@ -129,6 +129,10 @@ func (m *jobsPanelModel) renderJobs(styles paletteStyles, width, height int) str
 		titleStyle := styles.itemTitle
 		subtle := styles.itemSubtitle
 		statusColor := ""
+		icon := jobStatusIcon(job.Status)
+		if job.running() {
+			icon = jobSpinnerFrame(now)
+		}
 		switch {
 		case idx == m.cursor:
 			titleStyle = styles.itemTitle.Background(lipgloss.Color("238")).Foreground(lipgloss.Color("230"))
@@ -136,7 +140,7 @@ func (m *jobsPanelModel) renderJobs(styles paletteStyles, width, height int) str
 		case job.Status == jobStatusError:
 			statusColor = " ✗"
 		}
-		titleRow := fmt.Sprintf("%s %s · %s%s", jobStatusIcon(job.Status), job.Title, job.elapsedLabel(now), statusColor)
+		titleRow := fmt.Sprintf("%s %s · %s%s", icon, job.Title, job.elapsedLabel(now), statusColor)
 		detail := strings.TrimSpace(job.Output)
 		if detail == "" && job.running() {
 			detail = "running…"

@@ -280,6 +280,11 @@ func (j backgroundJob) elapsedLabel(now time.Time) string {
 	return fmt.Sprintf("%dm%ds", secs/60, secs%60)
 }
 
+func jobSpinnerFrame(now time.Time) string {
+	frames := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+	return frames[(now.UnixMilli()/200)%int64(len(frames))]
+}
+
 func jobStatusIcon(status string) string {
 	switch status {
 	case jobStatusRunning:

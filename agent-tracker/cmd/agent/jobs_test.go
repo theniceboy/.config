@@ -59,6 +59,18 @@ func TestListBackgroundJobsOrdering(t *testing.T) {
 	}
 }
 
+func TestJobSpinnerFrameAnimates(t *testing.T) {
+	base := time.UnixMilli(1789806000000)
+	first := jobSpinnerFrame(base)
+	second := jobSpinnerFrame(base.Add(250 * time.Millisecond))
+	if first == "" || second == "" {
+		t.Fatal("spinner frames must not be empty")
+	}
+	if first == second {
+		t.Fatalf("expected different frames 250ms apart, got %q twice", first)
+	}
+}
+
 func TestJobsStartDetachedUnknownKind(t *testing.T) {
 	withTempJobsStore(t)
 	if _, err := jobsStartDetached("nope"); err == nil {

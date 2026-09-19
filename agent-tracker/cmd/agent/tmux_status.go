@@ -1199,9 +1199,9 @@ func loadJobsStatusSegment() (statusSegment, bool) {
 	if len(running) == 0 {
 		return statusSegment{}, false
 	}
-	label := " ⏳ "
+	label := fmt.Sprintf(" %s ", jobSpinnerFrame(statusNow()))
 	if len(running) > 1 {
-		label = fmt.Sprintf(" ⏳%d ", len(running))
+		label = fmt.Sprintf(" %s%d ", jobSpinnerFrame(statusNow()), len(running))
 	}
 	return statusSegment{FG: "#1d1f21", BG: "#ebcb8b", Text: label, Bold: true}, true
 }

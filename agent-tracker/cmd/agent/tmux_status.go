@@ -26,6 +26,7 @@ const (
 	statusRightModuleScratch       = "scratch"
 	statusRightModuleFlashMoe      = "flash_moe"
 	statusRightModuleHost          = "host"
+	statusRightModuleJobs          = "jobs"
 )
 
 const (
@@ -55,6 +56,7 @@ func statusRightModules() []string {
 		statusRightModuleScratch,
 		statusRightModuleFlashMoe,
 		statusRightModuleHost,
+		statusRightModuleJobs,
 	}
 }
 
@@ -357,6 +359,9 @@ func renderTmuxRightStatus(args tmuxRightStatusArgs) string {
 		if segment, ok := loadFlashMoeStatusSegment(); ok {
 			segments = append(segments, segment)
 		}
+	}
+	if segment, ok := loadJobsStatusSegment(); ok {
+		segments = append(segments, segment)
 	}
 	if statusRightModuleEnabled(statusRightModuleHost) {
 		if label := loadHostStatusLabel(); label != "" {
@@ -1186,6 +1191,30 @@ func loadFlashMoeStatusSegment() (statusSegment, bool) {
 	}
 }
 
+func loadJobsStatusSegment() (statusSegment, bool) {
+	if !statusRightModuleEnabled(statusRightModuleJobs) {
+		return statusSegment{}, false
+	}
+	running := 0
+	newest := backgroundJob{}
+	for _, job := range listBackgroundJobs() {
+		if job.running() {
+			running++
+			newest = job
+		}
+	}
+	if running == 0 {
+		return statusSegment{}, false
+	}
+	var label string
+	if running == 1 {
+		label = fmt.Sprintf(" ⏳ %s %s ", newest.Title, newest.elapsedLabel(statusNow()))
+	} else {
+		label = fmt.Sprintf(" ⏳ %d jobs ", running)
+	}
+	return statusSegment{FG: "#1d1f21", BG: "#ebcb8b", Text: label, Bold: true}, true
+}
+
 func loadHostStatusLabel() string {
 	host, err := statusHostname()
 	if err != nil {
@@ -1203,7 +1232,7 @@ func loadHostStatusLabel() string {
 
 func defaultStatusRightModuleEnabled(module string) bool {
 	switch module {
-	case statusRightModuleCPU, statusRightModuleNetwork, statusRightModuleMemory, statusRightModuleWindowMemory, statusRightModuleSessionMemory, statusRightModuleTotalMemory, statusRightModuleScratch, statusRightModuleFlashMoe, statusRightModuleHost:
+	case statusRightModuleCPU, statusRightModuleNetwork, statusRightModuleMemory, statusRightModuleWindowMemory, statusRightModuleSessionMemory, statusRightModuleTotalMemory, statusRightModuleScratch, statusRightModuleFlashMoe, statusRightModuleHost, statusRightModuleJobs:
 		return true
 	default:
 		return false
@@ -1212,7 +1241,7 @@ func defaultStatusRightModuleEnabled(module string) bool {
 
 func isValidStatusRightModule(module string) bool {
 	switch module {
-	case statusRightModuleCPU, statusRightModuleNetwork, statusRightModuleMemory, statusRightModuleWindowMemory, statusRightModuleSessionMemory, statusRightModuleTotalMemory, statusRightModuleScratch, statusRightModuleFlashMoe, statusRightModuleHost:
+	case statusRightModuleCPU, statusRightModuleNetwork, statusRightModuleMemory, statusRightModuleWindowMemory, statusRightModuleSessionMemory, statusRightModuleTotalMemory, statusRightModuleScratch, statusRightModuleFlashMoe, statusRightModuleHost, statusRightModuleJobs:
 		return true
 	default:
 		return false
@@ -1250,6 +1279,8 @@ func (cfg statusRightConfig) moduleEnabled(module string) bool {
 		return derefBool(cfg.FlashMoe, cfg.moduleFallbackEnabled(module))
 	case statusRightModuleHost:
 		return derefBool(cfg.Host, cfg.moduleFallbackEnabled(module))
+	case statusRightModuleJobs:
+		return derefBool(cfg.Jobs, cfg.moduleFallbackEnabled(module))
 	default:
 		return false
 	}
@@ -1304,6 +1335,8 @@ func (cfg *statusRightConfig) setModuleEnabled(module string, enabled bool) {
 		cfg.FlashMoe = value
 	case statusRightModuleHost:
 		cfg.Host = value
+	case statusRightModuleJobs:
+		cfg.Jobs = value
 	}
 }
 
@@ -1311,7 +1344,7 @@ func (cfg *statusRightConfig) isDefault() bool {
 	if cfg == nil {
 		return true
 	}
-	return cfg.CPU == nil && cfg.Network == nil && cfg.Memory == nil && cfg.MemoryTotals == nil && cfg.WindowMemory == nil && cfg.SessionMemory == nil && cfg.TotalMemory == nil && cfg.Scratch == nil && cfg.FlashMoe == nil && cfg.Host == nil
+	return cfg.CPU == nil && cfg.Network == nil && cfg.Memory == nil && cfg.MemoryTotals == nil && cfg.WindowMemory == nil && cfg.SessionMemory == nil && cfg.TotalMemory == nil && cfg.Scratch == nil && cfg.FlashMoe == nil && cfg.Host == nil && cfg.Jobs == nil
 }
 
 func derefBool(value *bool, fallback bool) bool {

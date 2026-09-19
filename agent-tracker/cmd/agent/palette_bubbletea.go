@@ -72,7 +72,7 @@ type paletteModel struct {
 	quotas                  *llmQuotaPanelModel
 	memory                  *memoryPanelModel
 	board                   *boardPanelModel
-	clipSyncing             bool
+	jobs                    *jobsPanelModel
 }
 
 type paletteStyles struct {
@@ -232,6 +232,8 @@ func loadPaletteRuntime(args []string) (*paletteRuntime, error) {
 		runtime.startMode = paletteModeMemory
 	case "board":
 		runtime.startMode = paletteModeBoard
+	case "jobs", "ongoing":
+		runtime.startMode = paletteModeJobs
 	default:
 		runtime.startMode = paletteModeList
 	}
@@ -590,6 +592,13 @@ func (r *paletteRuntime) buildActions() []paletteAction {
 		},
 		paletteAction{
 			Section:  "System",
+			Title:    "Ongoing tasks",
+			Subtitle: "Background jobs — running and recent async tasks",
+			Keywords: []string{"jobs", "tasks", "ongoing", "background", "async", "loading", "running", "progress", "dmini", "clipboard"},
+			Kind:     paletteActionOpenJobs,
+		},
+		paletteAction{
+			Section:  "System",
 			Title:    "Edit devices",
 			Subtitle: "Add or remove global launch devices",
 			Keywords: []string{"devices", "device", "edit", "manage", "web-server"},
@@ -606,20 +615,20 @@ func (r *paletteRuntime) buildActions() []paletteAction {
 			Section:  "System",
 			Title:    "Bottom-right status",
 			Subtitle: "Open control center for tmux right-side status modules",
-			Keywords: []string{"tmux", "status", "status-right", "bottom-right", "control", "center", "istat", "cpu", "network", "memory", "todos", "host", "flash"},
+			Keywords: []string{"tmux", "status", "status-right", "bottom-right", "control", "center", "istat", "cpu", "network", "memory", "todos", "host", "flash", "jobs"},
 			Kind:     paletteActionOpenStatusRight,
 		},
 		paletteAction{
 			Section:  "Clipboard",
 			Title:    "Pull dmini clipboard",
-			Subtitle: "Copy dmini's clipboard (text) to this Mac",
+			Subtitle: "Background job: copy dmini's clipboard (text) to this Mac",
 			Keywords: []string{"clipboard", "dmini", "pull", "copy", "paste", "sync", "remote", "pbpaste", "host"},
 			Kind:     paletteActionClipPullDmini,
 		},
 		paletteAction{
 			Section:  "Clipboard",
 			Title:    "Push to dmini clipboard",
-			Subtitle: "Copy this Mac's clipboard (text) to dmini",
+			Subtitle: "Background job: copy this Mac's clipboard (text) to dmini",
 			Keywords: []string{"clipboard", "dmini", "push", "copy", "paste", "sync", "remote", "pbcopy", "host"},
 			Kind:     paletteActionClipPushDmini,
 		},
@@ -1079,6 +1088,8 @@ func statusRightModuleLabel(module string) string {
 		return "Flash-MoE"
 	case statusRightModuleHost:
 		return "Host"
+	case statusRightModuleJobs:
+		return "Background Jobs"
 	default:
 		return module
 	}
@@ -1104,6 +1115,8 @@ func statusRightModuleDescription(module string) string {
 		return "Flash-MoE status"
 	case statusRightModuleHost:
 		return "hostname"
+	case statusRightModuleJobs:
+		return "ongoing background jobs (⏳)"
 	default:
 		return module
 	}
@@ -1153,6 +1166,9 @@ func newPaletteModel(runtime *paletteRuntime, state paletteUIState) *paletteMode
 	if state.Mode == paletteModeBoard {
 		model.openBoardPanel()
 	}
+	if state.Mode == paletteModeJobs {
+		model.openJobsPanel()
+	}
 	return model
 }
 
@@ -1171,6 +1187,9 @@ func (m *paletteModel) Init() tea.Cmd {
 	}
 	if m.activity != nil {
 		return activityTickCmd()
+	}
+	if m.jobs != nil {
+		return jobsPanelTickCmd(m.jobs)
 	}
 	return nil
 }
@@ -1620,16 +1639,12 @@ func (m *paletteModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(m.memory.requestUsage(), m.memory.tick())
 		}
 		return m, nil
-	case clipSyncDoneMsg:
-		m.clipSyncing = false
-		if msg.err != nil {
-			m.state.Message = firstNonEmpty(msg.output, msg.err.Error())
-			return m, nil
+	case jobsPanelTickMsg:
+		if m.state.Mode == paletteModeJobs && m.jobs != nil && msg.panel == m.jobs && msg.generation == m.jobs.generation {
+			m.jobs.reload()
+			return m, jobsPanelTickCmd(m.jobs)
 		}
-		if msg.output != "" {
-			_ = runTmux("display-message", msg.output)
-		}
-		return m.closePalette()
+		return m, nil
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
@@ -1653,6 +1668,10 @@ func (m *paletteModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.goals.width = msg.Width
 			m.goals.height = msg.Height
 		}
+		if m.jobs != nil {
+			m.jobs.width = msg.Width
+			m.jobs.height = msg.Height
+		}
 		if m.status != nil {
 			m.status.width = msg.Width
 			m.status.height = msg.Height
@@ -1667,7 +1686,7 @@ func (m *paletteModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
-		if m.state.Mode != paletteModeActivity && m.state.Mode != paletteModeTodos && m.state.Mode != paletteModeDevices && m.state.Mode != paletteModeStatusRight && m.state.Mode != paletteModeTracker && m.state.Mode != paletteModeGoals && m.state.Mode != paletteModeLLMQuotas && m.state.Mode != paletteModeAgent && m.state.Mode != paletteModeSwitchDevice && m.state.Mode != paletteModeOpencodeFork && m.state.Mode != paletteModeRestoreAgent && m.state.Mode != paletteModeMemory && m.state.Mode != paletteModeBoard {
+		if m.state.Mode != paletteModeActivity && m.state.Mode != paletteModeTodos && m.state.Mode != paletteModeDevices && m.state.Mode != paletteModeStatusRight && m.state.Mode != paletteModeTracker && m.state.Mode != paletteModeGoals && m.state.Mode != paletteModeLLMQuotas && m.state.Mode != paletteModeAgent && m.state.Mode != paletteModeSwitchDevice && m.state.Mode != paletteModeOpencodeFork && m.state.Mode != paletteModeRestoreAgent && m.state.Mode != paletteModeMemory && m.state.Mode != paletteModeBoard && m.state.Mode != paletteModeJobs {
 			if isAltFooterToggleKey(msg) {
 				m.state.ShowAltHints = !m.state.ShowAltHints
 				return m, nil
@@ -1734,6 +1753,9 @@ func (m *paletteModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.state.Mode == paletteModeBoard {
 			return m.updateBoardPanel(key)
+		}
+		if m.state.Mode == paletteModeJobs {
+			return m.updateJobsPanel(key)
 		}
 		if m.state.Mode == paletteModeActivity {
 			if m.activity == nil {
@@ -2187,9 +2209,12 @@ func (m *paletteModel) selectAction(action paletteAction) (tea.Model, tea.Cmd) {
 	case paletteActionBrowserCopyLogs:
 		return m.agentPanelCopyLogs()
 	case paletteActionClipPullDmini:
-		return m.startClipSync("pull")
+		return m.startBackgroundJob("clip-pull")
 	case paletteActionClipPushDmini:
-		return m.startClipSync("push")
+		return m.startBackgroundJob("clip-push")
+	case paletteActionOpenJobs:
+		m.openJobsPanel()
+		return m, jobsPanelTickCmd(m.jobs)
 	default:
 		m.state.Mode = paletteModeList
 		m.result = paletteResult{Kind: paletteResultRunAction, Action: action, State: m.state}
@@ -2197,31 +2222,41 @@ func (m *paletteModel) selectAction(action paletteAction) (tea.Model, tea.Cmd) {
 	}
 }
 
-type clipSyncDoneMsg struct {
-	direction string
-	output    string
-	err       error
-}
-
-func clipSyncCmd(exe, direction string) tea.Cmd {
-	return func() tea.Msg {
-		output, err := exec.Command(exe, "clip", direction).CombinedOutput()
-		return clipSyncDoneMsg{direction: direction, output: strings.TrimSpace(string(output)), err: err}
-	}
-}
-
-func (m *paletteModel) startClipSync(direction string) (tea.Model, tea.Cmd) {
-	if m.clipSyncing {
-		return m, nil
-	}
-	exe, err := os.Executable()
-	if err != nil {
+func (m *paletteModel) startBackgroundJob(kind string) (tea.Model, tea.Cmd) {
+	if _, err := jobsStartDetached(kind); err != nil {
 		m.state.Message = err.Error()
 		return m, nil
 	}
-	m.clipSyncing = true
-	m.state.Message = fmt.Sprintf("Syncing clipboard with dmini (%s)…", direction)
-	return m, clipSyncCmd(exe, direction)
+	return m.closePalette()
+}
+
+func (m *paletteModel) openJobsPanel() {
+	m.noteSecondaryPageOpen()
+	if m.jobs == nil {
+		m.jobs = newJobsPanelModel()
+	} else {
+		m.jobs.reload()
+		m.jobs.cursor = 0
+		m.jobs.offset = 0
+		m.jobs.requestBack = false
+	}
+	m.state.Mode = paletteModeJobs
+	m.state.Message = ""
+	m.state.ShowAltHints = false
+}
+
+func (m *paletteModel) updateJobsPanel(key string) (tea.Model, tea.Cmd) {
+	if m.jobs == nil {
+		m.jobs = newJobsPanelModel()
+	}
+	m.jobs.handleKey(key)
+	if m.jobs.requestBack {
+		m.jobs.requestBack = false
+		m.state.Mode = paletteModeList
+		m.state.Message = m.jobs.currentStatus()
+		return m, nil
+	}
+	return m, nil
 }
 
 func (m *paletteModel) runBrowserLogsPaste() (tea.Model, tea.Cmd) {
@@ -2659,6 +2694,14 @@ func (m *paletteModel) View() string {
 		m.board.width = width
 		m.board.height = height
 		return m.board.View()
+	}
+	if m.state.Mode == paletteModeJobs {
+		if m.jobs == nil {
+			m.jobs = newJobsPanelModel()
+		}
+		m.jobs.width = width
+		m.jobs.height = height
+		return m.jobs.View()
 	}
 	return m.renderListView(styles, width, height)
 }

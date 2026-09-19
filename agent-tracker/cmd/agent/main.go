@@ -86,6 +86,7 @@ type statusRightConfig struct {
 	Scratch       *bool `json:"scratch,omitempty"`
 	FlashMoe      *bool `json:"flash_moe,omitempty"`
 	Host          *bool `json:"host,omitempty"`
+	Jobs          *bool `json:"jobs,omitempty"`
 }
 
 type keyConfig struct {
@@ -195,6 +196,8 @@ func run(args []string) error {
 		return runBrowserCommand(args[1:])
 	case "clip":
 		return runClipboardSync(args[1:])
+	case "job":
+		return runJobsCommand(args[1:])
 	case "feature":
 		return runFeatureCommand(args[1:])
 	case "hot-reload":

@@ -30,6 +30,7 @@ const (
 	paletteModeLLMQuotas
 	paletteModeMemory
 	paletteModeBoard
+	paletteModeJobs
 )
 
 type palettePromptField int
@@ -79,6 +80,7 @@ const (
 	paletteActionOpenBoard
 	paletteActionClipPullDmini
 	paletteActionClipPushDmini
+	paletteActionOpenJobs
 )
 
 type paletteAction struct {

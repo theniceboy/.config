@@ -162,7 +162,7 @@ func main() {
 
 func run(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: agent <start|restore|list|destroy|close|init|config|setup|tmux|tracker|goal|todos|browser|feature|hot-reload>")
+		return fmt.Errorf("usage: agent <start|restore|list|destroy|close|init|config|setup|tmux|tracker|goal|todos|browser|clip|feature|hot-reload>")
 	}
 	switch args[0] {
 	case "start":
@@ -193,6 +193,8 @@ func run(args []string) error {
 		return runTodos(args[1:])
 	case "browser":
 		return runBrowserCommand(args[1:])
+	case "clip":
+		return runClipboardSync(args[1:])
 	case "feature":
 		return runFeatureCommand(args[1:])
 	case "hot-reload":

@@ -77,6 +77,8 @@ const (
 	paletteActionOpenLLMQuotas
 	paletteActionOpenMemory
 	paletteActionOpenBoard
+	paletteActionClipPullDmini
+	paletteActionClipPushDmini
 )
 
 type paletteAction struct {

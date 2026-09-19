@@ -608,6 +608,20 @@ func (r *paletteRuntime) buildActions() []paletteAction {
 			Keywords: []string{"tmux", "status", "status-right", "bottom-right", "control", "center", "istat", "cpu", "network", "memory", "todos", "host", "flash"},
 			Kind:     paletteActionOpenStatusRight,
 		},
+		paletteAction{
+			Section:  "Clipboard",
+			Title:    "Pull dmini clipboard",
+			Subtitle: "Copy dmini's clipboard (text) to this Mac",
+			Keywords: []string{"clipboard", "dmini", "pull", "copy", "paste", "sync", "remote", "pbpaste", "host"},
+			Kind:     paletteActionClipPullDmini,
+		},
+		paletteAction{
+			Section:  "Clipboard",
+			Title:    "Push to dmini clipboard",
+			Subtitle: "Copy this Mac's clipboard (text) to dmini",
+			Keywords: []string{"clipboard", "dmini", "push", "copy", "paste", "sync", "remote", "pbcopy", "host"},
+			Kind:     paletteActionClipPushDmini,
+		},
 	)
 	if strings.TrimSpace(r.agentID) == "" {
 		return actions
@@ -2161,11 +2175,34 @@ func (m *paletteModel) selectAction(action paletteAction) (tea.Model, tea.Cmd) {
 		return m.runBrowserLogsPaste()
 	case paletteActionBrowserCopyLogs:
 		return m.agentPanelCopyLogs()
+	case paletteActionClipPullDmini:
+		return m.runClipboardSync("pull")
+	case paletteActionClipPushDmini:
+		return m.runClipboardSync("push")
 	default:
 		m.state.Mode = paletteModeList
 		m.result = paletteResult{Kind: paletteResultRunAction, Action: action, State: m.state}
 		return m, tea.Quit
 	}
+}
+
+func (m *paletteModel) runClipboardSync(direction string) (tea.Model, tea.Cmd) {
+	exe, err := os.Executable()
+	if err != nil {
+		m.state.Message = err.Error()
+		return m, nil
+	}
+	cmd := exec.Command(exe, "clip", direction)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		m.state.Message = firstNonEmpty(strings.TrimSpace(string(output)), err.Error())
+		return m, nil
+	}
+	if msg := strings.TrimSpace(string(output)); msg != "" {
+		_ = runTmux("display-message", msg)
+	}
+	m.result = paletteResult{Kind: paletteResultClose, State: m.state}
+	return m, tea.Quit
 }
 
 func (m *paletteModel) runBrowserLogsPaste() (tea.Model, tea.Cmd) {

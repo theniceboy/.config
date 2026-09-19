@@ -72,6 +72,7 @@ type paletteModel struct {
 	quotas                  *llmQuotaPanelModel
 	memory                  *memoryPanelModel
 	board                   *boardPanelModel
+	clipSyncing             bool
 }
 
 type paletteStyles struct {
@@ -1619,6 +1620,16 @@ func (m *paletteModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(m.memory.requestUsage(), m.memory.tick())
 		}
 		return m, nil
+	case clipSyncDoneMsg:
+		m.clipSyncing = false
+		if msg.err != nil {
+			m.state.Message = firstNonEmpty(msg.output, msg.err.Error())
+			return m, nil
+		}
+		if msg.output != "" {
+			_ = runTmux("display-message", msg.output)
+		}
+		return m.closePalette()
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
@@ -2176,9 +2187,9 @@ func (m *paletteModel) selectAction(action paletteAction) (tea.Model, tea.Cmd) {
 	case paletteActionBrowserCopyLogs:
 		return m.agentPanelCopyLogs()
 	case paletteActionClipPullDmini:
-		return m.runClipboardSync("pull")
+		return m.startClipSync("pull")
 	case paletteActionClipPushDmini:
-		return m.runClipboardSync("push")
+		return m.startClipSync("push")
 	default:
 		m.state.Mode = paletteModeList
 		m.result = paletteResult{Kind: paletteResultRunAction, Action: action, State: m.state}
@@ -2186,23 +2197,31 @@ func (m *paletteModel) selectAction(action paletteAction) (tea.Model, tea.Cmd) {
 	}
 }
 
-func (m *paletteModel) runClipboardSync(direction string) (tea.Model, tea.Cmd) {
+type clipSyncDoneMsg struct {
+	direction string
+	output    string
+	err       error
+}
+
+func clipSyncCmd(exe, direction string) tea.Cmd {
+	return func() tea.Msg {
+		output, err := exec.Command(exe, "clip", direction).CombinedOutput()
+		return clipSyncDoneMsg{direction: direction, output: strings.TrimSpace(string(output)), err: err}
+	}
+}
+
+func (m *paletteModel) startClipSync(direction string) (tea.Model, tea.Cmd) {
+	if m.clipSyncing {
+		return m, nil
+	}
 	exe, err := os.Executable()
 	if err != nil {
 		m.state.Message = err.Error()
 		return m, nil
 	}
-	cmd := exec.Command(exe, "clip", direction)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		m.state.Message = firstNonEmpty(strings.TrimSpace(string(output)), err.Error())
-		return m, nil
-	}
-	if msg := strings.TrimSpace(string(output)); msg != "" {
-		_ = runTmux("display-message", msg)
-	}
-	m.result = paletteResult{Kind: paletteResultClose, State: m.state}
-	return m, tea.Quit
+	m.clipSyncing = true
+	m.state.Message = fmt.Sprintf("Syncing clipboard with dmini (%s)…", direction)
+	return m, clipSyncCmd(exe, direction)
 }
 
 func (m *paletteModel) runBrowserLogsPaste() (tea.Model, tea.Cmd) {

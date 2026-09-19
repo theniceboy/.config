@@ -5,6 +5,32 @@
     "auto": false
   },
   "providers": {
+    "lmstudio": {
+      "name": "LM Studio (local)",
+      "package": "@opencode-ai/ai/providers/openai-compatible",
+      "settings": {
+        "baseURL": "http://127.0.0.1:1234/v1"
+      },
+      "models": {
+        "qwen3.8-27b-uncensored-optiq": {
+          "name": "Qwen3.8 27B Uncensored Optiq",
+          "limit": {
+            "context": 131072,
+            "output": 8192
+          },
+          "reasoning": true,
+          "tool_call": true,
+          "modalities": {
+            "input": [
+              "text"
+            ],
+            "output": [
+              "text"
+            ]
+          }
+        }
+      }
+    },
     "pcc": {
       "name": "Apple PCC (local)",
       "package": "@opencode-ai/ai/providers/openai-compatible",

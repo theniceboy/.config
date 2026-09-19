@@ -2756,6 +2756,17 @@ func (m *paletteModel) renderActions(styles paletteStyles, actions []paletteActi
 
 func (m *paletteModel) renderSidebar(styles paletteStyles, width, height int) string {
 	lines := []string{}
+	if jobs := runningBackgroundJobs(); len(jobs) > 0 {
+		lines = append(lines, styles.panelTitle.Render("Background Jobs"))
+		for i, job := range jobs {
+			if i >= 3 {
+				lines = append(lines, renderPaletteStat(styles, "···", fmt.Sprintf("+%d more", len(jobs)-3), width, 9))
+				break
+			}
+			lines = append(lines, renderPaletteStat(styles, "⏳", fmt.Sprintf("%s · %s", job.Title, job.elapsedLabel(statusNow())), width, 9))
+		}
+		lines = append(lines, "")
+	}
 	trackerContext, trackerAgent, trackerBootstrap := m.runtime.sidebarTrackerStatus()
 	lines = append(lines, styles.panelTitle.Render("Tracker Status"))
 	lines = append(lines, renderPaletteStat(styles, "Context", trackerContext, width, 9))

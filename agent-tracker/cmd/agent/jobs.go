@@ -206,12 +206,10 @@ func runBackgroundJob(id string) error {
 	if runErr != nil {
 		summary := firstNonEmpty(strings.TrimSpace(output), runErr.Error())
 		_ = withJobsLock(func() { finishJobLocked(id, jobStatusError, summary) })
-		toastBackgroundJob(job.Title, false, summary)
 		return nil
 	}
 	summary := strings.TrimSpace(output)
 	_ = withJobsLock(func() { finishJobLocked(id, jobStatusDone, summary) })
-	toastBackgroundJob(job.Title, true, summary)
 	return nil
 }
 
@@ -230,19 +228,6 @@ func finishJobLocked(id, status, output string) {
 	_ = writeJobsStore(store)
 }
 
-func toastBackgroundJob(title string, ok bool, detail string) {
-	detail = strings.TrimSpace(detail)
-	var msg string
-	if ok {
-		msg = "✓ " + detail
-	} else {
-		msg = fmt.Sprintf("✗ %s: %s", title, detail)
-	}
-	if os.Getenv("TMUX") != "" {
-		_ = runTmux("display-message", msg)
-	}
-}
-
 func listBackgroundJobs() []backgroundJob {
 	store := readJobsStore()
 	jobs := pruneJobsLocked(store.Jobs)
@@ -255,6 +240,16 @@ func listBackgroundJobs() []backgroundJob {
 		return jobs[i].recentMS() > jobs[j].recentMS()
 	})
 	return jobs
+}
+
+func runningBackgroundJobs() []backgroundJob {
+	var out []backgroundJob
+	for _, job := range listBackgroundJobs() {
+		if job.running() {
+			out = append(out, job)
+		}
+	}
+	return out
 }
 
 func (j backgroundJob) recentMS() int64 {

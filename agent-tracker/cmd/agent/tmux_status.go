@@ -1195,22 +1195,13 @@ func loadJobsStatusSegment() (statusSegment, bool) {
 	if !statusRightModuleEnabled(statusRightModuleJobs) {
 		return statusSegment{}, false
 	}
-	running := 0
-	newest := backgroundJob{}
-	for _, job := range listBackgroundJobs() {
-		if job.running() {
-			running++
-			newest = job
-		}
-	}
-	if running == 0 {
+	running := runningBackgroundJobs()
+	if len(running) == 0 {
 		return statusSegment{}, false
 	}
-	var label string
-	if running == 1 {
-		label = fmt.Sprintf(" ⏳ %s %s ", newest.Title, newest.elapsedLabel(statusNow()))
-	} else {
-		label = fmt.Sprintf(" ⏳ %d jobs ", running)
+	label := " ⏳ "
+	if len(running) > 1 {
+		label = fmt.Sprintf(" ⏳%d ", len(running))
 	}
 	return statusSegment{FG: "#1d1f21", BG: "#ebcb8b", Text: label, Bold: true}, true
 }

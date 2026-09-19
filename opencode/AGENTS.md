@@ -126,9 +126,12 @@ belongs to, not the directory where the conversation happened.
   writer maintains the header. MEMORY INDEX is a read-only catalog assembled
   from files, not a stored index.json. Missing/invalid summaries use an in-memory
   fallback; resolve conflicted files without rebuilding a central index.
-  Edit/move/delete requires the exact CURRENT REVISION from loaded context; review
-  the section's current content first. On conflict, load again and merge colleague
-  changes from current context, never just substitute a hash. Create/move never
+  Edit/move/delete requires the CURRENT REVISION from loaded context — the full
+  string, a unique ≥16-hex prefix of it, or it may be omitted when this session
+  loaded the file and it is unchanged (the writer verifies against what the
+  loader served); review the section's current content first. On conflict, load
+  again and merge colleague changes from current context, never just substitute
+  a hash. Create/move never
   overwrite. Writers manage locks, parents/pruning and
   recognized references; `pending` means automatic recovery owns it—do not repeat/undo.
 - Direct read/edit/write/patch access to memory files is permission-denied. Do not

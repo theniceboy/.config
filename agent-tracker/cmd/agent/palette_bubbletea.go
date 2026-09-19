@@ -1173,25 +1173,21 @@ func newPaletteModel(runtime *paletteRuntime, state paletteUIState) *paletteMode
 }
 
 func (m *paletteModel) Init() tea.Cmd {
+	var base tea.Cmd
 	if m.memory != nil {
-		return m.memory.Init()
+		base = m.memory.Init()
+	} else if m.goals != nil {
+		base = goalPanelTickCmd()
+	} else if m.tracker != nil {
+		base = trackerPanelTickCmd()
+	} else if m.quotas != nil {
+		base = m.quotas.activate()
+	} else if m.activity != nil {
+		base = activityTickCmd()
+	} else if m.jobs != nil {
+		base = jobsPanelTickCmd(m.jobs)
 	}
-	if m.goals != nil {
-		return goalPanelTickCmd()
-	}
-	if m.tracker != nil {
-		return trackerPanelTickCmd()
-	}
-	if m.quotas != nil {
-		return m.quotas.activate()
-	}
-	if m.activity != nil {
-		return activityTickCmd()
-	}
-	if m.jobs != nil {
-		return jobsPanelTickCmd(m.jobs)
-	}
-	return nil
+	return tea.Batch(base, paletteHomeTickCmd())
 }
 
 func (m *paletteModel) noteSecondaryPageOpen() {
@@ -1639,6 +1635,8 @@ func (m *paletteModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(m.memory.requestUsage(), m.memory.tick())
 		}
 		return m, nil
+	case paletteHomeTickMsg:
+		return m, paletteHomeTickCmd()
 	case jobsPanelTickMsg:
 		if m.state.Mode == paletteModeJobs && m.jobs != nil && msg.panel == m.jobs && msg.generation == m.jobs.generation {
 			m.jobs.reload()

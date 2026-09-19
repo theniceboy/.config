@@ -27,8 +27,16 @@ type jobsPanelTickMsg struct {
 
 func jobsPanelTickCmd(panel *jobsPanelModel) tea.Cmd {
 	generation := panel.generation
-	return tea.Tick(time.Second, func(time.Time) tea.Msg {
+	return tea.Tick(250*time.Millisecond, func(time.Time) tea.Msg {
 		return jobsPanelTickMsg{panel: panel, generation: generation}
+	})
+}
+
+type paletteHomeTickMsg struct{}
+
+func paletteHomeTickCmd() tea.Cmd {
+	return tea.Tick(250*time.Millisecond, func(time.Time) tea.Msg {
+		return paletteHomeTickMsg{}
 	})
 }
 

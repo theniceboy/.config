@@ -282,7 +282,7 @@ func (j backgroundJob) elapsedLabel(now time.Time) string {
 
 func jobSpinnerFrame(now time.Time) string {
 	frames := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
-	return frames[(now.UnixMilli()/200)%int64(len(frames))]
+	return frames[(now.UnixMilli()/250)%int64(len(frames))]
 }
 
 func jobStatusIcon(status string) string {

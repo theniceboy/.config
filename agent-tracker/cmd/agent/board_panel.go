@@ -24,6 +24,7 @@ type boardItem struct {
 	Status     string   `json:"status"`
 	Prio       string   `json:"prio"`
 	Owner      string   `json:"owner"`
+	Start      string   `json:"start"`
 	Due        string   `json:"due"`
 	Type       string   `json:"type"`
 	Workstream string   `json:"workstream"`
@@ -113,10 +114,13 @@ type boardPanelModel struct {
 	requestBack  bool
 	loadErr      string
 	loadedCount  int
+	tab          int
+	tl           *tlModel
+	pendingCmd   tea.Cmd
 }
 
 func newBoardPanelModel() *boardPanelModel {
-	m := &boardPanelModel{collapsed: map[string]bool{}, doneWS: map[string]bool{}}
+	m := &boardPanelModel{collapsed: map[string]bool{}, doneWS: map[string]bool{}, tab: 0, tl: newTLModel()}
 	m.reload()
 	return m
 }
@@ -131,6 +135,7 @@ func (m *boardPanelModel) reload() {
 	m.items = data.Items
 	m.folders = data.Folders
 	m.loadedCount = data.Count
+	m.tl.setItems(data.Items)
 	m.rebuild()
 }
 
@@ -541,10 +546,28 @@ func (m *boardPanelModel) currentRow() *boardRow {
 }
 
 func (m *boardPanelModel) Init() tea.Cmd {
-	return nil
+	return func() tea.Msg { return tlPollLive() }
 }
 
 func (m *boardPanelModel) handleKey(key string) {
+	if key == "tab" && !m.searching {
+		m.tab = 1 - m.tab
+		return
+	}
+	if m.tab == 0 {
+		if cmd := m.tl.keyTlk(key, []rune(key)); cmd != nil {
+			m.pendingCmd = tea.Batch(m.pendingCmd, cmd)
+		}
+		if m.tl.back {
+			m.tl.back = false
+			m.requestBack = true
+		}
+		if m.tl.wantReload {
+			m.tl.wantReload = false
+			m.reload()
+		}
+		return
+	}
 	if m.searching {
 		m.handleSearchKey(key)
 		return
@@ -641,7 +664,7 @@ func (m *boardPanelModel) handleKey(key string) {
 		m.searchCursor = 0
 	case "n", "left":
 		m.focusDetail = false
-	case "i", "tab", "right":
+	case "i", "right":
 		if m.currentItem() != nil {
 			m.focusDetail = true
 		}
@@ -800,6 +823,10 @@ func (m *boardPanelModel) render(styles paletteStyles, width, height int) string
 	}
 	if height <= 0 {
 		height = 28
+	}
+	if m.tab == 0 {
+		m.tl.width, m.tl.height = width, height
+		return m.tl.render()
 	}
 	doing, done, overdue := 0, 0, 0
 	today := time.Now().Format("2006-01-02")

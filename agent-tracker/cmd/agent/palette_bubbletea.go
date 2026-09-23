@@ -1757,7 +1757,11 @@ func (m *paletteModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case paletteModeMemory:
 				return m.closePalette()
 			case paletteModeBoard:
-				return m.closePalette()
+				if m.board != nil && m.board.tab == 0 && m.board.tl != nil &&
+					!m.board.tl.editing && !m.board.tl.typing && !m.board.tl.calOpen &&
+					!m.board.tl.pickOpen && !m.board.tl.jumpOpen && !m.board.tl.dateMode {
+					return m.closePalette()
+				}
 			}
 		}
 		if m.state.Mode == paletteModeAgent {

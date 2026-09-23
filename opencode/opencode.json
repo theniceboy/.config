@@ -518,6 +518,101 @@
               "text"
             ]
           }
+        },
+        "claude-opus-5-5(low)": {
+          "name": "claude-opus-5-5(low)",
+          "limit": {
+            "context": 1000000,
+            "output": 128000
+          },
+          "attachment": true,
+          "reasoning": true,
+          "tool_call": true,
+          "modalities": {
+            "input": [
+              "text",
+              "image"
+            ],
+            "output": [
+              "text"
+            ]
+          }
+        },
+        "claude-opus-5-5(medium)": {
+          "name": "claude-opus-5-5(medium)",
+          "limit": {
+            "context": 1000000,
+            "output": 128000
+          },
+          "attachment": true,
+          "reasoning": true,
+          "tool_call": true,
+          "modalities": {
+            "input": [
+              "text",
+              "image"
+            ],
+            "output": [
+              "text"
+            ]
+          }
+        },
+        "claude-opus-5-5(high)": {
+          "name": "claude-opus-5-5(high)",
+          "limit": {
+            "context": 1000000,
+            "output": 128000
+          },
+          "attachment": true,
+          "reasoning": true,
+          "tool_call": true,
+          "modalities": {
+            "input": [
+              "text",
+              "image"
+            ],
+            "output": [
+              "text"
+            ]
+          }
+        },
+        "claude-opus-5-5(xhigh)": {
+          "name": "claude-opus-5-5(xhigh)",
+          "limit": {
+            "context": 1000000,
+            "output": 128000
+          },
+          "attachment": true,
+          "reasoning": true,
+          "tool_call": true,
+          "modalities": {
+            "input": [
+              "text",
+              "image"
+            ],
+            "output": [
+              "text"
+            ]
+          }
+        },
+        "claude-opus-5-5(max)": {
+          "name": "claude-opus-5-5(max)",
+          "limit": {
+            "context": 1000000,
+            "output": 128000
+          },
+          "attachment": true,
+          "reasoning": true,
+          "tool_call": true,
+          "modalities": {
+            "input": [
+              "text",
+              "image"
+            ],
+            "output": [
+              "text"
+            ]
+          }
         }
       }
     }

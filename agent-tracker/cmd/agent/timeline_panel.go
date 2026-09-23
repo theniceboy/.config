@@ -1381,7 +1381,7 @@ func boardRun(args ...string) ([]byte, error) {
 }
 
 func newTLModel() *tlModel {
-	m := &tlModel{width: 120, height: 40}
+	m := &tlModel{width: 120, height: 40, selID: tlLoadSel()}
 	return m
 }
 
@@ -1743,4 +1743,100 @@ func (m *tlModel) keyTlk(k string, r []rune) tea.Cmd {
 		}
 	}
 	return nil
+}
+
+func tlSelStatePath() string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return ""
+	}
+	return filepath.Join(home, ".cache", "agent", "board-panel.json")
+}
+
+func tlSaveSel(id string) {
+	p := tlSelStatePath()
+	if p == "" || id == "" {
+		return
+	}
+	os.MkdirAll(filepath.Dir(p), 0o755)
+	os.WriteFile(p, []byte(`{"sel":`+strconv.Quote(id)+`}`), 0o644)
+}
+
+func tlLoadSel() string {
+	p := tlSelStatePath()
+	if p == "" {
+		return ""
+	}
+	b, err := os.ReadFile(p)
+	if err != nil {
+		return ""
+	}
+	var d struct {
+		Sel string `json:"sel"`
+	}
+	if json.Unmarshal(b, &d) != nil {
+		return ""
+	}
+	return d.Sel
+}
+
+// applyWindowLink moves the cursor to the ticket linked to the invoking
+// window's opencode session, if any. The invoking pane's own session wins;
+// otherwise sibling panes of the same window are considered in order.
+func (m *tlModel) applyWindowLink() {
+	pane := os.Getenv("TMUX_PANE")
+	if pane == "" {
+		return
+	}
+	out, err := exec.Command("tmux", "list-panes", "-t", pane, "-F", "#{pane_id}").Output()
+	if err != nil {
+		return
+	}
+	ordered := []string{pane}
+	for _, p := range strings.Fields(string(out)) {
+		if p != pane {
+			ordered = append(ordered, p)
+		}
+	}
+	home, _ := os.UserHomeDir()
+	if home == "" {
+		return
+	}
+	ms, err := filepath.Glob(filepath.Join(home, ".local", "state", "op", "ses_ses_*"))
+	if err != nil {
+		return
+	}
+	sesOfPane := map[string]string{}
+	for _, f := range ms {
+		b, err := os.ReadFile(f)
+		if err != nil {
+			continue
+		}
+		var d struct {
+			SessionID string `json:"sessionID"`
+			Pane      struct {
+				PaneId string `json:"paneId"`
+			} `json:"pane"`
+		}
+		if json.Unmarshal(b, &d) != nil || d.Pane.PaneId == "" {
+			continue
+		}
+		sesOfPane[d.Pane.PaneId] = d.SessionID
+	}
+	for _, p := range ordered {
+		sid, ok := sesOfPane[p]
+		if !ok {
+			continue
+		}
+		for _, it := range m.items {
+			for _, s := range it.Ses {
+				if s == sid {
+					m.selID = it.ID
+					m.vscroll = 0
+					m.followSel(0)
+					return
+				}
+			}
+		}
+	}
 }

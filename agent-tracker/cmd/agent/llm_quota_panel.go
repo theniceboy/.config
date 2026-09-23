@@ -21,7 +21,7 @@ import (
 
 const (
 	defaultZAIQuotaURL        = "https://api.z.ai/api/monitor/usage/quota/limit"
-	defaultCLIProxyManagement = "https://azwestus.asurada.dev/v0/management"
+	defaultCLIProxyManagement = "https://cp.asurada.dev/v0/management"
 	zaiKeychainService        = "zai-api"
 	zaiKeychainAccount        = "api.z.ai"
 	cliproxyKeychainService   = "cliproxy-management"

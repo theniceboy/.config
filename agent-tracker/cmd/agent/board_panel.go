@@ -555,8 +555,12 @@ func (m *boardPanelModel) handleKey(key string) {
 		return
 	}
 	if m.tab == 0 {
+		prevSel := m.tl.selID
 		if cmd := m.tl.keyTlk(key, []rune(key)); cmd != nil {
 			m.pendingCmd = tea.Batch(m.pendingCmd, cmd)
+		}
+		if m.tl.selID != prevSel {
+			tlSaveSel(m.tl.selID)
 		}
 		if m.tl.back {
 			m.tl.back = false

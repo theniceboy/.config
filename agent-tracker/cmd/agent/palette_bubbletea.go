@@ -1461,6 +1461,11 @@ func (m *paletteModel) openBoardPanel() {
 		m.board.detailOffset = 0
 		m.board.requestBack = false
 	}
+	if m.board.tl != nil {
+		m.board.tl.selID = tlLoadSel()
+		m.board.tl.applyWindowLink()
+		tlSaveSel(m.board.tl.selID)
+	}
 	m.state.Mode = paletteModeBoard
 	m.state.Message = ""
 	m.state.ShowAltHints = false

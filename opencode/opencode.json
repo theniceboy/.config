@@ -615,6 +615,21 @@
           }
         }
       }
+    },
+    "zhipuai": {
+      "models": {}
+    },
+    "amazon-bedrock": {
+      "models": {}
+    },
+    "cloudflare-ai-gateway": {
+      "models": {}
+    },
+    "cloudflare-workers-ai": {
+      "models": {}
+    },
+    "zhipuai-coding-plan": {
+      "models": {}
     }
   },
   "permissions": [
@@ -822,12 +837,5 @@
         }
       ]
     }
-  },
-  "plugins": [
-    "-opencode.provider.amazon-bedrock",
-    "-opencode.provider.cloudflare-ai-gateway",
-    "-opencode.provider.cloudflare-workers-ai",
-    "-opencode.provider.zhipuai",
-    "-opencode.provider.zhipuai-coding-plan"
-  ]
+  }
 }

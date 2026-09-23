@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """
-Analyze memory usage of opencode and dart processes, mapping them to tmux windows.
+Real memory usage (resident + compressed) for the whole system:
+RAM ledger, all processes grouped by app, and AI (opencode + dart) by tmux window.
 """
 from __future__ import annotations
 
 import subprocess
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from collections import defaultdict
 from typing import Optional
 
@@ -27,6 +28,23 @@ class TmuxPane:
     window_idx: int
     window_name: str
     pane_pid: int
+
+
+ALIASES = {
+    "Google Chrome for Testing Helper (Renderer)": "playwright Renderer",
+    "Google Chrome for Testing Helper (GPU)": "playwright GPU",
+    "Google Chrome for Testing Helper": "playwright helper",
+    "Google Chrome for Testing": "playwright chrome",
+    "Google Chrome Helper (Renderer)": "chrome Renderer",
+    "Google Chrome Helper (GPU)": "chrome GPU",
+    "Google Chrome Helper": "chrome helper",
+    "Google Chrome": "chrome main",
+    "com.apple.WebKit.WebContent": "WebKit tabs",
+    "com.apple.WebKit.GPU": "WebKit GPU",
+    "com.apple.WebKit.Networking": "WebKit net",
+    "dartaotruntime": "dart AOT (flutter compiler)",
+    "dartvm": "dart vm",
+}
 
 
 def run_cmd(cmd: str) -> str:
@@ -60,7 +78,7 @@ def fmt_mem(mb: float) -> str:
 
 def get_all_process_memory() -> dict[int, tuple[float, float]]:
     """Get MEM and CMPRS for all processes using a single top call."""
-    output = run_cmd('top -l 1 -o mem -n 500 -stats pid,mem,cmprs 2>/dev/null')
+    output = run_cmd('top -l 1 -o mem -n 3000 -stats pid,mem,cmprs 2>/dev/null')
     result = {}
     for line in output.strip().split('\n'):
         parts = line.split()
@@ -72,34 +90,113 @@ def get_all_process_memory() -> dict[int, tuple[float, float]]:
     return result
 
 
-def get_target_processes() -> list[Process]:
-    """Get all opencode and dart processes."""
-    output = run_cmd("ps -eo pid,ppid,rss,comm | grep -E 'opencode|dart'")
-    processes = []
-    
-    mem_data = get_all_process_memory()
-    
+def get_ps_info() -> dict[int, tuple[int, str]]:
+    """pid -> (ppid, comm) for all processes."""
+    output = run_cmd("ps -axo pid=,ppid=,comm=")
+    result = {}
     for line in output.strip().split('\n'):
-        if not line.strip():
-            continue
-        parts = line.split()
-        if len(parts) >= 4:
+        parts = line.split(None, 2)
+        if len(parts) == 3:
             try:
-                pid = int(parts[0])
-                ppid = int(parts[1])
-                comm = ' '.join(parts[3:])
-                if 'opencode' in comm or 'dart' in comm:
-                    mem, cmprs = mem_data.get(pid, (0.0, 0.0))
-                    processes.append(Process(
-                        pid=pid,
-                        mem_mb=mem,
-                        compressed_mb=cmprs,
-                        command=comm,
-                        parent_pid=ppid
-                    ))
+                result[int(parts[0])] = (int(parts[1]), parts[2])
             except ValueError:
                 continue
-    
+    return result
+
+
+def short_name(comm: str) -> str:
+    base = comm.rstrip('/').split('/')[-1]
+    return ALIASES.get(base, base)
+
+
+def get_ledger() -> dict:
+    """Physical RAM ledger from vm_stat + swap usage."""
+    vm = run_cmd("vm_stat")
+    page_match = re.search(r'page size of (\d+) bytes', vm)
+    page = int(page_match.group(1)) if page_match else 16384
+    pages = {}
+    for line in vm.split('\n'):
+        if ':' not in line:
+            continue
+        name, _, val = line.partition(':')
+        val = val.strip().rstrip('.')
+        if val.isdigit():
+            pages[name.replace('Pages ', '').strip()] = int(val) * page
+
+    swap = run_cmd("sysctl -n vm.swapusage")
+    swap_match = re.search(r'total = ([\d.]+)M\s+used = ([\d.]+)M', swap)
+
+    return {
+        'page': page,
+        'pages': pages,
+        'ram_total': int(run_cmd("sysctl -n hw.memsize").strip() or 0),
+        'swap_total_mb': float(swap_match.group(1)) if swap_match else 0.0,
+        'swap_used_mb': float(swap_match.group(2)) if swap_match else 0.0,
+    }
+
+
+def print_ledger(ledger: dict) -> None:
+    pages = ledger['pages']
+    gb = lambda key: pages.get(key, 0) / (1024 ** 3)
+    ram_gb = ledger['ram_total'] / (1024 ** 3)
+    print("=" * 70)
+    print(f"RAM LEDGER  ({ram_gb:.0f}G physical)")
+    print("=" * 70)
+    print(f"  wired         {gb('wired down'):5.1f}G")
+    print(f"  active        {gb('active'):5.1f}G")
+    print(f"  inactive      {gb('inactive'):5.1f}G   (file cache {gb('file-backed'):.1f}G, reclaimable)")
+    print(f"  free+spec     {gb('free') + gb('speculative'):5.1f}G")
+    comp_occ = gb('occupied by compressor')
+    comp_stored = gb('stored in compressor')
+    print(f"  compressor    {comp_occ:5.1f}G   (holding {comp_stored:.1f}G of compressed data)")
+    print(f"  swap on disk  {ledger['swap_used_mb'] / 1024:5.1f}G   (of {ledger['swap_total_mb'] / 1024:.1f}G)")
+    print()
+
+
+def print_all_groups(mem_data: dict[int, tuple[float, float]], ps_info: dict[int, tuple[int, str]]) -> None:
+    groups: dict[str, list[float]] = defaultdict(lambda: [0.0, 0.0, 0])
+    total_mem = total_cmprs = 0.0
+    for pid, (mem, cmprs) in mem_data.items():
+        total_mem += mem
+        total_cmprs += cmprs
+        if mem + cmprs <= 0:
+            continue
+        name = short_name(ps_info.get(pid, (0, '?'))[1])
+        groups[name][0] += mem
+        groups[name][1] += cmprs
+        groups[name][2] += 1
+
+    print("=" * 70)
+    print("ALL PROCESSES by app  (real footprint = resident + compressed)")
+    print("=" * 70)
+    ranked = sorted(groups.items(), key=lambda kv: kv[1][0] + kv[1][1], reverse=True)
+    for name, (mem, cmprs, cnt) in ranked[:20]:
+        print(f"  {fmt_mem(mem + cmprs):>6}  ({fmt_mem(mem):>5} + {fmt_mem(cmprs):>5} cmprs)  x{cnt:<3d} {name}")
+    rest = ranked[20:]
+    if rest:
+        rest_virt = sum(m + c for _, (m, c, _) in rest)
+        print(f"  {fmt_mem(rest_virt):>6}  in {len(rest)} smaller groups")
+    print(f"\n  Process total: {fmt_mem(total_mem + total_cmprs)}"
+          f"  ({fmt_mem(total_mem)} resident + {fmt_mem(total_cmprs)} compressed, {len(mem_data)} processes)")
+    print("  (per-process MEM double-counts shared pages; trust rankings and the ledger, not this total)")
+    print()
+
+
+def get_target_processes(mem_data: dict[int, tuple[float, float]],
+                         ps_info: dict[int, tuple[int, str]]) -> list[Process]:
+    """Get all opencode and dart processes."""
+    processes = []
+    for pid, (ppid, comm) in ps_info.items():
+        if 'opencode' not in comm and 'dart' not in comm:
+            continue
+        mem, cmprs = mem_data.get(pid, (0.0, 0.0))
+        processes.append(Process(
+            pid=pid,
+            mem_mb=mem,
+            compressed_mb=cmprs,
+            command=comm,
+            parent_pid=ppid
+        ))
     return processes
 
 
@@ -107,7 +204,7 @@ def get_tmux_panes() -> list[TmuxPane]:
     """Get all tmux panes with their shell PIDs."""
     sessions = run_cmd("tmux list-sessions -F '#{session_name}' 2>/dev/null").strip().split('\n')
     panes = []
-    
+
     for session in sessions:
         if not session:
             continue
@@ -126,35 +223,19 @@ def get_tmux_panes() -> list[TmuxPane]:
                     ))
                 except ValueError:
                     continue
-    
+
     return panes
 
 
-def get_parent_chain(pid: int, max_depth: int = 10) -> list[tuple[int, str]]:
-    """Ancestors as (pid, comm), starting with the immediate parent.
-
-    Walks upward via `ps ppid`, which stays correct when `pgrep -P` child
-    enumeration races with reparenting on macOS.
-    """
-    ppid_out = run_cmd(f"ps -p {pid} -o ppid= 2>/dev/null").strip()
-    try:
-        current = int(ppid_out)
-    except ValueError:
-        return []
-
+def get_parent_chain(pid: int, ps_info: dict[int, tuple[int, str]], max_depth: int = 10) -> list[tuple[int, str]]:
+    """Ancestors as (pid, comm), starting with the immediate parent."""
     chain: list[tuple[int, str]] = []
+    current = ps_info.get(pid, (0, ''))[0]
     for _ in range(max_depth):
-        output = run_cmd(f"ps -p {current} -o ppid=,comm= 2>/dev/null").strip()
-        if not output:
+        entry = ps_info.get(current)
+        if not entry:
             break
-        parts = output.split(None, 1)
-        if len(parts) < 2:
-            break
-        try:
-            ppid = int(parts[0])
-            comm = parts[1]
-        except ValueError:
-            break
+        ppid, comm = entry
         chain.append((current, comm))
         if ppid <= 1 or current <= 1:
             break
@@ -162,11 +243,18 @@ def get_parent_chain(pid: int, max_depth: int = 10) -> list[tuple[int, str]]:
     return chain
 
 
-def is_orphaned_opencode(proc: Process) -> bool:
-    """Check if an opencode process is orphaned (parent is launchd or another opencode)."""
+def is_orphaned_opencode(proc: Process, ps_info: dict[int, tuple[int, str]]) -> bool:
+    """Check if an opencode process is orphaned (parent is launchd or another opencode).
+
+    The shared `opencode2 serve --service` instance is launchd-parented on purpose
+    and hosts the MCP children for all sessions — never flag it.
+    """
     if 'opencode' not in proc.command:
         return False
-    chain = get_parent_chain(proc.pid)
+    args = run_cmd(f"ps -p {proc.pid} -o command= 2>/dev/null")
+    if ' serve' in args:
+        return False
+    chain = get_parent_chain(proc.pid, ps_info)
     if not chain:
         return True
     parent_pid, parent_cmd = chain[0]
@@ -179,36 +267,42 @@ def is_orphaned_opencode(proc: Process) -> bool:
 
 
 def main():
-    processes = get_target_processes()
+    mem_data = get_all_process_memory()
+    ps_info = get_ps_info()
+    processes = get_target_processes(mem_data, ps_info)
     panes = get_tmux_panes()
-    
+
+    print_ledger(get_ledger())
+    print_all_groups(mem_data, ps_info)
+
     pane_pids = {pane.pane_pid: pane for pane in panes}
 
     tmux_mapping: dict[int, TmuxPane] = {}
     for proc in processes:
-        for ancestor_pid, _ in get_parent_chain(proc.pid):
+        for ancestor_pid, _ in get_parent_chain(proc.pid, ps_info):
             if ancestor_pid in pane_pids:
                 tmux_mapping[proc.pid] = pane_pids[ancestor_pid]
                 break
-    
+
     by_window: dict[str, list[Process]] = defaultdict(list)
     orphans: list[Process] = []
+    background: list[Process] = []
     orphaned_opencode_pids: set[int] = set()
-    
+
     for proc in processes:
-        if 'opencode' in proc.command and is_orphaned_opencode(proc):
+        if 'opencode' in proc.command and is_orphaned_opencode(proc, ps_info):
             orphaned_opencode_pids.add(proc.pid)
-    
+
     for proc in processes:
-        chain = get_parent_chain(proc.pid)
+        chain = get_parent_chain(proc.pid, ps_info)
         if chain:
             proc.parent_pid = chain[0][0]
             proc.parent_cmd = chain[0][1]
-        
+
         is_child_of_orphan = any(
             p[0] in orphaned_opencode_pids for p in chain
         )
-        
+
         if proc.pid in orphaned_opencode_pids or is_child_of_orphan:
             orphans.append(proc)
         elif proc.pid in tmux_mapping:
@@ -216,63 +310,71 @@ def main():
             key = f"{pane.session}:{pane.window_idx}:{pane.window_name}"
             by_window[key].append(proc)
         else:
-            orphans.append(proc)
-    
-    print("\n" + "=" * 70)
-    print("AI MEMORY USAGE (opencode + dart)")
+            background.append(proc)
+
     print("=" * 70)
-    
+    print("AI MEMORY USAGE (opencode + dart) by tmux window")
+    print("=" * 70)
+
     window_totals = []
-    for key in sorted(by_window.keys()):
-        procs = by_window[key]
-        parts = key.split(':')
-        session, window_idx, window_name = parts[0], parts[1], parts[2]
-        
+    for key, procs in by_window.items():
         total_mem = sum(p.mem_mb for p in procs)
         total_cmprs = sum(p.compressed_mb for p in procs)
         window_totals.append((key, total_mem, total_cmprs, procs))
-    
+
     window_totals.sort(key=lambda x: x[1] + x[2], reverse=True)
-    
+
     for key, total_mem, total_cmprs, procs in window_totals:
         parts = key.split(':')
         session, window_idx, window_name = parts[0], parts[1], parts[2]
-        
+
         total_virt = total_mem + total_cmprs
         print(f"\n[{session}] Window {window_idx}: {window_name}  ({fmt_mem(total_virt)} total)")
-        
+
         procs.sort(key=lambda p: p.mem_mb + p.compressed_mb, reverse=True)
         for proc in procs:
             proc_type = "opencode" if "opencode" in proc.command else "dart"
             virt = proc.mem_mb + proc.compressed_mb
             print(f"  {proc.pid:5}  {fmt_mem(virt):>6}  ({fmt_mem(proc.mem_mb):>5} + {fmt_mem(proc.compressed_mb):>5} cmprs)  {proc_type}")
-    
+
     total_orphan_mem = sum(p.mem_mb for p in orphans)
     total_orphan_cmprs = sum(p.compressed_mb for p in orphans)
-    
+
     if orphans:
         total_orphan_virt = total_orphan_mem + total_orphan_cmprs
         print("\n" + "=" * 70)
         print(f"ORPHANS ({fmt_mem(total_orphan_virt)} total)")
         print("=" * 70)
-        
+
         orphans.sort(key=lambda p: p.mem_mb + p.compressed_mb, reverse=True)
-        
+
         for proc in orphans:
             proc_type = "opencode" if "opencode" in proc.command else "dart"
             virt = proc.mem_mb + proc.compressed_mb
             parent_info = proc.parent_cmd.split('/')[-1] if proc.parent_cmd else "?"
             print(f"  {proc.pid:5}  {fmt_mem(virt):>6}  ({fmt_mem(proc.mem_mb):>5} + {fmt_mem(proc.compressed_mb):>5} cmprs)  {proc_type}  <- {parent_info}")
-        
+
         print(f"\nkill {' '.join(str(p.pid) for p in orphans)}")
-    
+
+    if background:
+        bg_virt = sum(p.mem_mb + p.compressed_mb for p in background)
+        print("\n" + "=" * 70)
+        print(f"BACKGROUND, outside tmux ({fmt_mem(bg_virt)} total — includes shared serve --service)")
+        print("=" * 70)
+        background.sort(key=lambda p: p.mem_mb + p.compressed_mb, reverse=True)
+        for proc in background:
+            proc_type = "opencode" if "opencode" in proc.command else "dart"
+            virt = proc.mem_mb + proc.compressed_mb
+            parent_info = proc.parent_cmd.split('/')[-1] if proc.parent_cmd else "?"
+            print(f"  {proc.pid:5}  {fmt_mem(virt):>6}  ({fmt_mem(proc.mem_mb):>5} + {fmt_mem(proc.compressed_mb):>5} cmprs)  {proc_type}  <- {parent_info}")
+
     all_mem = sum(p.mem_mb for p in processes)
     all_cmprs = sum(p.compressed_mb for p in processes)
     all_virt = all_mem + all_cmprs
     in_tmux_virt = (all_mem - total_orphan_mem) + (all_cmprs - total_orphan_cmprs)
-    
+
     print("\n" + "-" * 70)
-    print(f"Total: {fmt_mem(all_virt)}  (tmux: {fmt_mem(in_tmux_virt)}", end="")
+    print(f"AI total: {fmt_mem(all_virt)}  (tmux: {fmt_mem(in_tmux_virt)}", end="")
     if orphans:
         print(f", orphans: {fmt_mem(total_orphan_mem + total_orphan_cmprs)}", end="")
     print(")")

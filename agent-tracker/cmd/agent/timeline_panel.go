@@ -228,10 +228,13 @@ func tlPollLive() tea.Msg {
 
 func jumpCmd(w winInfo) tea.Cmd {
 	target := w.Session + ":" + w.Index
-	return func() tea.Msg {
-		exec.Command("tmux", "switch-client", "-t", target).Run()
-		return nil
-	}
+	return tea.Batch(
+		func() tea.Msg {
+			exec.Command("tmux", "switch-client", "-t", target).Run()
+			return nil
+		},
+		tea.Quit,
+	)
 }
 
 type linkInfo struct {
@@ -1781,22 +1784,38 @@ func tlLoadSel() string {
 }
 
 // applyWindowLink moves the cursor to the ticket linked to the invoking
-// window's opencode session, if any. The invoking pane's own session wins;
+// window's opencode session, if any. The active pane's session wins;
 // otherwise sibling panes of the same window are considered in order.
-func (m *tlModel) applyWindowLink() {
-	pane := os.Getenv("TMUX_PANE")
-	if pane == "" {
-		return
+func (m *tlModel) applyWindowLink(windowID string) {
+	if windowID == "" {
+		pane := os.Getenv("TMUX_PANE")
+		if pane == "" {
+			return
+		}
+		var err error
+		windowID, err = paneWindow(pane)
+		if err != nil {
+			return
+		}
 	}
-	out, err := exec.Command("tmux", "list-panes", "-t", pane, "-F", "#{pane_id}").Output()
+	out, err := exec.Command("tmux", "list-panes", "-t", windowID, "-F", "#{pane_active} #{pane_id}").Output()
 	if err != nil {
 		return
 	}
-	ordered := []string{pane}
-	for _, p := range strings.Fields(string(out)) {
-		if p != pane {
-			ordered = append(ordered, p)
+	ordered := []string{}
+	for _, ln := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		f := strings.Fields(ln)
+		if len(f) != 2 {
+			continue
 		}
+		if f[0] == "1" {
+			ordered = append([]string{f[1]}, ordered...)
+		} else {
+			ordered = append(ordered, f[1])
+		}
+	}
+	if len(ordered) == 0 {
+		return
 	}
 	home, _ := os.UserHomeDir()
 	if home == "" {
@@ -1839,4 +1858,12 @@ func (m *tlModel) applyWindowLink() {
 			}
 		}
 	}
+}
+
+func paneWindow(pane string) (string, error) {
+	out, err := exec.Command("tmux", "display-message", "-p", "-t", pane, "#{window_id}").Output()
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
 }

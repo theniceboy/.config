@@ -1463,7 +1463,7 @@ func (m *paletteModel) openBoardPanel() {
 	}
 	if m.board.tl != nil {
 		m.board.tl.selID = tlLoadSel()
-		m.board.tl.applyWindowLink()
+		m.board.tl.applyWindowLink(m.currentMemoryWindowID())
 		tlSaveSel(m.board.tl.selID)
 	}
 	m.state.Mode = paletteModeBoard

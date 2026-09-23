@@ -614,9 +614,9 @@ func (r *paletteRuntime) buildActions() []paletteAction {
 		paletteAction{
 			Section:  "System",
 			Title:    "TTS voice",
-			Subtitle: ttsVoiceSubtitle(),
+			Subtitle: fmt.Sprintf("Pick the ⌥T read-aloud voice (current: %s)", currentTTSVoice()),
 			Keywords: []string{"tts", "voice", "speak", "audio", "read", "aloud", "aiden", "eric", "alt-t"},
-			Kind:     paletteActionSwitchTTSVoice,
+			Kind:     paletteActionOpenTTSVoicePicker,
 		},
 		paletteAction{
 			Section:  "System",
@@ -2250,8 +2250,15 @@ func (m *paletteModel) selectAction(action paletteAction) (tea.Model, tea.Cmd) {
 	case paletteActionOpenJobs:
 		m.openJobsPanel()
 		return m, jobsPanelTickCmd(m.jobs)
-	case paletteActionSwitchTTSVoice:
-		return m.runTTSVoiceSwitch()
+	case paletteActionOpenTTSVoicePicker:
+		m.actions = ttsVoiceActions()
+		m.state.Filter = nil
+		m.state.FilterCursor = 0
+		m.state.Selected = 0
+		m.state.ActionOffset = 0
+		return m, nil
+	case paletteActionSetTTSVoice:
+		return m.applyTTSVoice(action.Arg)
 	default:
 		m.state.Mode = paletteModeList
 		m.result = paletteResult{Kind: paletteResultRunAction, Action: action, State: m.state}
@@ -2267,14 +2274,13 @@ func (m *paletteModel) startBackgroundJob(kind string) (tea.Model, tea.Cmd) {
 	return m.closePalette()
 }
 
-func (m *paletteModel) runTTSVoiceSwitch() (tea.Model, tea.Cmd) {
-	next := nextTTSVoice()
+func (m *paletteModel) applyTTSVoice(voice string) (tea.Model, tea.Cmd) {
 	client := filepath.Join(os.Getenv("HOME"), ".local", "bin", "speak-last")
-	if err := exec.Command(client, "voice", next).Run(); err != nil {
+	if err := exec.Command(client, "voice", voice).Run(); err != nil {
 		m.state.Message = err.Error()
 		return m, nil
 	}
-	if currentTTSVoice() != next {
+	if currentTTSVoice() != voice {
 		m.state.Message = "speakd did not switch — is the daemon running?"
 		return m, nil
 	}

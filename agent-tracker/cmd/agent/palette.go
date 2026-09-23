@@ -81,7 +81,8 @@ const (
 	paletteActionClipPullDmini
 	paletteActionClipPushDmini
 	paletteActionOpenJobs
-	paletteActionSwitchTTSVoice
+	paletteActionOpenTTSVoicePicker
+	paletteActionSetTTSVoice
 )
 
 type paletteAction struct {
@@ -91,6 +92,7 @@ type paletteAction struct {
 	Keywords []string
 	Kind     paletteActionKind
 	RepoRoot string
+	Arg      string
 }
 
 type paletteResultKind int
@@ -307,18 +309,25 @@ func currentTTSVoice() string {
 	return ttsVoiceList[0]
 }
 
-func nextTTSVoice() string {
+func ttsVoiceActions() []paletteAction {
 	cur := currentTTSVoice()
-	for i, name := range ttsVoiceList {
+	var out []paletteAction
+	for _, name := range ttsVoiceList {
+		title, sub := name, "Set the ⌥T read-aloud voice to "+name
 		if name == cur {
-			return ttsVoiceList[(i+1)%len(ttsVoiceList)]
+			title = name + " ✓"
+			sub = "Current ⌥T read-aloud voice"
 		}
+		out = append(out, paletteAction{
+			Section:  "TTS voice",
+			Title:    title,
+			Subtitle: sub,
+			Keywords: []string{"tts", "voice", "speak", "audio", "read", "aloud", name},
+			Kind:     paletteActionSetTTSVoice,
+			Arg:      name,
+		})
 	}
-	return ttsVoiceList[0]
-}
-
-func ttsVoiceSubtitle() string {
-	return fmt.Sprintf("Switch the ⌥T read-aloud voice to %s (current: %s)", nextTTSVoice(), currentTTSVoice())
+	return out
 }
 
 func hasAgentConfig(dir string) bool {

@@ -822,5 +822,9 @@
         }
       ]
     }
-  }
+  },
+  "plugins": [
+    "-opencode.provider.amazon-bedrock",
+    "-opencode.provider.cloudflare-ai-gateway"
+  ]
 }

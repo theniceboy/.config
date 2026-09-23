@@ -47,8 +47,12 @@
           "reasoning": false,
           "tool_call": true,
           "modalities": {
-            "input": ["text"],
-            "output": ["text"]
+            "input": [
+              "text"
+            ],
+            "output": [
+              "text"
+            ]
           }
         },
         "pcc-reasoning": {
@@ -60,8 +64,12 @@
           "reasoning": true,
           "tool_call": true,
           "modalities": {
-            "input": ["text"],
-            "output": ["text"]
+            "input": [
+              "text"
+            ],
+            "output": [
+              "text"
+            ]
           }
         },
         "pcc-deep": {
@@ -73,8 +81,12 @@
           "reasoning": true,
           "tool_call": true,
           "modalities": {
-            "input": ["text"],
-            "output": ["text"]
+            "input": [
+              "text"
+            ],
+            "output": [
+              "text"
+            ]
           }
         }
       }
@@ -411,6 +423,101 @@
               "text"
             ]
           }
+        },
+        "claude-opus-5-5": {
+          "name": "claude-opus-5-5",
+          "limit": {
+            "context": 1000000,
+            "output": 128000
+          },
+          "attachment": true,
+          "reasoning": false,
+          "tool_call": true,
+          "modalities": {
+            "input": [
+              "text",
+              "image"
+            ],
+            "output": [
+              "text"
+            ]
+          }
+        },
+        "claude-sonnet-5": {
+          "name": "claude-sonnet-5",
+          "limit": {
+            "context": 1000000,
+            "output": 128000
+          },
+          "attachment": true,
+          "reasoning": false,
+          "tool_call": true,
+          "modalities": {
+            "input": [
+              "text",
+              "image"
+            ],
+            "output": [
+              "text"
+            ]
+          }
+        },
+        "claude-sonnet-4-6": {
+          "name": "claude-sonnet-4-6",
+          "limit": {
+            "context": 200000,
+            "output": 64000
+          },
+          "attachment": true,
+          "reasoning": true,
+          "tool_call": true,
+          "modalities": {
+            "input": [
+              "text",
+              "image"
+            ],
+            "output": [
+              "text"
+            ]
+          }
+        },
+        "claude-haiku-4-5": {
+          "name": "claude-haiku-4-5-20251001",
+          "limit": {
+            "context": 200000,
+            "output": 64000
+          },
+          "attachment": true,
+          "reasoning": true,
+          "tool_call": true,
+          "modalities": {
+            "input": [
+              "text",
+              "image"
+            ],
+            "output": [
+              "text"
+            ]
+          }
+        },
+        "claude-fable-5-1": {
+          "name": "claude-fable-5-1",
+          "limit": {
+            "context": 1000000,
+            "output": 128000
+          },
+          "attachment": true,
+          "reasoning": true,
+          "tool_call": true,
+          "modalities": {
+            "input": [
+              "text",
+              "image"
+            ],
+            "output": [
+              "text"
+            ]
+          }
         }
       }
     }
@@ -608,8 +715,16 @@
   "agents": {
     "plan": {
       "permissions": [
-        { "action": "global_memory_write", "resource": "*", "effect": "deny" },
-        { "action": "repo_memory_write", "resource": "*", "effect": "deny" }
+        {
+          "action": "global_memory_write",
+          "resource": "*",
+          "effect": "deny"
+        },
+        {
+          "action": "repo_memory_write",
+          "resource": "*",
+          "effect": "deny"
+        }
       ]
     }
   }

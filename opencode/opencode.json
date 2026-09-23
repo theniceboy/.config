@@ -617,19 +617,19 @@
       }
     },
     "zhipuai": {
-      "models": {}
+      "disabled": true
     },
     "amazon-bedrock": {
-      "models": {}
+      "disabled": true
     },
     "cloudflare-ai-gateway": {
-      "models": {}
+      "disabled": true
     },
     "cloudflare-workers-ai": {
-      "models": {}
+      "disabled": true
     },
     "zhipuai-coding-plan": {
-      "models": {}
+      "disabled": true
     }
   },
   "permissions": [

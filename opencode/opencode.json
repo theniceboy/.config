@@ -825,6 +825,9 @@
   },
   "plugins": [
     "-opencode.provider.amazon-bedrock",
-    "-opencode.provider.cloudflare-ai-gateway"
+    "-opencode.provider.cloudflare-ai-gateway",
+    "-opencode.provider.cloudflare-workers-ai",
+    "-opencode.provider.zhipuai",
+    "-opencode.provider.zhipuai-coding-plan"
   ]
 }

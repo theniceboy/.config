@@ -81,6 +81,7 @@ const (
 	paletteActionClipPullDmini
 	paletteActionClipPushDmini
 	paletteActionOpenJobs
+	paletteActionSwitchTTSVoice
 )
 
 type paletteAction struct {
@@ -288,6 +289,36 @@ func startAgentSubtitle(mainRepoRoot, currentPath string) string {
 
 func runPalette(args []string) error {
 	return runBubbleTeaPalette(args)
+}
+
+var ttsVoiceList = []string{"aiden", "eric"}
+
+func currentTTSVoice() string {
+	data, err := os.ReadFile(filepath.Join(os.Getenv("HOME"), ".local", "state", "speak-last", "voice"))
+	v := strings.TrimSpace(string(data))
+	if err != nil || v == "" {
+		return ttsVoiceList[0]
+	}
+	for _, name := range ttsVoiceList {
+		if name == v {
+			return v
+		}
+	}
+	return ttsVoiceList[0]
+}
+
+func nextTTSVoice() string {
+	cur := currentTTSVoice()
+	for i, name := range ttsVoiceList {
+		if name == cur {
+			return ttsVoiceList[(i+1)%len(ttsVoiceList)]
+		}
+	}
+	return ttsVoiceList[0]
+}
+
+func ttsVoiceSubtitle() string {
+	return fmt.Sprintf("Switch the ⌥T read-aloud voice to %s (current: %s)", nextTTSVoice(), currentTTSVoice())
 }
 
 func hasAgentConfig(dir string) bool {

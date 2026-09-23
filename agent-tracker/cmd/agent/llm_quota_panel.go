@@ -28,6 +28,8 @@ const (
 	cliproxyKeychainAccount   = "azwestus.asurada.dev"
 	codexUsageURL             = "https://chatgpt.com/backend-api/wham/usage"
 	codexUsageUserAgent       = "codex_cli_rs/0.76.0 (Debian 13.0.0; x86_64) WindowsTerminal"
+	claudeUsageURL            = "https://api.anthropic.com/api/oauth/usage"
+	claudeUsageUserAgent      = "claude-cli/2.1.280 (external, cli)"
 	quotaRequestTimeout       = 18 * time.Second
 	codexQuotaRequestTimeout  = 65 * time.Second
 	llmQuotaCacheTTL          = 5 * time.Minute
@@ -44,7 +46,7 @@ type llmQuotaProvider struct {
 	Error   string           `json:"error,omitempty"`
 }
 
-type codexQuotaAccount struct {
+type quotaAccount struct {
 	Label   string           `json:"label"`
 	Plan    string           `json:"plan,omitempty"`
 	Windows []llmQuotaWindow `json:"windows"`
@@ -52,10 +54,12 @@ type codexQuotaAccount struct {
 }
 
 type llmQuotaSnapshot struct {
-	ZAI        llmQuotaProvider    `json:"zai"`
-	Codex      []codexQuotaAccount `json:"codex"`
-	CodexError string              `json:"codex_error,omitempty"`
-	FetchedAt  time.Time           `json:"fetched_at"`
+	ZAI         llmQuotaProvider `json:"zai"`
+	Codex       []quotaAccount   `json:"codex"`
+	Claude      []quotaAccount   `json:"claude"`
+	CodexError  string           `json:"codex_error,omitempty"`
+	ClaudeError string           `json:"claude_error,omitempty"`
+	FetchedAt   time.Time        `json:"fetched_at"`
 }
 
 type llmQuotaResultMsg struct {
@@ -112,6 +116,16 @@ type codexUsagePayload struct {
 		MeteredFeature string          `json:"metered_feature"`
 		RateLimit      *codexRateLimit `json:"rate_limit"`
 	} `json:"additional_rate_limits"`
+}
+
+type claudeUsageWindow struct {
+	Utilization float64 `json:"utilization"`
+	ResetsAt    string  `json:"resets_at"`
+}
+
+type claudeUsagePayload struct {
+	FiveHour *claudeUsageWindow `json:"five_hour"`
+	SevenDay *claudeUsageWindow `json:"seven_day"`
 }
 
 func newLLMQuotaPanelModel() *llmQuotaPanelModel {
@@ -193,6 +207,8 @@ func (m *llmQuotaPanelModel) render(styles paletteStyles, width, height int) str
 			m.renderZAI(styles, contentWidth),
 			"",
 			m.renderCodex(styles, contentWidth),
+			"",
+			m.renderClaude(styles, contentWidth),
 		)
 	}
 	footer := m.renderFooter(styles, contentWidth)
@@ -255,6 +271,34 @@ func (m *llmQuotaPanelModel) renderCodex(styles paletteStyles, width int) string
 			label += "  " + styles.keyword.Render(strings.ToUpper(account.Plan))
 		}
 		lines = append(lines, label)
+		if account.Error != "" {
+			lines = append(lines, styles.statusBad.Render(truncate(account.Error, width)))
+			continue
+		}
+		if len(account.Windows) == 0 {
+			lines = append(lines, styles.muted.Render("No quota windows returned"))
+			continue
+		}
+		for _, window := range account.Windows {
+			lines = append(lines, renderLLMQuotaWindow(styles, window, width))
+		}
+	}
+	return lipgloss.NewStyle().Width(width).Render(strings.Join(lines, "\n"))
+}
+
+func (m *llmQuotaPanelModel) renderClaude(styles paletteStyles, width int) string {
+	lines := []string{styles.panelTitle.Render("Claude via CLIProxyAPI")}
+	if m.snapshot.ClaudeError != "" {
+		lines = append(lines, styles.statusBad.Render(truncate(m.snapshot.ClaudeError, width)))
+	}
+	if len(m.snapshot.Claude) == 0 && m.snapshot.ClaudeError == "" {
+		lines = append(lines, styles.muted.Render("No enabled Claude accounts"))
+	}
+	for idx, account := range m.snapshot.Claude {
+		if idx > 0 {
+			lines = append(lines, "")
+		}
+		lines = append(lines, styles.itemTitle.Render(truncate(account.Label, maxInt(12, width-8))))
 		if account.Error != "" {
 			lines = append(lines, styles.statusBad.Render(truncate(account.Error, width)))
 			continue
@@ -372,7 +416,7 @@ func fetchLLMQuotaSnapshot(force bool) (llmQuotaSnapshot, error) {
 	client := &http.Client{Timeout: quotaRequestTimeout}
 	var snapshot llmQuotaSnapshot
 	var wg sync.WaitGroup
-	wg.Add(2)
+	wg.Add(3)
 	go func() {
 		defer wg.Done()
 		snapshot.ZAI = fetchZAIQuota(client)
@@ -380,6 +424,10 @@ func fetchLLMQuotaSnapshot(force bool) (llmQuotaSnapshot, error) {
 	go func() {
 		defer wg.Done()
 		snapshot.Codex, snapshot.CodexError = fetchCodexQuotas()
+	}()
+	go func() {
+		defer wg.Done()
+		snapshot.Claude, snapshot.ClaudeError = fetchClaudeQuotas()
 	}()
 	wg.Wait()
 	snapshot.FetchedAt = time.Now()
@@ -510,7 +558,7 @@ func zaiQuotaOrder(label string) int {
 	}
 }
 
-func fetchCodexQuotas() ([]codexQuotaAccount, string) {
+func fetchCLIProxyAccountQuotas(providerName string, fetchAccount func(*http.Client, string, string, cliproxyAuthFile) quotaAccount) ([]quotaAccount, string) {
 	key, err := loadCLIProxyManagementKey()
 	if err != nil {
 		return nil, err.Error()
@@ -526,17 +574,17 @@ func fetchCodexQuotas() ([]codexQuotaAccount, string) {
 	files := make([]cliproxyAuthFile, 0, len(authPayload.Files))
 	for _, file := range authPayload.Files {
 		provider := firstNonEmpty(file.Provider, file.Type)
-		if strings.EqualFold(provider, "codex") && !file.Disabled {
+		if strings.EqualFold(provider, providerName) && !file.Disabled {
 			files = append(files, file)
 		}
 	}
-	accounts := make([]codexQuotaAccount, len(files))
+	accounts := make([]quotaAccount, len(files))
 	var wg sync.WaitGroup
 	for idx, file := range files {
 		wg.Add(1)
 		go func(idx int, file cliproxyAuthFile) {
 			defer wg.Done()
-			accounts[idx] = fetchCodexAccountQuota(client, baseURL, key, file)
+			accounts[idx] = fetchAccount(client, baseURL, key, file)
 		}(idx, file)
 	}
 	wg.Wait()
@@ -544,8 +592,16 @@ func fetchCodexQuotas() ([]codexQuotaAccount, string) {
 	return accounts, ""
 }
 
-func fetchCodexAccountQuota(client *http.Client, baseURL, key string, file cliproxyAuthFile) codexQuotaAccount {
-	account := codexQuotaAccount{Label: firstNonEmpty(file.Label, file.Email, file.Name, "Codex account")}
+func fetchCodexQuotas() ([]quotaAccount, string) {
+	return fetchCLIProxyAccountQuotas("codex", fetchCodexAccountQuota)
+}
+
+func fetchClaudeQuotas() ([]quotaAccount, string) {
+	return fetchCLIProxyAccountQuotas("claude", fetchClaudeAccountQuota)
+}
+
+func fetchCodexAccountQuota(client *http.Client, baseURL, key string, file cliproxyAuthFile) quotaAccount {
+	account := quotaAccount{Label: firstNonEmpty(file.Label, file.Email, file.Name, "Codex account")}
 	if strings.TrimSpace(file.AuthIndex) == "" {
 		account.Error = "Missing auth index"
 		return account
@@ -591,6 +647,56 @@ func fetchCodexAccountQuota(client *http.Client, baseURL, key string, file clipr
 		account.Windows = appendCodexRateWindows(account.Windows, label, additional.RateLimit)
 	}
 	return account
+}
+
+func fetchClaudeAccountQuota(client *http.Client, baseURL, key string, file cliproxyAuthFile) quotaAccount {
+	account := quotaAccount{Label: firstNonEmpty(file.Label, file.Email, file.Name, "Claude account")}
+	if strings.TrimSpace(file.AuthIndex) == "" {
+		account.Error = "Missing auth index"
+		return account
+	}
+	requestBody := map[string]any{
+		"auth_index": file.AuthIndex,
+		"method":     http.MethodGet,
+		"url":        claudeUsageURL,
+		"header": map[string]string{
+			"Authorization":  "Bearer $TOKEN$",
+			"Content-Type":   "application/json",
+			"User-Agent":     claudeUsageUserAgent,
+			"anthropic-beta": "oauth-2025-04-20",
+		},
+	}
+	var response struct {
+		StatusCode int    `json:"status_code"`
+		Body       string `json:"body"`
+	}
+	if err := cliproxyManagementJSON(client, key, http.MethodPost, baseURL+"/api-call", requestBody, &response); err != nil {
+		account.Error = err.Error()
+		return account
+	}
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		account.Error = fmt.Sprintf("Claude returned HTTP %d", response.StatusCode)
+		return account
+	}
+	var usage claudeUsagePayload
+	if err := json.NewDecoder(strings.NewReader(response.Body)).Decode(&usage); err != nil {
+		account.Error = "Claude returned invalid usage data"
+		return account
+	}
+	account.Windows = appendClaudeUsageWindow(account.Windows, "5-hour", usage.FiveHour)
+	account.Windows = appendClaudeUsageWindow(account.Windows, "weekly", usage.SevenDay)
+	return account
+}
+
+func appendClaudeUsageWindow(windows []llmQuotaWindow, label string, raw *claudeUsageWindow) []llmQuotaWindow {
+	if raw == nil {
+		return windows
+	}
+	window := llmQuotaWindow{Label: label, UsedPercent: raw.Utilization}
+	if parsed, err := time.Parse(time.RFC3339, strings.TrimSpace(raw.ResetsAt)); err == nil {
+		window.ResetAt = parsed
+	}
+	return append(windows, window)
 }
 
 func appendCodexRateWindows(windows []llmQuotaWindow, prefix string, rateLimit *codexRateLimit) []llmQuotaWindow {

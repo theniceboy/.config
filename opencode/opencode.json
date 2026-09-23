@@ -615,21 +615,6 @@
           }
         }
       }
-    },
-    "zhipuai": {
-      "disabled": true
-    },
-    "amazon-bedrock": {
-      "disabled": true
-    },
-    "cloudflare-ai-gateway": {
-      "disabled": true
-    },
-    "cloudflare-workers-ai": {
-      "disabled": true
-    },
-    "zhipuai-coding-plan": {
-      "disabled": true
     }
   },
   "permissions": [
@@ -837,5 +822,12 @@
         }
       ]
     }
-  }
+  },
+  "disabled_providers": [
+    "amazon-bedrock",
+    "cloudflare-ai-gateway",
+    "cloudflare-workers-ai",
+    "zhipuai",
+    "zhipuai-coding-plan"
+  ]
 }

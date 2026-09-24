@@ -72,6 +72,7 @@ type paletteModel struct {
 	quotas                  *llmQuotaPanelModel
 	memory                  *memoryPanelModel
 	board                   *boardPanelModel
+	remsFetching            bool
 	jobs                    *jobsPanelModel
 }
 
@@ -1648,10 +1649,16 @@ func (m *paletteModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(m.memory.requestUsage(), m.memory.tick())
 		}
 		return m, nil
-	case paletteHomeTickMsg:
-		if m.state.Mode == paletteModeBoard && m.board != nil && remCacheStale() {
-			m.board.forceRems = true
+	case remRefreshMsg:
+		m.remsFetching = false
+		if m.board != nil && msg.err == "" {
 			m.board.reload()
+		}
+		return m, nil
+	case paletteHomeTickMsg:
+		if m.state.Mode == paletteModeBoard && m.board != nil && !m.remsFetching && remCacheStale() {
+			m.remsFetching = true
+			return m, tea.Batch(paletteHomeTickCmd(), remFetchCmd())
 		}
 		if m.state.Mode == paletteModeBoard && m.board != nil && m.board.tab == 0 && m.board.tl != nil {
 			if time.Since(m.board.tl.lastPoll) >= time.Second {

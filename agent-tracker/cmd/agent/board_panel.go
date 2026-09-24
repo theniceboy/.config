@@ -114,7 +114,7 @@ func remCacheStale() bool {
 	return time.Since(c.Fetched) >= remTTL
 }
 
-func readRemCache() []remItem {
+func loadReminders() []remItem {
 	b, err := os.ReadFile(remCachePath())
 	if err != nil {
 		return nil
@@ -126,34 +126,32 @@ func readRemCache() []remItem {
 	return c.Items
 }
 
-func loadReminders(force bool) []remItem {
-	if !force {
-		if b, err := os.ReadFile(remCachePath()); err == nil {
-			var c remCache
-			if json.Unmarshal(b, &c) == nil && time.Since(c.Fetched) < remTTL {
-				return c.Items
-			}
+type remRefreshMsg struct{ err string }
+
+// remFetchCmd refreshes the reminders cache off the UI thread; the palette
+// reloads the board when it lands.
+func remFetchCmd() tea.Cmd {
+	return func() tea.Msg {
+		bin := remindBinPath()
+		if bin == "" {
+			return remRefreshMsg{err: "remind not found"}
 		}
+		out, err := exec.Command(bin, "ls", "--json").Output()
+		if err != nil {
+			return remRefreshMsg{err: err.Error()}
+		}
+		var wrap struct {
+			Items []remItem `json:"items"`
+		}
+		if json.Unmarshal(out, &wrap) != nil {
+			return remRefreshMsg{err: "bad json"}
+		}
+		_ = os.MkdirAll(filepath.Dir(remCachePath()), 0o755)
+		if b, err := json.Marshal(remCache{Fetched: time.Now(), Items: wrap.Items}); err == nil {
+			_ = os.WriteFile(remCachePath(), b, 0o644)
+		}
+		return remRefreshMsg{}
 	}
-	bin := remindBinPath()
-	if bin == "" {
-		return nil
-	}
-	out, err := exec.Command(bin, "ls", "--json").Output()
-	if err != nil {
-		return readRemCache()
-	}
-	var wrap struct {
-		Items []remItem `json:"items"`
-	}
-	if json.Unmarshal(out, &wrap) != nil {
-		return nil
-	}
-	_ = os.MkdirAll(filepath.Dir(remCachePath()), 0o755)
-	if b, err := json.Marshal(remCache{Fetched: time.Now(), Items: wrap.Items}); err == nil {
-		_ = os.WriteFile(remCachePath(), b, 0o644)
-	}
-	return wrap.Items
 }
 
 func synthReminders(rs []remItem) []boardItem {
@@ -221,7 +219,6 @@ type boardPanelModel struct {
 	status       string
 	statusUntil  time.Time
 	requestBack  bool
-	forceRems    bool
 	loadErr      string
 	loadedCount  int
 	tab          int
@@ -242,13 +239,11 @@ func (m *boardPanelModel) reload() {
 		return
 	}
 	m.loadErr = ""
-	force := m.forceRems
-	m.forceRems = false
 	m.wsOrder = data.WorkstreamOrder
 	m.tl.wsOrder = data.WorkstreamOrder
 	combined := make([]boardItem, 0, len(data.Items)+8)
 	combined = append(combined, data.Items...)
-	combined = append(combined, synthReminders(loadReminders(force))...)
+	combined = append(combined, synthReminders(loadReminders())...)
 	m.items = combined
 	m.folders = data.Folders
 	m.loadedCount = data.Count
@@ -769,8 +764,8 @@ func (m *boardPanelModel) handleKey(key string) {
 	case "esc", "q", "alt+n":
 		m.requestBack = true
 	case "r", "R":
-		m.forceRems = true
 		m.reload()
+		m.pendingCmd = remFetchCmd()
 		m.setStatus("reloaded", 1200*time.Millisecond)
 	case "u", "up":
 		m.moveCursor(-1)

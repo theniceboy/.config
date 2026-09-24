@@ -707,7 +707,7 @@ func (m *tlModel) followSel(delta int) {
 		}
 	}
 	row := m.selRow()
-	vis := m.height - 7
+	vis := m.height - 8
 	if vis < 1 {
 		vis = 1
 	}
@@ -885,7 +885,7 @@ func (m *tlModel) render() string {
 	}
 	var body []string
 	var pre []string
-	pre = append([]string{m.statsLine()}, m.renderRuler()...)
+	pre = append(append([]string{m.statsLine()}, m.renderRuler()...), m.dividerLine(true))
 	body = m.renderTimeline()
 	if m.vscroll > 0 {
 		if m.vscroll >= len(body) {
@@ -1258,6 +1258,16 @@ func (m tlModel) todayCol() (int, bool) {
 		return 0, false
 	}
 	return labelW + 1 + diff*dayW + 1, true
+}
+
+func (m tlModel) dividerLine(junction bool) string {
+	w := m.width
+	if junction {
+		if col, ok := m.todayCol(); ok && col > 0 && col < w {
+			return stDim.Render(strings.Repeat("─", col)) + stToday.Render("┼") + stDim.Render(strings.Repeat("─", w-col-1))
+		}
+	}
+	return stDim.Render(strings.Repeat("─", w))
 }
 
 func (m tlModel) markerLine() string {

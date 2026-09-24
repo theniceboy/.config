@@ -782,50 +782,72 @@ func (m tlModel) liveSegment() string {
 }
 
 func (m tlModel) digestLines() []string {
-	var live []string
-	for i := range m.items {
-		it := &m.items[i]
-		ls := m.itemLinks(*it)
-		if len(ls) == 0 {
-			continue
-		}
-		live = append(live, stateEmoji(linkState(*bestLink(ls)))+" "+trunc(it.Title, 18))
-		if len(live) >= 3 {
-			break
-		}
-	}
-	liveTxt := stDim.Render("no live agents")
-	if len(live) > 0 {
-		liveTxt = strings.Join(live, stDim.Render(" · "))
-	}
-	type dueItem struct {
-		title string
-		days  int
-	}
-	var dues []dueItem
-	for i := range m.items {
-		it := &m.items[i]
-		if it.Due == nil || it.Status == "done" || it.Due.Before(m.today) {
-			continue
-		}
-		dues = append(dues, dueItem{title: trunc(it.Title, 18), days: int(it.Due.Sub(m.today).Hours() / 24)})
-	}
-	sort.SliceStable(dues, func(a, b int) bool { return dues[a].days < dues[b].days })
-	var parts []string
-	for i := 0; i < len(dues) && i < 3; i++ {
-		parts = append(parts, fmt.Sprintf("%s %dd", dues[i].title, dues[i].days))
-	}
-	dueTxt := stDim.Render("nothing due soon")
-	if len(parts) > 0 {
-		dueTxt = stDim.Render(strings.Join(parts, " · "))
-	}
 	w := m.width - 2
 	if w < 10 {
 		w = 10
 	}
+	joinFit := func(items []string) string {
+		out := ""
+		for _, s := range items {
+			cand := s
+			if out != "" {
+				cand = stDim.Render(" · ") + s
+			}
+			if lipgloss.Width(out+cand) <= w {
+				out += cand
+				continue
+			}
+			if out == "" {
+				out = trunc(s, w)
+			}
+			break
+		}
+		return out
+	}
+	type entry struct {
+		title string
+		days  int
+	}
+	collect := func(overdue bool) []entry {
+		var es []entry
+		for i := range m.items {
+			it := &m.items[i]
+			if it.Due == nil || it.Status == "done" {
+				continue
+			}
+			var d int
+			if it.Due.Before(m.today) {
+				if !overdue {
+					continue
+				}
+				d = int(m.today.Sub(*it.Due).Hours() / 24)
+			} else {
+				if overdue {
+					continue
+				}
+				d = int(it.Due.Sub(m.today).Hours() / 24)
+				if d > 7 {
+					continue
+				}
+			}
+			es = append(es, entry{title: trunc(it.Title, 40), days: d})
+		}
+		sort.SliceStable(es, func(a, b int) bool { return es[a].days < es[b].days })
+		return es
+	}
+	render := func(es []entry, daySty lipgloss.Style, empty string) string {
+		if len(es) == 0 {
+			return stDim.Render(empty)
+		}
+		strs := make([]string, 0, len(es))
+		for _, e := range es {
+			strs = append(strs, e.title+" "+daySty.Render(fmt.Sprintf("%dd", e.days)))
+		}
+		return joinFit(strs)
+	}
 	return []string{
-		" " + trunc(liveTxt, w),
-		" " + stDim.Render("⏧ ") + trunc(dueTxt, w),
+		" " + stOverdue.Render("‼") + " " + render(collect(true), stOverdue, "nothing overdue"),
+		" " + stDim.Render("⏰") + " " + render(collect(false), stSoon, "nothing due this week"),
 	}
 }
 

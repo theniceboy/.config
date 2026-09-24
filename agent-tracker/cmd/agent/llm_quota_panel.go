@@ -293,7 +293,7 @@ func (m *llmQuotaPanelModel) render(styles paletteStyles, width, height int) str
 		title = title + strings.Repeat(" ", pad) + styles.muted.Render(meta)
 	}
 	body := ""
-	if !m.loaded || m.mutationInFlight || m.refreshInFlight {
+	if !m.loaded {
 		body = m.renderBlockingOverlay(styles, contentWidth, height-lipgloss.Height(title)-2)
 	} else {
 		lines := make([]string, 0, len(m.rows)*2)
@@ -301,6 +301,9 @@ func (m *llmQuotaPanelModel) render(styles paletteStyles, width, height int) str
 			lines = append(lines, m.renderRow(styles, i, contentWidth)...)
 		}
 		body = strings.Join(lines, "\n")
+		if m.mutationInFlight || m.refreshInFlight {
+			body = m.overlayLoading(styles, body, contentWidth)
+		}
 	}
 	footer := m.renderFooter(styles, contentWidth)
 	bodyHeight := height - lipgloss.Height(title) - lipgloss.Height(footer) - 2
@@ -311,17 +314,46 @@ func (m *llmQuotaPanelModel) render(styles paletteStyles, width, height int) str
 	return lipgloss.NewStyle().Width(width).Height(height).Padding(0, 1).Render(view)
 }
 
-func (m *llmQuotaPanelModel) renderBlockingOverlay(styles paletteStyles, width, height int) string {
-	label := "loading quotas…"
+func (m *llmQuotaPanelModel) loadingLabel() string {
 	if m.mutationInFlight {
-		label = "applying routing change…"
-	} else if m.refreshInFlight {
-		label = "refreshing quotas…"
+		return "applying routing change…"
 	}
+	return "refreshing quotas…"
+}
+
+func (m *llmQuotaPanelModel) overlayLoading(styles paletteStyles, body string, width int) string {
 	block := lipgloss.JoinVertical(lipgloss.Center,
 		styles.itemTitle.Render(m.spinner()),
 		"",
-		styles.muted.Render(label),
+		styles.muted.Render(m.loadingLabel()),
+	)
+	box := styles.modal.Copy().Padding(1, 4).Render(block)
+	boxLines := strings.Split(box, "\n")
+	lines := strings.Split(body, "\n")
+	top := (len(lines) - len(boxLines)) / 2
+	if top < 0 {
+		top = 0
+	}
+	var out []string
+	for i, line := range lines {
+		if i >= top && i-top < len(boxLines) {
+			pad := (width - lipgloss.Width(boxLines[i-top])) / 2
+			if pad < 0 {
+				pad = 0
+			}
+			out = append(out, strings.Repeat(" ", pad)+boxLines[i-top])
+			continue
+		}
+		out = append(out, line)
+	}
+	return strings.Join(out, "\n")
+}
+
+func (m *llmQuotaPanelModel) renderBlockingOverlay(styles paletteStyles, width, height int) string {
+	block := lipgloss.JoinVertical(lipgloss.Center,
+		styles.itemTitle.Render(m.spinner()),
+		"",
+		styles.muted.Render(m.loadingLabel()),
 	)
 	return lipgloss.Place(width, maxInt(3, height), lipgloss.Center, lipgloss.Center, block)
 }

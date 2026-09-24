@@ -675,13 +675,8 @@ func (m *tlModel) selectID(id string) {
 			if anchor == nil {
 				anchor = it.Due
 			}
-			switch {
-			case anchor != nil:
+			if anchor != nil {
 				m.origin = anchor.AddDate(0, 0, -7)
-			case it.Status == "done":
-				m.showDone = true
-			default:
-				m.showAll = true
 			}
 		}
 		m.selID = id

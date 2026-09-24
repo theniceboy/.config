@@ -566,9 +566,6 @@ func (m *boardPanelModel) syncCursorToID(id string) {
 			p += c
 			delete(m.collapsed, m.folderKey(it.Workstream, p))
 		}
-		if it.Status == "done" && !m.doneWS[it.Workstream] {
-			m.doneWS[it.Workstream] = true
-		}
 		m.rebuild()
 		for j, r := range m.rows {
 			if r.item != nil && r.item.ID == id {

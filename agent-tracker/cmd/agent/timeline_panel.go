@@ -608,28 +608,9 @@ func (m tlModel) tlVisible(it tlItem) bool {
 
 func (m tlModel) order() []string {
 	ids := []string{}
-	for _, s := range m.streams {
-		var its []tlItem
-		for _, it := range m.items {
-			if it.Stream == s && m.tlVisible(it) {
-				its = append(its, it)
-			}
-		}
-		if len(its) == 0 {
-			continue
-		}
-		forder := []string{}
-		groups := map[string][]tlItem{}
-		for _, it := range its {
-			if _, ok := groups[it.Folder]; !ok {
-				forder = append(forder, it.Folder)
-			}
-			groups[it.Folder] = append(groups[it.Folder], it)
-		}
-		for _, f := range forder {
-			for _, it := range groups[f] {
-				ids = append(ids, it.ID)
-			}
+	for _, r := range m.rows() {
+		if r.kind == 2 {
+			ids = append(ids, r.it.ID)
 		}
 	}
 	return ids
@@ -658,45 +639,12 @@ func (m *tlModel) move(delta int) {
 }
 
 func (m tlModel) selRow() int {
-	row := 0
-	for _, s := range m.streams {
-		var its []tlItem
-		for _, it := range m.items {
-			if it.Stream == s && m.tlVisible(it) {
-				its = append(its, it)
-			}
-		}
-		if len(its) == 0 {
-			continue
-		}
-		row++
-		forder := []string{}
-		groups := map[string][]tlItem{}
-		for _, it := range its {
-			if _, ok := groups[it.Folder]; !ok {
-				forder = append(forder, it.Folder)
-			}
-			groups[it.Folder] = append(groups[it.Folder], it)
-		}
-		nf := 0
-		for _, f := range forder {
-			if f != "" {
-				nf++
-			}
-		}
-		for _, f := range forder {
-			if f != "" && (m.showAll || nf >= 2) {
-				row++
-			}
-			for _, it := range groups[f] {
-				if it.ID == m.selID {
-					return row
-				}
-				row++
-			}
+	for i, r := range m.rows() {
+		if r.kind == 2 && r.it.ID == m.selID {
+			return i
 		}
 	}
-	return row
+	return 0
 }
 
 func (m *tlModel) followSel(delta int) {
@@ -1211,148 +1159,194 @@ func fmtID(id string) string {
 	return fmt.Sprintf("%-8s", s)
 }
 
+type tlRow struct {
+	kind  int // 0 stream header, 1 folder header, 2 item
+	depth int
+	label string
+	it    *tlItem
+}
+
+// rows builds the canonical display tree: stream header, then folder
+// headers/items nested by folder path. Item depth = folder nesting level;
+// rendering, cursor order and row tracking all consume this one sequence.
+func (m tlModel) rows() []tlRow {
+	var out []tlRow
+	for _, s := range m.streams {
+		type fnode struct {
+			kids  map[string]*fnode
+			order []string
+			items []*tlItem
+		}
+		root := &fnode{kids: map[string]*fnode{}}
+		count := 0
+		for i := range m.items {
+			it := &m.items[i]
+			if it.Stream != s || !m.tlVisible(*it) {
+				continue
+			}
+			count++
+			cur := root
+			if it.Folder != "" {
+				for _, c := range strings.Split(it.Folder, "/") {
+					if cur.kids[c] == nil {
+						cur.kids[c] = &fnode{kids: map[string]*fnode{}}
+						cur.order = append(cur.order, c)
+					}
+					cur = cur.kids[c]
+				}
+			}
+			cur.items = append(cur.items, it)
+		}
+		if count == 0 {
+			continue
+		}
+		out = append(out, tlRow{kind: 0, label: s})
+		var walk func(nd *fnode, depth int)
+		walk = func(nd *fnode, depth int) {
+			for _, it := range nd.items {
+				out = append(out, tlRow{kind: 2, depth: depth, it: it})
+			}
+			for _, c := range nd.order {
+				k := nd.kids[c]
+				out = append(out, tlRow{kind: 1, depth: depth + 1, label: c})
+				walk(k, depth+1)
+			}
+		}
+		walk(root, 0)
+	}
+	return out
+}
+
 func (m tlModel) renderTimeline() []string {
 	vis := (m.bodyWidth() - labelW - 4) / dayW
 	if vis < 7 {
 		vis = 7
 	}
 	var L []string
-	for _, s := range m.streams {
-		var its []tlItem
-		for _, it := range m.items {
-			if it.Stream == s && m.tlVisible(it) {
-				its = append(its, it)
+	for _, r := range m.rows() {
+		if r.kind == 0 {
+			hdr := " " + stBold.Render(strings.ToUpper(r.label))
+			if col, ok := m.todayCol(); ok {
+				hdr = pad(hdr, col) + stToday.Render("│")
 			}
-		}
-		if len(its) == 0 {
+			L = append(L, hdr)
 			continue
 		}
-		hdr := " " + stBold.Render(strings.ToUpper(s))
-		if col, ok := m.todayCol(); ok {
-			hdr = pad(hdr, col) + stToday.Render("│")
-		}
-		L = append(L, hdr)
-		var order []string
-		groups := map[string][]tlItem{}
-		for _, it := range its {
-			if _, ok := groups[it.Folder]; !ok {
-				order = append(order, it.Folder)
+		if r.kind == 1 {
+			sub := strings.Repeat(" ", 1+2*r.depth) + stDim.Render(strings.ToUpper(r.label)+" ▼")
+			if col, ok := m.todayCol(); ok {
+				sub = pad(sub, col) + stToday.Render("│")
 			}
-			groups[it.Folder] = append(groups[it.Folder], it)
+			L = append(L, sub)
+			continue
 		}
-		nf := 0
-		for _, f := range order {
-			if f != "" {
-				nf++
+		{
+			it := *r.it
+			ind := strings.Repeat(" ", 3+2*r.depth)
+			sel := it.ID == m.selID
+			mark := "  "
+			if sel {
+				mark = "▶ "
 			}
-		}
-		for _, f := range order {
-			if f != "" && (m.showAll || nf >= 2) {
-				sub := "   " + stDim.Render(strings.ToUpper(f)+" ▼")
-				if col, ok := m.todayCol(); ok {
-					sub = pad(sub, col) + stToday.Render("│")
-				}
-				L = append(L, sub)
+			idTxt := fmtID(it.ID)
+			markTxt := "  "
+			if ls := m.itemLinks(it); len(ls) > 0 {
+				st := linkState(*bestLink(ls))
+				sty := map[string]lipgloss.Style{"q": stOverdue, "w": stWork, "n": stSoon, "i": stDim}[st]
+				markTxt = sty.Render("•") + " "
 			}
-			for _, it := range groups[f] {
-				sel := it.ID == m.selID
-				mark := "  "
+			tw := labelW - (3 + 2*r.depth) - 12
+			if tw > 24 {
+				tw = 24
+			}
+			if tw < 8 {
+				tw = 8
+			}
+			titTxt := trunc(it.Title, tw)
+			if it.Due != nil && it.Due.Before(m.today) {
+				st := stOverdue
 				if sel {
-					mark = "▶ "
+					st = st.Bold(true)
 				}
-				idTxt := fmtID(it.ID)
-				markTxt := "  "
-				if ls := m.itemLinks(it); len(ls) > 0 {
-					st := linkState(*bestLink(ls))
-					sty := map[string]lipgloss.Style{"q": stOverdue, "w": stWork, "n": stSoon, "i": stDim}[st]
-					markTxt = sty.Render("•") + " "
-				}
-				titTxt := trunc(it.Title, 24)
-				if it.Due != nil && it.Due.Before(m.today) {
-					st := stOverdue
-					if sel {
-						st = st.Bold(true)
-					}
-					idTxt = st.Render(idTxt)
-					titTxt = st.Render(titTxt)
-				} else if sel {
-					titTxt = stBold.Render(titTxt)
-				}
-				grid := ""
-				ghost := m.dateMode && it.ID == m.dateID
-				lo, hi := it.Start, it.Due
-				if ghost {
-					lo, hi = m.dStart, m.dDue
-				}
-				spanCh, solidCh := "▓", "█"
-				if ghost {
-					spanCh, solidCh = "⣿", "⣿"
-				}
-				if lo == nil && hi != nil {
-					lo = hi
-				}
-				loIdx, hiIdx := 1<<30, 1<<30
-				if lo != nil {
-					loIdx = int(lo.Sub(m.origin).Hours() / 24)
-				}
-				if hi != nil {
-					hiIdx = int(hi.Sub(m.origin).Hours() / 24)
-				}
-				isMS := lo != nil && hi != nil && loIdx == hiIdx
-				leftClip := lo != nil && hi != nil && !isMS && loIdx < 0 && hiIdx >= 1
-				rightClip := lo != nil && hi != nil && !isMS && hiIdx > vis && loIdx <= vis-1
-				isMSDay := func(d time.Time) bool {
-					return isMS && d.Equal(*hi)
-				}
-				cellToday := func(d time.Time, cell string, sty lipgloss.Style) string {
-					if !sameDay(d, m.today) || len([]rune(cell)) != 4 {
-						return sty.Render(cell)
-					}
-					r := []rune(cell)
-					return sty.Render(string(r[:1])) + stToday.Render("│") + sty.Render(string(r[2:]))
-				}
-				for i := 0; i < vis; i++ {
-					d := m.origin.AddDate(0, 0, i)
-					solid4 := strings.Repeat(solidCh, 4)
-					span4 := strings.Repeat(spanCh, 4)
-					switch {
-					case isMSDay(d):
-						grid += selWrap(sel, cellToday(d, solid4, barStyle(it, m.today, sel)))
-					case lo != nil && hi != nil && !d.Before(*lo) && !d.After(*hi):
-						sty := barStyle(it, m.today, sel)
-						switch {
-						case i == 0 && leftClip:
-							grid += selWrap(sel, cellToday(d, "◀"+strings.Repeat(spanCh, 3), sty))
-						case i == vis-1 && rightClip:
-							grid += selWrap(sel, cellToday(d, strings.Repeat(spanCh, 3)+"▶", sty))
-						default:
-							grid += selWrap(sel, cellToday(d, span4, sty))
-						}
-					case sameDay(d, m.today):
-						grid += selWrap(sel, stToday.Render(" │  "))
-					default:
-						grid += selWrap(sel, "    ")
-					}
-				}
-				if !m.editing && hi != nil && !hi.After(m.origin) {
-					if hi.Before(m.today) {
-						late := int(m.today.Sub(*hi).Hours() / 24)
-						grid += selWrap(sel, stOverdue.Render(fmt.Sprintf(" ◀ %dd late", late)))
-					} else {
-						grid += selWrap(sel, stDim.Render(" ◀"))
-					}
-				}
-				if !m.editing && lo != nil && loIdx > vis-1 {
-					ahead := int(lo.Sub(m.today).Hours() / 24)
-					grid += selWrap(sel, stSoon.Render(fmt.Sprintf(" ▶ +%dd", ahead)))
-				}
-				rowLab := selWrap(sel, " ") + selWrap(sel, mark) + selWrap(sel, markTxt) + selWrap(sel, idTxt) + selWrap(sel, titTxt)
-				gap := labelW - lipgloss.Width(mark+markTxt+idTxt+titTxt)
-				if gap < 0 {
-					gap = 0
-				}
-				L = append(L, rowLab+selWrap(sel, strings.Repeat(" ", gap))+grid)
+				idTxt = st.Render(idTxt)
+				titTxt = st.Render(titTxt)
+			} else if sel {
+				titTxt = stBold.Render(titTxt)
 			}
+			grid := ""
+			ghost := m.dateMode && it.ID == m.dateID
+			lo, hi := it.Start, it.Due
+			if ghost {
+				lo, hi = m.dStart, m.dDue
+			}
+			spanCh, solidCh := "▓", "█"
+			if ghost {
+				spanCh, solidCh = "⣿", "⣿"
+			}
+			if lo == nil && hi != nil {
+				lo = hi
+			}
+			loIdx, hiIdx := 1<<30, 1<<30
+			if lo != nil {
+				loIdx = int(lo.Sub(m.origin).Hours() / 24)
+			}
+			if hi != nil {
+				hiIdx = int(hi.Sub(m.origin).Hours() / 24)
+			}
+			isMS := lo != nil && hi != nil && loIdx == hiIdx
+			leftClip := lo != nil && hi != nil && !isMS && loIdx < 0 && hiIdx >= 1
+			rightClip := lo != nil && hi != nil && !isMS && hiIdx > vis && loIdx <= vis-1
+			isMSDay := func(d time.Time) bool {
+				return isMS && d.Equal(*hi)
+			}
+			cellToday := func(d time.Time, cell string, sty lipgloss.Style) string {
+				if !sameDay(d, m.today) || len([]rune(cell)) != 4 {
+					return sty.Render(cell)
+				}
+				r := []rune(cell)
+				return sty.Render(string(r[:1])) + stToday.Render("│") + sty.Render(string(r[2:]))
+			}
+			for i := 0; i < vis; i++ {
+				d := m.origin.AddDate(0, 0, i)
+				solid4 := strings.Repeat(solidCh, 4)
+				span4 := strings.Repeat(spanCh, 4)
+				switch {
+				case isMSDay(d):
+					grid += selWrap(sel, cellToday(d, solid4, barStyle(it, m.today, sel)))
+				case lo != nil && hi != nil && !d.Before(*lo) && !d.After(*hi):
+					sty := barStyle(it, m.today, sel)
+					switch {
+					case i == 0 && leftClip:
+						grid += selWrap(sel, cellToday(d, "◀"+strings.Repeat(spanCh, 3), sty))
+					case i == vis-1 && rightClip:
+						grid += selWrap(sel, cellToday(d, strings.Repeat(spanCh, 3)+"▶", sty))
+					default:
+						grid += selWrap(sel, cellToday(d, span4, sty))
+					}
+				case sameDay(d, m.today):
+					grid += selWrap(sel, stToday.Render(" │  "))
+				default:
+					grid += selWrap(sel, "    ")
+				}
+			}
+			if !m.editing && hi != nil && !hi.After(m.origin) {
+				if hi.Before(m.today) {
+					late := int(m.today.Sub(*hi).Hours() / 24)
+					grid += selWrap(sel, stOverdue.Render(fmt.Sprintf(" ◀ %dd late", late)))
+				} else {
+					grid += selWrap(sel, stDim.Render(" ◀"))
+				}
+			}
+			if !m.editing && lo != nil && loIdx > vis-1 {
+				ahead := int(lo.Sub(m.today).Hours() / 24)
+				grid += selWrap(sel, stSoon.Render(fmt.Sprintf(" ▶ +%dd", ahead)))
+			}
+			rowLab := selWrap(sel, ind) + selWrap(sel, mark) + selWrap(sel, markTxt) + selWrap(sel, idTxt) + selWrap(sel, titTxt)
+			gap := labelW - lipgloss.Width(ind+mark+markTxt+idTxt+titTxt)
+			if gap < 0 {
+				gap = 0
+			}
+			L = append(L, rowLab+selWrap(sel, strings.Repeat(" ", gap))+grid)
 		}
 	}
 	L = append(L, m.markerLine())

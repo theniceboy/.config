@@ -752,8 +752,8 @@ func boardTabBar(active int, width int, live string, showAll bool, today time.Ti
 		l += "   [all]"
 	}
 	l += live
-	l = pad(l, width-17) + today.Format("Mon 2006-01-02")
-	return stBold.Render(l)
+	date := today.Format("Mon 2006-01-02")
+	return stBold.Render(pad(l, width-17-len(date))) + stDim.Render(date)
 }
 
 func (m tlModel) header() string {

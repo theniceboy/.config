@@ -397,11 +397,6 @@ func (m *tlModel) update(msg tea.Msg) tea.Cmd {
 	case tlLiveMsg:
 		m.sesPane, m.tasks, m.paneWin = msg.sesPane, msg.tasks, msg.paneWin
 		return nil
-	case remDoneMsg:
-		if msg.err != "" {
-			m.msg = msg.err
-		}
-		return nil
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		return nil
@@ -595,6 +590,9 @@ func (m tlModel) visDays() int {
 }
 
 func (m tlModel) tlVisible(it tlItem) bool {
+	if it.Stream == boardRemWS {
+		return true
+	}
 	if len(m.itemLinks(it)) > 0 {
 		return true
 	}
@@ -1811,21 +1809,6 @@ func (m *tlModel) setItems(items []boardItem, folders []boardFolder) {
 	}
 }
 
-type remDoneMsg struct{ err string }
-
-func remDoneCmd(id string) tea.Cmd {
-	return func() tea.Msg {
-		bin := remindBinPath()
-		if bin == "" {
-			return remDoneMsg{err: "remind binary not found"}
-		}
-		if out, err := exec.Command(bin, "done", id).CombinedOutput(); err != nil {
-			return remDoneMsg{err: strings.TrimSpace(string(out))}
-		}
-		return remDoneMsg{}
-	}
-}
-
 func sesListFrom(s string) []string {
 	if s == "" {
 		return nil
@@ -2117,18 +2100,16 @@ func (m *tlModel) keyTlk(k string, r []rune) tea.Cmd {
 	case "enter":
 		if it := m.selItem(); it != nil {
 			if it.Stream == boardRemWS {
-				m.msg = ""
-				return remDoneCmd(strings.TrimPrefix(it.ID, "REM:"))
+				return nil
 			}
 			m.draft, m.orig = *it, *it
 			m.editing, m.typing, m.focus, m.input, m.msg = true, false, 0, "", ""
 		}
 	case "d":
-		if it := m.selItem(); it != nil && it.Stream == "reminders" {
-			m.msg = "Apple owns reminder dates — reschedule with `remind at`"
-		} else {
-			m.enterDateMode()
+		if it := m.selItem(); it != nil && it.Stream == boardRemWS {
+			return nil
 		}
+		m.enterDateMode()
 	case "L":
 		live := []string{}
 		for _, id := range m.order() {

@@ -1649,6 +1649,10 @@ func (m *paletteModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case paletteHomeTickMsg:
+		if m.state.Mode == paletteModeBoard && m.board != nil && remCacheStale() {
+			m.board.forceRems = true
+			m.board.reload()
+		}
 		if m.state.Mode == paletteModeBoard && m.board != nil && m.board.tab == 0 && m.board.tl != nil {
 			if time.Since(m.board.tl.lastPoll) >= time.Second {
 				m.board.tl.lastPoll = time.Now()
@@ -1659,13 +1663,6 @@ func (m *paletteModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tlLiveMsg:
 		if m.board != nil && m.board.tl != nil {
 			m.board.tl.update(msg)
-		}
-		return m, nil
-	case remDoneMsg:
-		if m.board != nil {
-			m.board.tl.update(msg)
-			m.board.forceRems = true
-			m.board.reload()
 		}
 		return m, nil
 	case tlEditDoneMsg:

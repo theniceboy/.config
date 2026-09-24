@@ -102,6 +102,18 @@ func remCachePath() string {
 	return filepath.Join(home, ".cache", "agent", "board-reminders.json")
 }
 
+func remCacheStale() bool {
+	b, err := os.ReadFile(remCachePath())
+	if err != nil {
+		return true
+	}
+	var c remCache
+	if json.Unmarshal(b, &c) != nil {
+		return true
+	}
+	return time.Since(c.Fetched) >= remTTL
+}
+
 func readRemCache() []remItem {
 	b, err := os.ReadFile(remCachePath())
 	if err != nil {

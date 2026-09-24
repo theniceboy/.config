@@ -336,7 +336,14 @@ func TestScrollToTopKeepsHeader(t *testing.T) {
 		if !strings.Contains(lines[0], "Board") {
 			t.Fatalf("%dx%d: header not on row 1: %q", w, h, lines[0])
 		}
-		if !strings.Contains(view, "PROJECTONE") {
+		firstWS := ""
+		for _, r := range m.rows {
+			if r.isWS {
+				firstWS = strings.ToUpper(r.ws)
+				break
+			}
+		}
+		if firstWS != "" && !strings.Contains(view, firstWS) {
 			t.Fatalf("%dx%d: first ws header missing from view", w, h)
 		}
 	}

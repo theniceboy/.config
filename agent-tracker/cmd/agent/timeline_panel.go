@@ -887,12 +887,38 @@ func (m *tlModel) render() string {
 	var pre []string
 	pre = append(append([]string{m.statsLine()}, m.renderRuler()...), m.dividerLine(true))
 	body = m.renderTimeline()
-	if m.vscroll > 0 {
-		if m.vscroll >= len(body) {
-			body = nil
-		} else {
-			body = body[m.vscroll:]
+	rows := m.rows()
+	vs := m.vscroll
+	if vs < 0 {
+		vs = 0
+	}
+	var sticky []string
+	if vs > 0 && vs < len(rows) {
+		limit := rows[vs].depth + 1
+		if rows[vs].kind != 2 {
+			limit = rows[vs].depth
 		}
+		var chain []int
+		for j := vs - 1; j >= 0; j-- {
+			r := rows[j]
+			if r.kind == 2 || r.depth >= limit {
+				continue
+			}
+			chain = append(chain, j)
+			limit = r.depth
+		}
+		for k := len(chain) - 1; k >= 0; k-- {
+			omit := 0
+			if k == 0 {
+				omit = vs - chain[0] - 1
+			}
+			sticky = append(sticky, m.renderHeaderRow(rows[chain[k]], omit))
+		}
+	}
+	if vs >= len(body) {
+		body = nil
+	} else if vs > 0 {
+		body = body[vs:]
 	}
 	if m.editing {
 		h := m.height - 1 - len(pre)
@@ -917,6 +943,16 @@ func (m *tlModel) render() string {
 	}
 	if len(body) > avail {
 		body = body[:avail]
+	}
+	if len(sticky) > 0 {
+		keep := avail - len(sticky)
+		if keep < 0 {
+			keep = 0
+		}
+		if len(body) > keep {
+			body = body[:keep]
+		}
+		body = append(sticky, body...)
 	}
 	fill := m.markerLine()
 	for len(body) < avail {
@@ -1260,6 +1296,27 @@ func (m tlModel) todayCol() (int, bool) {
 	return labelW + 1 + diff*dayW + 1, true
 }
 
+func (m tlModel) renderHeaderRow(r tlRow, omit int) string {
+	ic := "📂"
+	if m.collapsed[r.foldKey] {
+		ic = "📁"
+	}
+	var s string
+	if r.kind == 0 {
+		s = " " + ic + " " + stBold.Render(strings.ToUpper(r.label)) + "  " + stDim.Render(r.counts)
+	} else {
+		name := strings.ToUpper(strings.ReplaceAll(r.label, "-", " "))
+		s = " " + r.branch + ic + " " + stDim.Render(name) + "  " + stDim.Render(r.counts)
+	}
+	if omit > 0 {
+		s += stToday.Render(fmt.Sprintf("  ▲%d", omit))
+	}
+	if col, ok := m.todayCol(); ok {
+		s = pad(s, col) + stToday.Render("│")
+	}
+	return s
+}
+
 func (m tlModel) dividerLine(junction bool) string {
 	w := m.width
 	if junction {
@@ -1518,29 +1575,8 @@ func (m tlModel) renderTimeline() []string {
 	}
 	var L []string
 	for _, r := range m.rows() {
-		if r.kind == 0 {
-			ic := "📂"
-			if m.collapsed[r.foldKey] {
-				ic = "📁"
-			}
-			hdr := " " + ic + " " + stBold.Render(strings.ToUpper(r.label)) + "  " + stDim.Render(r.counts)
-			if col, ok := m.todayCol(); ok {
-				hdr = pad(hdr, col) + stToday.Render("│")
-			}
-			L = append(L, hdr)
-			continue
-		}
-		if r.kind == 1 {
-			ic := "📂"
-			if m.collapsed[r.foldKey] {
-				ic = "📁"
-			}
-			name := strings.ToUpper(strings.ReplaceAll(r.label, "-", " "))
-			sub := " " + r.branch + ic + " " + stDim.Render(name) + "  " + stDim.Render(r.counts)
-			if col, ok := m.todayCol(); ok {
-				sub = pad(sub, col) + stToday.Render("│")
-			}
-			L = append(L, sub)
+		if r.kind != 2 {
+			L = append(L, m.renderHeaderRow(r, 0))
 			continue
 		}
 		{
@@ -2014,6 +2050,9 @@ func (m *tlModel) keyTlk(k string, r []rune) tea.Cmd {
 		}
 	case "ctrl+e":
 		m.vscroll += 10
+		if n := len(m.rows()); m.vscroll > n-1 {
+			m.vscroll = maxInt(0, n-1)
+		}
 	case "n", "left":
 		m.origin = m.origin.AddDate(0, 0, -1)
 	case "i", "right":

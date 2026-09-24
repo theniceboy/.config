@@ -919,11 +919,13 @@ func (m *boardPanelModel) render(styles paletteStyles, width, height int) string
 		leftLines = append(leftLines, "", styles.muted.Render("(empty)"))
 	} else {
 		leftAll := make([]string, 0, m.totalLines)
+		starts := make([]int, len(m.rows))
 		for i := 0; i < len(m.rows); i++ {
 			row := m.rows[i]
 			for b := 0; b < row.pre; b++ {
 				leftAll = append(leftAll, "")
 			}
+			starts[i] = len(leftAll)
 			selected := i == m.cursor && !m.focusDetail
 			if row.isWS {
 				wsEmoji := "📂"
@@ -934,11 +936,11 @@ func (m *boardPanelModel) render(styles paletteStyles, width, height int) string
 					bg := styles.selectedItem.GetBackground()
 					gap := lipgloss.NewStyle().Background(bg)
 					head := lipgloss.JoinHorizontal(lipgloss.Left, gap.Render(wsEmoji+" "),
-						styles.sectionLabel.Background(bg).Render(strings.ToUpper(row.ws)),
+						stBold.Background(bg).Render(strings.ToUpper(row.ws)),
 						gap.Render("  "), styles.meta.Background(bg).Render(row.wsCount))
 					leftAll = append(leftAll, selStyle.Width(leftW).Render(head))
 				} else {
-					label := styles.sectionLabel.Render(strings.ToUpper(row.ws))
+					label := stBold.Render(strings.ToUpper(row.ws))
 					count := styles.meta.Render(row.wsCount)
 					head := lipgloss.JoinHorizontal(lipgloss.Left, wsEmoji+" ", label, "  ", count)
 					leftAll = append(leftAll, lipgloss.NewStyle().Padding(0, 1).MaxWidth(leftW).Width(leftW).Render(head))
@@ -954,13 +956,13 @@ func (m *boardPanelModel) render(styles paletteStyles, width, height int) string
 				}
 				avail := leftW - 1 - lipgloss.Width(row.branch) - lipgloss.Width(emoji) - 1 - lipgloss.Width(row.folderCount) - 4
 				head := lipgloss.JoinHorizontal(lipgloss.Left, branchStyle.Render(row.branch), emoji+" ",
-					styles.sectionLabel.Render(strings.ToUpper(truncate(name, maxInt(4, avail)))), "  ", styles.meta.Render(row.folderCount))
+					stDim.Render(strings.ToUpper(truncate(name, maxInt(4, avail)))), "  ", styles.meta.Render(row.folderCount))
 				if selected {
 					bg := styles.selectedItem.GetBackground()
 					gap := lipgloss.NewStyle().Background(bg)
 					head := lipgloss.JoinHorizontal(lipgloss.Left, branchStyle.Background(bg).Render(row.branch),
 						gap.Render(emoji+" "),
-						styles.sectionLabel.Background(bg).Render(strings.ToUpper(truncate(name, maxInt(4, avail)))),
+						stDim.Background(bg).Render(strings.ToUpper(truncate(name, maxInt(4, avail)))),
 						gap.Render("  "), styles.meta.Background(bg).Render(row.folderCount))
 					leftAll = append(leftAll, selStyle.Width(leftW).Render(head))
 				} else {
@@ -1002,6 +1004,49 @@ func (m *boardPanelModel) render(styles paletteStyles, width, height int) string
 		hi := minInt(len(leftAll), off+vis)
 		m.offset = off
 		leftLines = leftAll[off:hi]
+		var sticky []string
+		firstRow := -1
+		for i := range m.rows {
+			if starts[i] >= off {
+				firstRow = i
+				break
+			}
+		}
+		if firstRow > 0 {
+			fr := m.rows[firstRow]
+			limit := 1 << 30
+			if fr.item != nil || fr.isFolder {
+				limit = fr.depth
+			}
+			var chain []int
+			for j := firstRow - 1; j >= 0; j-- {
+				r := m.rows[j]
+				if r.isWS {
+					chain = append(chain, j)
+					break
+				}
+				if r.item != nil || r.depth >= limit {
+					continue
+				}
+				chain = append(chain, j)
+				limit = r.depth
+			}
+			for k := len(chain) - 1; k >= 0; k-- {
+				omit := 0
+				if k == 0 {
+					omit = firstRow - chain[0] - 1
+				}
+				sticky = append(sticky, m.stickyHeaderLine(m.rows[chain[k]], omit, leftW))
+			}
+			if len(sticky) > 0 {
+				cut := len(sticky)
+				if off+cut < hi {
+					leftLines = append(append([]string{}, sticky...), leftAll[off+cut:hi]...)
+				} else {
+					leftLines = sticky
+				}
+			}
+		}
 	}
 	detailLines := []string{}
 	if fr := m.currentRow(); fr != nil && (fr.isFolder || fr.isWS) {
@@ -1070,6 +1115,30 @@ func (m *boardPanelModel) render(styles paletteStyles, width, height int) string
 	parts = append(parts, lipgloss.NewStyle().MaxWidth(width).Render(body), "", footer)
 	rest := lipgloss.NewStyle().Width(width).Height(height - 5).Render(lipgloss.JoinVertical(lipgloss.Left, parts...))
 	return lipgloss.JoinVertical(lipgloss.Left, header, rest)
+}
+
+func (m *boardPanelModel) stickyHeaderLine(r boardRow, omit int, w int) string {
+	branchStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
+	var head string
+	if r.isWS {
+		ic := "📂"
+		if m.collapsed[m.folderKey(r.ws, "")] {
+			ic = "📁"
+		}
+		head = lipgloss.JoinHorizontal(lipgloss.Left, ic+" ", stBold.Render(strings.ToUpper(r.ws)), "  ", stDim.Render(r.wsCount))
+	} else {
+		ic := "📂"
+		if m.collapsed[m.folderKey(r.ws, r.folderPath)] {
+			ic = "📁"
+		}
+		name := strings.ReplaceAll(r.folderPath[strings.LastIndex(r.folderPath, "/")+1:], "-", " ")
+		head = lipgloss.JoinHorizontal(lipgloss.Left, branchStyle.Render(r.branch), ic+" ",
+			stDim.Render(strings.ToUpper(truncate(name, 30))), "  ", stDim.Render(r.folderCount))
+	}
+	if omit > 0 {
+		head = lipgloss.JoinHorizontal(lipgloss.Left, head, " ", stToday.Render(fmt.Sprintf("▲%d", omit)))
+	}
+	return lipgloss.NewStyle().Padding(0, 1).MaxWidth(w).Width(w).Render(head)
 }
 
 func (m *boardPanelModel) renderFooter(styles paletteStyles, width int) string {

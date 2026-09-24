@@ -707,7 +707,7 @@ func (m *tlModel) followSel(delta int) {
 		}
 	}
 	row := m.selRow()
-	vis := m.height - 8
+	vis := m.height - 7
 	if vis < 1 {
 		vis = 1
 	}
@@ -779,6 +779,54 @@ func (m tlModel) liveSegment() string {
 		live += stDim.Render(fmt.Sprintf("  ·%d", cnt["i"]))
 	}
 	return live
+}
+
+func (m tlModel) digestLines() []string {
+	var live []string
+	for i := range m.items {
+		it := &m.items[i]
+		ls := m.itemLinks(*it)
+		if len(ls) == 0 {
+			continue
+		}
+		live = append(live, stateEmoji(linkState(*bestLink(ls)))+" "+trunc(it.Title, 18))
+		if len(live) >= 3 {
+			break
+		}
+	}
+	liveTxt := stDim.Render("no live agents")
+	if len(live) > 0 {
+		liveTxt = strings.Join(live, stDim.Render(" · "))
+	}
+	type dueItem struct {
+		title string
+		days  int
+	}
+	var dues []dueItem
+	for i := range m.items {
+		it := &m.items[i]
+		if it.Due == nil || it.Status == "done" || it.Due.Before(m.today) {
+			continue
+		}
+		dues = append(dues, dueItem{title: trunc(it.Title, 18), days: int(it.Due.Sub(m.today).Hours() / 24)})
+	}
+	sort.SliceStable(dues, func(a, b int) bool { return dues[a].days < dues[b].days })
+	var parts []string
+	for i := 0; i < len(dues) && i < 3; i++ {
+		parts = append(parts, fmt.Sprintf("%s %dd", dues[i].title, dues[i].days))
+	}
+	dueTxt := stDim.Render("nothing due soon")
+	if len(parts) > 0 {
+		dueTxt = stDim.Render(strings.Join(parts, " · "))
+	}
+	w := m.width - 2
+	if w < 10 {
+		w = 10
+	}
+	return []string{
+		" " + trunc(liveTxt, w),
+		" " + stDim.Render("⏧ ") + trunc(dueTxt, w),
+	}
 }
 
 func (m tlModel) statsLine() string {
@@ -1224,7 +1272,7 @@ func (m tlModel) renderRuler() []string {
 			dn += numCell
 		}
 	}
-	return []string{wd, dn, m.markerLine(), m.markerLine()}
+	return []string{wd, dn}
 }
 
 func fmtID(id string) string {

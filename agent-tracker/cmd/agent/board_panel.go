@@ -43,9 +43,10 @@ type boardFolder struct {
 }
 
 type boardExport struct {
-	Count   int           `json:"count"`
-	Items   []boardItem   `json:"items"`
-	Folders []boardFolder `json:"folders"`
+	Count           int           `json:"count"`
+	Items           []boardItem   `json:"items"`
+	Folders         []boardFolder `json:"folders"`
+	WorkstreamOrder []string      `json:"workstreamOrder"`
 }
 
 func boardExportCommand() string {
@@ -159,7 +160,7 @@ func synthReminders(rs []remItem) []boardItem {
 		}
 		out = append(out, boardItem{
 			ID: "REM:" + id, Title: r.Title, Status: "todo", Prio: "normal",
-			Owner: "-", Order: i + 1, Due: r.Due, Workstream: "reminders",
+			Owner: "-", Order: i + 1, Due: r.Due, Workstream: boardRemWS,
 			Time: r.Time, Body: body,
 		})
 	}
@@ -190,6 +191,7 @@ func boardBranch(rail string, last bool) string {
 type boardPanelModel struct {
 	items        []boardItem
 	folders      []boardFolder
+	wsOrder      []string
 	rows         []boardRow
 	cursor       int
 	offset       int
@@ -230,6 +232,8 @@ func (m *boardPanelModel) reload() {
 	m.loadErr = ""
 	force := m.forceRems
 	m.forceRems = false
+	m.wsOrder = data.WorkstreamOrder
+	m.tl.wsOrder = data.WorkstreamOrder
 	combined := make([]boardItem, 0, len(data.Items)+8)
 	combined = append(combined, data.Items...)
 	combined = append(combined, synthReminders(loadReminders(force))...)
@@ -268,24 +272,21 @@ func boardPrioRank(p string) int {
 	return 2
 }
 
-func boardWSRank(ws string) int {
-	switch ws {
-	case "projectone":
-		return 0
-	case "hq":
-		return 1
-	case "projecttwo":
-		return 2
-	case "devtools":
-		return 3
-	case "adhoc":
-		return 4
-	case "inbox":
-		return 5
-	case "reminders":
+const boardRemWS = "reminders"
+
+// boardWSOrderRank ranks workstreams by the board-provided preferred order
+// (workstreamOrder in board export); unlisted streams sort after it,
+// alphabetically at the call site. The synthetic reminders stream pins first.
+func boardWSOrderRank(order []string, ws string) int {
+	if ws == boardRemWS {
 		return -1
 	}
-	return 9
+	for i, w := range order {
+		if w == ws {
+			return i
+		}
+	}
+	return len(order)
 }
 
 func boardLess(a, b *boardItem) bool {
@@ -452,7 +453,7 @@ func (m *boardPanelModel) rebuild() {
 		names = append(names, ws)
 	}
 	sort.Slice(names, func(i, j int) bool {
-		ri, rj := boardWSRank(names[i]), boardWSRank(names[j])
+		ri, rj := boardWSOrderRank(m.wsOrder, names[i]), boardWSOrderRank(m.wsOrder, names[j])
 		if ri != rj {
 			return ri < rj
 		}
@@ -468,7 +469,7 @@ func (m *boardPanelModel) rebuild() {
 		}
 		sort.SliceStable(matches, func(i, j int) bool {
 			if matches[i].Workstream != matches[j].Workstream {
-				return boardWSRank(matches[i].Workstream) < boardWSRank(matches[j].Workstream)
+				return boardWSOrderRank(m.wsOrder, matches[i].Workstream) < boardWSOrderRank(m.wsOrder, matches[j].Workstream)
 			}
 			return boardLess(matches[i], matches[j])
 		})
@@ -1081,7 +1082,7 @@ func (m *boardPanelModel) render(styles paletteStyles, width, height int) string
 				prefix = strings.Repeat("  ", row.depth)
 			}
 			glyph, color := boardStatusGlyph(it.Status)
-			if it.Workstream == "reminders" {
+			if it.Workstream == boardRemWS {
 				glyph, color = "♢", "220"
 			}
 			glyphStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(color))

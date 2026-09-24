@@ -99,6 +99,7 @@ func (d *tlItem) slide(dd int) {
 type tlModel struct {
 	items       []tlItem
 	streams     []string
+	wsOrder     []string
 	selID       string
 	origin      time.Time
 	today       time.Time
@@ -1027,7 +1028,7 @@ func (m tlModel) footer() string {
 		case it.Due != nil:
 			seg = " · due " + fmtDate(*it.Due)
 		}
-		if it.Stream == "reminders" {
+		if it.Stream == boardRemWS {
 			dat = "SPQ · apple reminder" + seg
 			if it.Time != "" {
 				dat += " · at " + it.Time
@@ -1596,7 +1597,7 @@ func (m tlModel) renderTimeline() []string {
 			it := *r.it
 			sel := it.ID == m.selID
 			glyph, gcol := boardStatusGlyph(it.Status)
-			if it.Stream == "reminders" {
+			if it.Stream == boardRemWS {
 				glyph, gcol = "♢", "220"
 			}
 			gSty := lipgloss.NewStyle().Foreground(lipgloss.Color(gcol))
@@ -1774,7 +1775,7 @@ func (m *tlModel) setItems(items []boardItem, folders []boardFolder) {
 		}
 	}
 	sort.SliceStable(streams, func(i, j int) bool {
-		ri, rj := boardWSRank(streams[i]), boardWSRank(streams[j])
+		ri, rj := boardWSOrderRank(m.wsOrder, streams[i]), boardWSOrderRank(m.wsOrder, streams[j])
 		if ri != rj {
 			return ri < rj
 		}
@@ -2115,7 +2116,7 @@ func (m *tlModel) keyTlk(k string, r []rune) tea.Cmd {
 		m.findMode = true
 	case "enter":
 		if it := m.selItem(); it != nil {
-			if it.Stream == "reminders" {
+			if it.Stream == boardRemWS {
 				m.msg = ""
 				return remDoneCmd(strings.TrimPrefix(it.ID, "REM:"))
 			}

@@ -559,7 +559,7 @@ func (r *paletteRuntime) buildActions() []paletteAction {
 			Section:  "System",
 			Title:    "Board",
 			Subtitle: "Browse ~/base work items (read-only, via board export)",
-			Keywords: []string{"board", "items", "todo", "doing", "work", "projectone", "hq", "projecttwo"},
+			Keywords: []string{"board", "items", "todo", "doing", "work", "workstreams", "timeline"},
 			Kind:     paletteActionOpenBoard,
 		},
 		paletteAction{

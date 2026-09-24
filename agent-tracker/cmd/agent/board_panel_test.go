@@ -14,20 +14,20 @@ func isLetter(b byte) bool {
 }
 
 func TestBoardPanelViewFitsPopup(t *testing.T) {
-	m := &boardPanelModel{collapsed: map[string]bool{}, doneWS: map[string]bool{}}
+	m := &boardPanelModel{collapsed: map[string]bool{}, doneWS: map[string]bool{}, tl: newTLModel()}
 	long := "Long item title with CJK 中文宽字符 and trailing detail that should clip not wrap — "
 	for i := 0; i < 12; i++ {
 		folders := []string{}
 		if i%3 != 0 {
-			folders = []string{"ship-3-5-4"}
+			folders = []string{"release-1"}
 		}
 		m.items = append(m.items, boardItem{
-			ID: "INS-" + itoa(i), Title: long + long, Status: "doing", Prio: "urgent",
-			Owner: "operator", Due: "2026-01-0" + itoa(i%9+1), Workstream: "projectone",
+			ID: "TST-" + itoa(i), Title: long + long, Status: "doing", Prio: "urgent",
+			Owner: "operator", Due: "2026-01-0" + itoa(i%9+1), Workstream: "alpha",
 			Body: strings.Repeat("body line ", 40), Folders: folders,
 		})
 	}
-	m.folders = []boardFolder{{Workstream: "projectone", Path: "ship-3-5-4", Description: "Release train " + strings.Repeat("desc ", 30)}}
+	m.folders = []boardFolder{{Workstream: "alpha", Path: "release-1", Description: "Release train " + strings.Repeat("desc ", 30)}}
 	for _, h := range []int{24, 30, 44, 54} {
 		for _, w := range []int{96, 120, 149, 190} {
 			m.width, m.height = w, h
@@ -66,12 +66,25 @@ func itoa(i int) string {
 	return digits
 }
 
+func testPanelModel() *boardPanelModel {
+	m := &boardPanelModel{collapsed: map[string]bool{}, doneWS: map[string]bool{}, tl: newTLModel(), tab: 1}
+	m.wsOrder = []string{"alpha", "beta"}
+	for i := 0; i < 3; i++ {
+		m.items = append(m.items, boardItem{ID: "TST-A" + itoa(i), Title: "Alpha item " + itoa(i) + " with some length to render",
+			Status: []string{"doing", "todo", "doing"}[i], Prio: "normal", Workstream: "alpha"})
+		m.items = append(m.items, boardItem{ID: "TST-B" + itoa(i), Title: "Beta item " + itoa(i) + " with some length to render",
+			Status: "todo", Prio: "normal", Workstream: "beta", Due: "2026-01-0" + itoa(i+1)})
+	}
+	m.rebuild()
+	return m
+}
+
 func TestSelectedRowBackgroundUnbroken(t *testing.T) {
 	lipgloss.SetColorProfile(termenv.ANSI256)
 	defer lipgloss.SetColorProfile(termenv.Ascii)
-	m := newBoardPanelModel()
+	m := testPanelModel()
 	m.width, m.height = 149, 44
-	m.cursor = 0
+	m.cursor = 1
 	view := m.render(newPaletteStyles(), 149, 44)
 	for _, line := range strings.Split(view, "\n") {
 		if !strings.Contains(line, "\x1b[48;5;238m") {
@@ -131,15 +144,15 @@ func TestCursorDoesNotShiftColumns(t *testing.T) {
 		}
 		return -1
 	}
-	m := newBoardPanelModel()
+	m := testPanelModel()
 	m.width, m.height = 149, 44
-	m.cursor = 0
+	m.cursor = 1
 	v1 := m.render(newPaletteStyles(), 149, 44)
-	m.cursor = m.cursor + 2
+	m.cursor = 2
 	v2 := m.render(newPaletteStyles(), 149, 44)
-	colSel1 := glyphCol(v1, "Session-watcher")
-	colUnsel := glyphCol(v2, "Session-watcher")
-	colSel2 := glyphCol(v2, "Restore Reddit bot")
+	colSel1 := glyphCol(v1, "Alpha item 0")
+	colUnsel := glyphCol(v2, "Alpha item 0")
+	colSel2 := glyphCol(v2, "Alpha item 1")
 	if colSel1 < 0 || colUnsel < 0 || colSel2 < 0 {
 		t.Fatalf("rows not found: %d %d %d", colSel1, colUnsel, colSel2)
 	}
@@ -176,7 +189,7 @@ func TestWorkstreamSectionsSeparated(t *testing.T) {
 	ansiStrip := func(s string) string {
 		return regexp.MustCompile(`\x1b\[[0-9;]*m`).ReplaceAllString(s, "")
 	}
-	m := newBoardPanelModel()
+	m := testPanelModel()
 	m.width, m.height = 149, 60
 	view := ansiStrip(m.render(newPaletteStyles(), 149, 60))
 	lines := strings.Split(view, "\n")
@@ -186,7 +199,7 @@ func TestWorkstreamSectionsSeparated(t *testing.T) {
 		if j := strings.Index(left, "│"); j >= 0 {
 			left = left[:j]
 		}
-		if !regexp.MustCompile(`^\s*(📂|📁)?\s*(PROJECTONE|HQ|PROJECTTWO|DEVTOOLS|ADHOC|DEV|INBOX|SOMEDAY) +\d`).MatchString(left) {
+		if !regexp.MustCompile(`^\s*(📂|📁)?\s*(ALPHA|BETA) +\d`).MatchString(left) {
 			continue
 		}
 		headers++
@@ -195,7 +208,7 @@ func TestWorkstreamSectionsSeparated(t *testing.T) {
 			if k := strings.Index(prev, "│"); k >= 0 {
 				prev = prev[:k]
 			}
-			if strings.TrimSpace(prev) != "" {
+			if strings.TrimSpace(prev) != "" && !strings.HasPrefix(strings.TrimSpace(prev), "─") {
 				t.Fatalf("ws header %q not preceded by a blank separator (prev: %q)", strings.TrimSpace(left), strings.TrimSpace(prev))
 			}
 		}
@@ -206,7 +219,7 @@ func TestWorkstreamSectionsSeparated(t *testing.T) {
 }
 
 func TestDoneScopedToggle(t *testing.T) {
-	m := &boardPanelModel{collapsed: map[string]bool{}, doneWS: map[string]bool{}}
+	m := &boardPanelModel{collapsed: map[string]bool{}, doneWS: map[string]bool{}, tl: newTLModel(), tab: 1}
 	m.items = []boardItem{
 		{ID: "A-1", Title: "alpha", Status: "doing", Workstream: "aaa"},
 		{ID: "A-2", Title: "alpha done", Status: "done", Workstream: "aaa"},
@@ -249,7 +262,7 @@ func (m *boardPanelModel) rowOfItem(id string) int {
 }
 
 func TestFolderFoldAndDesc(t *testing.T) {
-	m := &boardPanelModel{collapsed: map[string]bool{}, doneWS: map[string]bool{}}
+	m := &boardPanelModel{collapsed: map[string]bool{}, doneWS: map[string]bool{}, tl: newTLModel(), tab: 1}
 	m.items = []boardItem{
 		{ID: "A-1", Title: "release", Status: "todo", Workstream: "aaa", Folders: []string{"ship"}},
 		{ID: "A-2", Title: "followup", Status: "todo", Workstream: "aaa", Folders: []string{"ship"}},
@@ -330,7 +343,7 @@ func TestScrollToTopKeepsHeader(t *testing.T) {
 }
 
 func TestSiblingOrdering(t *testing.T) {
-	m := &boardPanelModel{collapsed: map[string]bool{}, doneWS: map[string]bool{}}
+	m := &boardPanelModel{collapsed: map[string]bool{}, doneWS: map[string]bool{}, tl: newTLModel()}
 	m.items = []boardItem{
 		{ID: "A-1", Title: "zeta", Status: "todo", Workstream: "aaa"},
 		{ID: "A-2", Title: "alpha", Status: "todo", Workstream: "aaa", Order: 1},

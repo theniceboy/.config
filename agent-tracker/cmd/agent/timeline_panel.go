@@ -1244,18 +1244,20 @@ func (m tlModel) renderTimeline() []string {
 			it := *r.it
 			ind := strings.Repeat(" ", 3+2*r.depth)
 			sel := it.ID == m.selID
-			mark := "  "
-			if sel {
-				mark = "▶ "
-			}
 			idTxt := fmtID(it.ID)
-			markTxt := "  "
+			mark := "  "
 			if ls := m.itemLinks(it); len(ls) > 0 {
 				st := linkState(*bestLink(ls))
 				sty := map[string]lipgloss.Style{"q": stOverdue, "w": stWork, "n": stSoon, "i": stDim}[st]
-				markTxt = sty.Render("•") + " "
+				ch := "•"
+				if sel {
+					ch = "▶"
+				}
+				mark = sty.Render(ch) + " "
+			} else if sel {
+				mark = "▶ "
 			}
-			tw := labelW - (3 + 2*r.depth) - 12
+			tw := labelW - (3 + 2*r.depth) - 10
 			if tw > 24 {
 				tw = 24
 			}
@@ -1341,8 +1343,8 @@ func (m tlModel) renderTimeline() []string {
 				ahead := int(lo.Sub(m.today).Hours() / 24)
 				grid += selWrap(sel, stSoon.Render(fmt.Sprintf(" ▶ +%dd", ahead)))
 			}
-			rowLab := selWrap(sel, ind) + selWrap(sel, mark) + selWrap(sel, markTxt) + selWrap(sel, idTxt) + selWrap(sel, titTxt)
-			gap := labelW - lipgloss.Width(ind+mark+markTxt+idTxt+titTxt)
+			rowLab := selWrap(sel, ind) + selWrap(sel, mark) + selWrap(sel, idTxt) + selWrap(sel, titTxt)
+			gap := labelW - lipgloss.Width(ind+mark+idTxt+titTxt)
 			if gap < 0 {
 				gap = 0
 			}

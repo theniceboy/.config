@@ -645,6 +645,51 @@ func (m *tlModel) move(delta int) {
 	}
 }
 
+func (m *tlModel) selectID(id string) {
+	for i := range m.items {
+		if m.items[i].ID != id {
+			continue
+		}
+		it := &m.items[i]
+		delete(m.collapsed, tlFoldKey(it.Stream, ""))
+		p := ""
+		for _, c := range strings.Split(it.Folder, "/") {
+			if c == "" {
+				continue
+			}
+			if p != "" {
+				p += "/"
+			}
+			p += c
+			delete(m.collapsed, tlFoldKey(it.Stream, p))
+		}
+		vis := false
+		for _, x := range m.order() {
+			if x == id {
+				vis = true
+				break
+			}
+		}
+		if !vis {
+			anchor := it.Start
+			if anchor == nil {
+				anchor = it.Due
+			}
+			switch {
+			case anchor != nil:
+				m.origin = anchor.AddDate(0, 0, -7)
+			case it.Status == "done":
+				m.showDone = true
+			default:
+				m.showAll = true
+			}
+		}
+		m.selID = id
+		m.followSel(0)
+		return
+	}
+}
+
 func (m tlModel) selRow() int {
 	for i, r := range m.rows() {
 		if r.kind == 2 && r.it.ID == m.selID {

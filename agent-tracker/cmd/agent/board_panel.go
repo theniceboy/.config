@@ -544,6 +544,42 @@ func (m *boardPanelModel) toggleFold() {
 	m.ensureVisible()
 }
 
+func (m *boardPanelModel) syncCursorToID(id string) {
+	for i, r := range m.rows {
+		if r.item != nil && r.item.ID == id {
+			m.cursor = i
+			m.ensureVisible()
+			return
+		}
+	}
+	for i := range m.items {
+		it := &m.items[i]
+		if it.ID != id {
+			continue
+		}
+		delete(m.collapsed, m.folderKey(it.Workstream, ""))
+		p := ""
+		for _, c := range it.Folders {
+			if p != "" {
+				p += "/"
+			}
+			p += c
+			delete(m.collapsed, m.folderKey(it.Workstream, p))
+		}
+		if it.Status == "done" && !m.doneWS[it.Workstream] {
+			m.doneWS[it.Workstream] = true
+		}
+		m.rebuild()
+		for j, r := range m.rows {
+			if r.item != nil && r.item.ID == id {
+				m.cursor = j
+				m.ensureVisible()
+			}
+		}
+		return
+	}
+}
+
 func (m *boardPanelModel) currentRow() *boardRow {
 	if m.cursor >= 0 && m.cursor < len(m.rows) {
 		return &m.rows[m.cursor]
@@ -558,6 +594,11 @@ func (m *boardPanelModel) Init() tea.Cmd {
 func (m *boardPanelModel) handleKey(key string) {
 	if key == "tab" && !m.searching {
 		m.tab = 1 - m.tab
+		if m.tab == 1 {
+			m.syncCursorToID(m.tl.selID)
+		} else if cur := m.currentRow(); cur != nil && cur.item != nil {
+			m.tl.selectID(cur.item.ID)
+		}
 		return
 	}
 	if m.tab == 0 {

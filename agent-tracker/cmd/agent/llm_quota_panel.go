@@ -234,13 +234,13 @@ func (m *llmQuotaPanelModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.requestBack = true
 		case "r":
 			return m, m.requestRefreshCmd(true)
-		case "up", "k":
+		case "up", "u":
 			m.moveCursor(-1)
-		case "down", "j":
+		case "down", "e":
 			m.moveCursor(1)
-		case "J":
+		case "E":
 			return m, m.moveAccountCmd(1)
-		case "K":
+		case "U":
 			return m, m.moveAccountCmd(-1)
 		case "d":
 			return m, m.toggleAccountCmd()
@@ -572,8 +572,8 @@ func renderQuotaBar(remaining float64, width int) string {
 
 func (m *llmQuotaPanelModel) renderFooter(styles paletteStyles, width int) string {
 	pairs := [][2]string{
-		{"↑/↓", "select"},
-		{"J/K", "order"},
+		{"u/e", "select"},
+		{"U/E", "order"},
 		{"d", "on/off"},
 		{"s", "strategy"},
 		{"r", "refresh"},

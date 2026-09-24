@@ -865,7 +865,7 @@ func (m *boardPanelModel) render(styles paletteStyles, width, height int) string
 	if leftW < 20 {
 		leftW = 20
 	}
-	detailW := width - 5 - leftW
+	detailW := width - 3 - leftW
 	clip := func(s string, w int) string {
 		return lipgloss.NewStyle().MaxWidth(w).Width(w).Render(s)
 	}
@@ -1027,8 +1027,8 @@ func (m *boardPanelModel) render(styles paletteStyles, width, height int) string
 	if searchLine != "" {
 		parts = append(parts, "", searchLine)
 	}
-	parts = append(parts, lipgloss.NewStyle().MaxWidth(width-2).Render(body), "", footer)
-	rest := lipgloss.NewStyle().Width(width).Height(height-6).Padding(0, 1).Render(lipgloss.JoinVertical(lipgloss.Left, parts...))
+	parts = append(parts, lipgloss.NewStyle().MaxWidth(width).Render(body), "", footer)
+	rest := lipgloss.NewStyle().Width(width).Height(height - 6).Render(lipgloss.JoinVertical(lipgloss.Left, parts...))
 	return lipgloss.JoinVertical(lipgloss.Left, header, rest)
 }
 

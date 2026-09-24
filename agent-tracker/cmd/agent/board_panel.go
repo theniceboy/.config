@@ -283,7 +283,7 @@ func boardWSRank(ws string) int {
 	case "inbox":
 		return 5
 	case "reminders":
-		return 90
+		return -1
 	}
 	return 9
 }

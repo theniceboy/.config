@@ -434,8 +434,8 @@ func (m *boardPanelModel) rowsVisible() int {
 	if h <= 0 {
 		h = 28
 	}
-	// tab bar(1) + stats(1) + two gaps(2) + footer (may wrap at narrow widths); search costs blank+line(2)
-	budget := h - 4 - lipgloss.Height(m.renderFooter(newPaletteStyles(), w))
+	// shared header(6: tab bar, stats, ruler x2, markers x2) + gap(1) + footer; search costs blank+line(2)
+	budget := h - 7 - lipgloss.Height(m.renderFooter(newPaletteStyles(), w))
 	if m.searching {
 		budget -= 2
 	}
@@ -832,24 +832,13 @@ func (m *boardPanelModel) render(styles paletteStyles, width, height int) string
 		m.tl.width, m.tl.height = width, height
 		return m.tl.render()
 	}
-	doing, done, overdue := 0, 0, 0
 	today := time.Now().Format("2006-01-02")
-	for i := range m.items {
-		it := &m.items[i]
-		switch it.Status {
-		case "doing":
-			doing++
-		case "done":
-			done++
-		}
-		if it.Due != "" && it.Due < today && it.Status != "done" {
-			overdue++
-		}
-	}
-	statsLine := fmt.Sprintf("%d items · %d doing · %d done · %d overdue · read-only", len(m.items), doing, done, overdue)
+	m.tl.width = width
 	header := lipgloss.JoinVertical(lipgloss.Left,
-		boardTabBar(1, width, "", false, time.Now()),
-		styles.meta.Render(statsLine),
+		append([]string{
+			boardTabBar(1, width, m.tl.liveSegment(), m.tl.showAll, m.tl.today),
+			m.tl.statsLine(),
+		}, m.tl.renderRuler()...)...,
 	)
 	if m.width != width || m.height != height {
 		m.width = width
@@ -1059,8 +1048,8 @@ func (m *boardPanelModel) render(styles paletteStyles, width, height int) string
 	if searchLine != "" {
 		parts = append(parts, "", searchLine)
 	}
-	parts = append(parts, "", lipgloss.NewStyle().MaxWidth(width-2).Render(body), "", footer)
-	rest := lipgloss.NewStyle().Width(width).Height(height-2).Padding(0, 1).Render(lipgloss.JoinVertical(lipgloss.Left, parts...))
+	parts = append(parts, lipgloss.NewStyle().MaxWidth(width-2).Render(body), "", footer)
+	rest := lipgloss.NewStyle().Width(width).Height(height-6).Padding(0, 1).Render(lipgloss.JoinVertical(lipgloss.Left, parts...))
 	return lipgloss.JoinVertical(lipgloss.Left, header, rest)
 }
 

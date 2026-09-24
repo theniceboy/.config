@@ -719,7 +719,7 @@ func boardTabBar(active int, width int, live string, showAll bool, today time.Ti
 	return stBold.Render(pad(l, width-17-len(date))) + stDim.Render(date)
 }
 
-func (m tlModel) header() string {
+func (m tlModel) liveSegment() string {
 	cnt := map[string]int{}
 	for _, it := range m.items {
 		if ls := m.itemLinks(it); len(ls) > 0 {
@@ -735,7 +735,28 @@ func (m tlModel) header() string {
 	if cnt["i"] > 0 {
 		live += stDim.Render(fmt.Sprintf("  ·%d", cnt["i"]))
 	}
-	return boardTabBar(0, m.width, live, m.showAll, m.today)
+	return live
+}
+
+func (m tlModel) statsLine() string {
+	doing, done, over := 0, 0, 0
+	for i := range m.items {
+		it := &m.items[i]
+		switch it.Status {
+		case "doing":
+			doing++
+		case "done":
+			done++
+		}
+		if it.Due != nil && it.Due.Before(m.today) && it.Status != "done" {
+			over++
+		}
+	}
+	return stDim.Render(fmt.Sprintf("%d items · %d doing · %d done · %d overdue", len(m.items), doing, done, over))
+}
+
+func (m tlModel) header() string {
+	return boardTabBar(0, m.width, m.liveSegment(), m.showAll, m.today)
 }
 
 func (m tlModel) bodyWidth() int {
@@ -751,7 +772,7 @@ func (m *tlModel) render() string {
 	}
 	var body []string
 	var pre []string
-	pre = m.renderRuler()
+	pre = append([]string{m.statsLine()}, m.renderRuler()...)
 	body = m.renderTimeline()
 	if m.vscroll > 0 {
 		if m.vscroll >= len(body) {

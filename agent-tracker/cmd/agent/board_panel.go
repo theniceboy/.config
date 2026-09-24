@@ -135,7 +135,7 @@ func (m *boardPanelModel) reload() {
 	m.items = data.Items
 	m.folders = data.Folders
 	m.loadedCount = data.Count
-	m.tl.setItems(data.Items)
+	m.tl.setItems(data.Items, data.Folders)
 	m.rebuild()
 }
 
@@ -319,10 +319,13 @@ func (m *boardPanelModel) emitGroup(ws, prefix, rail string, depth int, rows *[]
 			}
 		}
 		parts := []string{}
-		for _, s := range []string{"doing", "todo", "done"} {
+		for _, s := range []string{"doing", "todo"} {
 			if counts[s] > 0 {
 				parts = append(parts, fmt.Sprintf("%d %s", counts[s], s))
 			}
+		}
+		if m.doneWS[ws] && counts["done"] > 0 {
+			parts = append(parts, fmt.Sprintf("%d done", counts["done"]))
 		}
 		if overdue > 0 {
 			parts = append(parts, fmt.Sprintf("%d overdue", overdue))
@@ -392,10 +395,13 @@ func (m *boardPanelModel) rebuild() {
 				continue
 			}
 			parts := []string{}
-			for _, s := range []string{"doing", "todo", "done"} {
+			for _, s := range []string{"doing", "todo"} {
 				if counts[s] > 0 {
 					parts = append(parts, fmt.Sprintf("%d %s", counts[s], s))
 				}
+			}
+			if m.doneWS[ws] && counts["done"] > 0 {
+				parts = append(parts, fmt.Sprintf("%d done", counts["done"]))
 			}
 			if overdue > 0 {
 				parts = append(parts, fmt.Sprintf("%d overdue", overdue))
@@ -434,8 +440,8 @@ func (m *boardPanelModel) rowsVisible() int {
 	if h <= 0 {
 		h = 28
 	}
-	// shared header(6: tab bar, stats, ruler x2, markers x2) + gap(1) + footer; search costs blank+line(2)
-	budget := h - 7 - lipgloss.Height(m.renderFooter(newPaletteStyles(), w))
+	// shared header(2: tab bar, stats) + gap(1) + footer; search costs blank+line(2)
+	budget := h - 3 - lipgloss.Height(m.renderFooter(newPaletteStyles(), w))
 	if m.searching {
 		budget -= 2
 	}
@@ -832,13 +838,9 @@ func (m *boardPanelModel) render(styles paletteStyles, width, height int) string
 		m.tl.width, m.tl.height = width, height
 		return m.tl.render()
 	}
-	today := time.Now().Format("2006-01-02")
-	m.tl.width = width
 	header := lipgloss.JoinVertical(lipgloss.Left,
-		append([]string{
-			boardTabBar(1, width, m.tl.liveSegment(), m.tl.showAll, m.tl.today),
-			m.tl.statsLine(),
-		}, m.tl.renderRuler()...)...,
+		boardTabBar(1, width, m.tl.liveSegment(), m.tl.showAll, m.tl.today),
+		m.tl.statsLine(),
 	)
 	if m.width != width || m.height != height {
 		m.width = width
@@ -937,28 +939,7 @@ func (m *boardPanelModel) render(styles paletteStyles, width, height int) string
 			if it.Status == "done" {
 				titleStyle = styles.panelTextDone
 			}
-			prioStyle := lipgloss.NewStyle()
-			prio := ""
-			if it.Prio == "urgent" || it.Prio == "high" {
-				prioColor := "180"
-				if it.Prio == "urgent" {
-					prioColor = "203"
-				}
-				prioStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(prioColor)).Bold(true)
-				prio = "⚑ "
-			}
-			dueStyle := lipgloss.NewStyle()
-			due := ""
-			if it.Due != "" && it.Status != "done" {
-				if it.Due < today {
-					dueStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("203"))
-					due = " ‼" + it.Due
-				} else {
-					dueStyle = styles.meta
-					due = " ·" + it.Due
-				}
-			}
-			used := lipgloss.Width(prefix) + lipgloss.Width(glyph) + 1 + lipgloss.Width(prio) + lipgloss.Width(due) + 2
+			used := lipgloss.Width(prefix) + lipgloss.Width(glyph) + 1 + 2
 			title := truncate(it.Title, maxInt(4, leftW-used))
 			rowStyle := titleStyle
 			if selected {
@@ -966,13 +947,10 @@ func (m *boardPanelModel) render(styles paletteStyles, width, height int) string
 				// otherwise punch holes in the highlight bar
 				bg := styles.selectedItem.GetBackground()
 				glyphStyle = glyphStyle.Background(bg)
-				prioStyle = prioStyle.Background(bg)
-				dueStyle = dueStyle.Background(bg)
 				branchStyle = branchStyle.Background(bg)
 				rowStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("230")).Background(bg)
 			}
-			plain := branchStyle.Render(prefix) + glyphStyle.Render(glyph+" ") + prioStyle.Render(prio) +
-				rowStyle.Render(title) + dueStyle.Render(due)
+			plain := branchStyle.Render(prefix) + glyphStyle.Render(glyph+" ") + rowStyle.Render(title)
 			if selected {
 				leftAll = append(leftAll, selStyle.Width(leftW).Render(plain))
 			} else {
@@ -1049,7 +1027,7 @@ func (m *boardPanelModel) render(styles paletteStyles, width, height int) string
 		parts = append(parts, "", searchLine)
 	}
 	parts = append(parts, lipgloss.NewStyle().MaxWidth(width-2).Render(body), "", footer)
-	rest := lipgloss.NewStyle().Width(width).Height(height-6).Padding(0, 1).Render(lipgloss.JoinVertical(lipgloss.Left, parts...))
+	rest := lipgloss.NewStyle().Width(width).Height(height-2).Padding(0, 1).Render(lipgloss.JoinVertical(lipgloss.Left, parts...))
 	return lipgloss.JoinVertical(lipgloss.Left, header, rest)
 }
 

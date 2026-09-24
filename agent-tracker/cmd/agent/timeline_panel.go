@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -41,6 +42,7 @@ type tlItem struct {
 	ID     string
 	Title  string
 	Desc   string
+	Order  int
 	Stream string
 	Folder string
 	Status string
@@ -94,43 +96,44 @@ func (d *tlItem) slide(dd int) {
 }
 
 type tlModel struct {
-	items      []tlItem
-	streams    []string
-	selID      string
-	origin     time.Time
-	today      time.Time
-	editing    bool
-	typing     bool
-	focus      int
-	draft      tlItem
-	input      string
-	msg        string
-	calOpen    bool
-	calMonth   time.Time
-	calSel     time.Time
-	vscroll    int
-	showAll    bool
-	pickOpen   bool
-	pickIdx    int
-	dateMode   bool
-	dateID     string
-	collapsed  map[string]bool
-	showDone   bool
-	find       string
-	findMode   bool
-	sesPane    map[string]string
-	tasks      map[string]liveTask
-	paneWin    map[string]winInfo
-	jumpOpen   bool
-	jumpIdx    int
-	lastPoll   time.Time
-	orig       tlItem
-	back       bool
-	wantReload bool
-	dStart     *time.Time
-	dDue       *time.Time
-	width      int
-	height     int
+	items       []tlItem
+	streams     []string
+	selID       string
+	origin      time.Time
+	today       time.Time
+	editing     bool
+	typing      bool
+	focus       int
+	draft       tlItem
+	input       string
+	msg         string
+	calOpen     bool
+	calMonth    time.Time
+	calSel      time.Time
+	vscroll     int
+	showAll     bool
+	pickOpen    bool
+	pickIdx     int
+	dateMode    bool
+	dateID      string
+	collapsed   map[string]bool
+	folderOrder map[string]int
+	showDone    bool
+	find        string
+	findMode    bool
+	sesPane     map[string]string
+	tasks       map[string]liveTask
+	paneWin     map[string]winInfo
+	jumpOpen    bool
+	jumpIdx     int
+	lastPoll    time.Time
+	orig        tlItem
+	back        bool
+	wantReload  bool
+	dStart      *time.Time
+	dDue        *time.Time
+	width       int
+	height      int
 }
 
 var (
@@ -1318,26 +1321,68 @@ func (m tlModel) rows() []tlRow {
 		}
 		var walk func(nd *fnode, path, rail string, depth int)
 		walk = func(nd *fnode, path, rail string, depth int) {
-			for idx, it := range nd.items {
-				last := idx == len(nd.items)-1 && len(nd.order) == 0
-				out = append(out, tlRow{kind: 2, depth: depth, branch: boardBranch(rail, last), it: it})
+			type tlKid struct {
+				order int
+				it    *tlItem
+				label string
+				node  *fnode
 			}
-			for fi, c := range nd.order {
-				k := nd.kids[c]
-				last := fi == len(nd.order)-1
-				childRail := rail + "   "
-				if !last {
-					childRail = rail + "│  "
-				}
+			kids := make([]tlKid, 0, len(nd.items)+len(nd.order))
+			for _, it := range nd.items {
+				kids = append(kids, tlKid{order: it.Order, it: it})
+			}
+			for _, c := range nd.order {
 				fpath := c
 				if path != "" {
 					fpath = path + "/" + c
 				}
+				kids = append(kids, tlKid{order: m.folderOrder[tlFoldKey(s, fpath)], label: c, node: nd.kids[c]})
+			}
+			kidLess := func(a, b tlKid) bool {
+				if a.order != b.order {
+					if a.order == 0 {
+						return false
+					}
+					if b.order == 0 {
+						return true
+					}
+					return a.order < b.order
+				}
+				if (a.it == nil) != (b.it == nil) {
+					return a.it != nil
+				}
+				if a.it != nil {
+					if boardStatusRank(a.it.Status) != boardStatusRank(b.it.Status) {
+						return boardStatusRank(a.it.Status) < boardStatusRank(b.it.Status)
+					}
+					if boardPrioRank(a.it.Prio) != boardPrioRank(b.it.Prio) {
+						return boardPrioRank(a.it.Prio) < boardPrioRank(b.it.Prio)
+					}
+					return a.it.ID < b.it.ID
+				}
+				return a.label < b.label
+			}
+			sort.SliceStable(kids, func(i, j int) bool { return kidLess(kids[i], kids[j]) })
+			for i, k := range kids {
+				last := i == len(kids)-1
+				br := boardBranch(rail, last)
+				if k.it != nil {
+					out = append(out, tlRow{kind: 2, depth: depth, branch: br, it: k.it})
+					continue
+				}
+				childRail := rail + "   "
+				if !last {
+					childRail = rail + "│  "
+				}
+				fpath := k.label
+				if path != "" {
+					fpath = path + "/" + k.label
+				}
 				fk := tlFoldKey(s, fpath)
-				out = append(out, tlRow{kind: 1, depth: depth + 1, label: c,
-					branch: boardBranch(rail, last), counts: m.tlCountsFor(s, fpath), foldKey: fk})
+				out = append(out, tlRow{kind: 1, depth: depth + 1, label: k.label,
+					branch: br, counts: m.tlCountsFor(s, fpath), foldKey: fk})
 				if !m.collapsed[fk] {
-					walk(k, fpath, childRail, depth+1)
+					walk(k.node, fpath, childRail, depth+1)
 				}
 			}
 		}
@@ -1518,13 +1563,13 @@ func boardRun(args ...string) ([]byte, error) {
 }
 
 func newTLModel() *tlModel {
-	m := &tlModel{width: 120, height: 40, selID: tlLoadSel(), collapsed: map[string]bool{}}
+	m := &tlModel{width: 120, height: 40, selID: tlLoadSel(), collapsed: map[string]bool{}, folderOrder: map[string]int{}}
 	return m
 }
 
 var tlSesRe = regexp.MustCompile(`ses_[A-Za-z0-9]{16,}`)
 
-func (m *tlModel) setItems(items []boardItem) {
+func (m *tlModel) setItems(items []boardItem, folders []boardFolder) {
 	today := dateOnly(time.Now())
 	m.today = today
 	if m.origin.IsZero() {
@@ -1534,7 +1579,7 @@ func (m *tlModel) setItems(items []boardItem) {
 	for _, b := range items {
 		it := tlItem{ID: b.ID, Title: b.Title, Desc: b.Body, Stream: b.Workstream,
 			Folder: strings.Join(b.Folders, "/"), Status: b.Status, Prio: b.Prio, Owner: b.Owner,
-			Ses: sesListFrom(tlSesRe.FindString(b.Body))}
+			Order: b.Order, Ses: sesListFrom(tlSesRe.FindString(b.Body))}
 		if s := b.Start; s != "" && s != "-" {
 			if t, err := time.ParseInLocation("2006-01-02", s, today.Location()); err == nil {
 				it.Start = &t
@@ -1548,24 +1593,26 @@ func (m *tlModel) setItems(items []boardItem) {
 		out = append(out, it)
 	}
 	m.items = out
-	pref := []string{"life", "projecttwo", "projectone", "hq", "devtools"}
 	seen := map[string]bool{}
 	streams := []string{}
-	for _, s := range pref {
-		for _, it := range out {
-			if it.Stream == s && !seen[s] {
-				seen[s] = true
-				streams = append(streams, s)
-			}
-		}
-	}
 	for _, it := range out {
 		if !seen[it.Stream] {
 			seen[it.Stream] = true
 			streams = append(streams, it.Stream)
 		}
 	}
+	sort.SliceStable(streams, func(i, j int) bool {
+		ri, rj := boardWSRank(streams[i]), boardWSRank(streams[j])
+		if ri != rj {
+			return ri < rj
+		}
+		return streams[i] < streams[j]
+	})
 	m.streams = streams
+	m.folderOrder = map[string]int{}
+	for _, f := range folders {
+		m.folderOrder[tlFoldKey(f.Workstream, f.Path)] = f.Order
+	}
 	if m.selID != "" {
 		for _, it := range out {
 			if it.ID == m.selID {

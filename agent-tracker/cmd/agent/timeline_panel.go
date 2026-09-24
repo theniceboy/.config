@@ -114,6 +114,10 @@ type tlModel struct {
 	pickIdx    int
 	dateMode   bool
 	dateID     string
+	collapsed  map[string]bool
+	showDone   bool
+	find       string
+	findMode   bool
 	sesPane    map[string]string
 	tasks      map[string]liveTask
 	paneWin    map[string]winInfo
@@ -648,6 +652,17 @@ func (m tlModel) selRow() int {
 }
 
 func (m *tlModel) followSel(delta int) {
+	if ids := m.order(); len(ids) > 0 {
+		found := false
+		for _, id := range ids {
+			if id == m.selID {
+				found = true
+			}
+		}
+		if !found {
+			m.selID = ids[0]
+		}
+	}
 	row := m.selRow()
 	vis := m.height - 8
 	if vis < 1 {
@@ -863,10 +878,17 @@ func (m tlModel) footer() string {
 	if m.msg != "" {
 		msg = stOverdue.Render("  ⚠ " + m.msg)
 	}
-	help := " u/e sel · ,/. ±5 rows · ctrl+u/e pg · n/i scroll days · t today · a all · L live · m jump · Enter edit · d dates · q quit"
+	help := " u/e sel · ,/. ±5 · ctrl+u/e pg · n/i days · t today · a all · f fold · D done · / find · L live · m jump · Enter edit · d dates · q quit"
 	if m.dateMode {
 		dat = stToday.Render("DATE ") + dat
 		help = " n/i scroll · N/I move block · [ ] extend · { } shrink · c commit · Esc cancel"
+	}
+	if m.findMode || m.find != "" {
+		cur := "▏"
+		if !m.findMode {
+			cur = ""
+		}
+		help = stActive.Render("find ") + m.find + cur + stDim.Render("  (enter keep · esc clear)")
 	}
 	help = lipgloss.NewStyle().MaxWidth(m.width).Render(stDim.Render(help))
 	head := ""
@@ -1160,10 +1182,78 @@ func fmtID(id string) string {
 }
 
 type tlRow struct {
-	kind  int // 0 stream header, 1 folder header, 2 item
-	depth int
-	label string
-	it    *tlItem
+	kind    int // 0 stream header, 1 folder header, 2 item
+	depth   int
+	label   string
+	branch  string
+	counts  string
+	foldKey string
+	it      *tlItem
+}
+
+func tlFoldKey(ws, path string) string { return ws + "|" + path }
+
+func (m tlModel) itemShown(it *tlItem) bool {
+	if m.find != "" {
+		return strings.Contains(strings.ToLower(it.Title), strings.ToLower(m.find)) && (it.Status != "done" || m.showDone)
+	}
+	if it.Status == "done" {
+		return m.showDone || len(m.itemLinks(*it)) > 0
+	}
+	return m.tlVisible(*it)
+}
+
+// counts over the subtree rooted at path ("" = whole workstream)
+func (m tlModel) tlCountsFor(ws, path string) string {
+	doing, todo, done, over := 0, 0, 0, 0
+	for i := range m.items {
+		it := &m.items[i]
+		if it.Stream != ws {
+			continue
+		}
+		if path != "" && !strings.HasPrefix(it.Folder+"/", path+"/") {
+			continue
+		}
+		switch it.Status {
+		case "doing":
+			doing++
+		case "todo":
+			todo++
+		case "done":
+			done++
+		}
+		if it.Due != nil && it.Due.Before(m.today) && it.Status != "done" {
+			over++
+		}
+	}
+	parts := []string{}
+	if doing > 0 {
+		parts = append(parts, fmt.Sprintf("%d doing", doing))
+	}
+	if todo > 0 {
+		parts = append(parts, fmt.Sprintf("%d todo", todo))
+	}
+	if done > 0 && m.showDone {
+		parts = append(parts, fmt.Sprintf("%d done", done))
+	}
+	if over > 0 {
+		parts = append(parts, fmt.Sprintf("%d overdue", over))
+	}
+	return strings.Join(parts, " · ")
+}
+
+func (m tlModel) curFoldKey() (string, bool) {
+	rows := m.rows()
+	for i, r := range rows {
+		if r.kind == 2 && r.it.ID == m.selID {
+			for j := i - 1; j >= 0; j-- {
+				if rows[j].kind != 2 {
+					return rows[j].foldKey, true
+				}
+			}
+		}
+	}
+	return "", false
 }
 
 // rows builds the canonical display tree: stream header, then folder
@@ -1181,7 +1271,7 @@ func (m tlModel) rows() []tlRow {
 		count := 0
 		for i := range m.items {
 			it := &m.items[i]
-			if it.Stream != s || !m.tlVisible(*it) {
+			if it.Stream != s || !m.itemShown(it) {
 				continue
 			}
 			count++
@@ -1200,19 +1290,37 @@ func (m tlModel) rows() []tlRow {
 		if count == 0 {
 			continue
 		}
-		out = append(out, tlRow{kind: 0, label: s})
-		var walk func(nd *fnode, depth int)
-		walk = func(nd *fnode, depth int) {
-			for _, it := range nd.items {
-				out = append(out, tlRow{kind: 2, depth: depth, it: it})
+		wsKey := tlFoldKey(s, "")
+		out = append(out, tlRow{kind: 0, label: s, counts: m.tlCountsFor(s, ""), foldKey: wsKey})
+		if m.collapsed[wsKey] {
+			continue
+		}
+		var walk func(nd *fnode, path, rail string, depth int)
+		walk = func(nd *fnode, path, rail string, depth int) {
+			for idx, it := range nd.items {
+				last := idx == len(nd.items)-1 && len(nd.order) == 0
+				out = append(out, tlRow{kind: 2, depth: depth, branch: boardBranch(rail, last), it: it})
 			}
-			for _, c := range nd.order {
+			for fi, c := range nd.order {
 				k := nd.kids[c]
-				out = append(out, tlRow{kind: 1, depth: depth + 1, label: c})
-				walk(k, depth+1)
+				last := fi == len(nd.order)-1
+				childRail := rail + "   "
+				if !last {
+					childRail = rail + "│  "
+				}
+				fpath := c
+				if path != "" {
+					fpath = path + "/" + c
+				}
+				fk := tlFoldKey(s, fpath)
+				out = append(out, tlRow{kind: 1, depth: depth + 1, label: c,
+					branch: boardBranch(rail, last), counts: m.tlCountsFor(s, fpath), foldKey: fk})
+				if !m.collapsed[fk] {
+					walk(k, fpath, childRail, depth+1)
+				}
 			}
 		}
-		walk(root, 0)
+		walk(root, "", "", 0)
 	}
 	return out
 }
@@ -1225,7 +1333,11 @@ func (m tlModel) renderTimeline() []string {
 	var L []string
 	for _, r := range m.rows() {
 		if r.kind == 0 {
-			hdr := " " + stBold.Render(strings.ToUpper(r.label))
+			ic := "📂"
+			if m.collapsed[r.foldKey] {
+				ic = "📁"
+			}
+			hdr := " " + ic + " " + stBold.Render(strings.ToUpper(r.label)) + "  " + stDim.Render(r.counts)
 			if col, ok := m.todayCol(); ok {
 				hdr = pad(hdr, col) + stToday.Render("│")
 			}
@@ -1233,7 +1345,12 @@ func (m tlModel) renderTimeline() []string {
 			continue
 		}
 		if r.kind == 1 {
-			sub := strings.Repeat(" ", 1+2*r.depth) + stDim.Render(strings.ToUpper(r.label)+" ▼")
+			ic := "📂"
+			if m.collapsed[r.foldKey] {
+				ic = "📁"
+			}
+			name := strings.ToUpper(strings.ReplaceAll(r.label, "-", " "))
+			sub := " " + r.branch + ic + " " + stDim.Render(name) + "  " + stDim.Render(r.counts)
 			if col, ok := m.todayCol(); ok {
 				sub = pad(sub, col) + stToday.Render("│")
 			}
@@ -1242,39 +1359,28 @@ func (m tlModel) renderTimeline() []string {
 		}
 		{
 			it := *r.it
-			ind := strings.Repeat(" ", 3+2*r.depth)
 			sel := it.ID == m.selID
-			idTxt := fmtID(it.ID)
-			mark := "  "
+			glyph, gcol := boardStatusGlyph(it.Status)
+			gSty := lipgloss.NewStyle().Foreground(lipgloss.Color(gcol))
 			if ls := m.itemLinks(it); len(ls) > 0 {
 				st := linkState(*bestLink(ls))
-				sty := map[string]lipgloss.Style{"q": stOverdue, "w": stWork, "n": stSoon, "i": stDim}[st]
-				ch := "•"
-				if sel {
-					ch = "▶"
-				}
-				mark = sty.Render(ch) + " "
-			} else if sel {
-				mark = "▶ "
+				gSty = map[string]lipgloss.Style{"q": stOverdue, "w": stWork, "n": stSoon, "i": stDim}[st]
 			}
-			tw := labelW + 1 - (3 + 2*r.depth) - 10
-			if tw > 24 {
-				tw = 24
+			tw := labelW - lipgloss.Width(r.branch) - 2
+			if tw > 30 {
+				tw = 30
 			}
 			if tw < 8 {
 				tw = 8
 			}
 			titTxt := trunc(it.Title, tw)
-			if it.Due != nil && it.Due.Before(m.today) {
-				st := stOverdue
-				if sel {
-					st = st.Bold(true)
-				}
-				idTxt = st.Render(idTxt)
-				titTxt = st.Render(titTxt)
-			} else if sel {
+			if sel {
 				titTxt = stBold.Render(titTxt)
+			} else if it.Status == "done" {
+				titTxt = stDim.Render(titTxt)
 			}
+			glTxt := gSty.Render(glyph) + " "
+			pfx := " " + r.branch
 			grid := ""
 			ghost := m.dateMode && it.ID == m.dateID
 			lo, hi := it.Start, it.Due
@@ -1343,8 +1449,8 @@ func (m tlModel) renderTimeline() []string {
 				ahead := int(lo.Sub(m.today).Hours() / 24)
 				grid += selWrap(sel, stSoon.Render(fmt.Sprintf(" ▶ +%dd", ahead)))
 			}
-			rowLab := selWrap(sel, ind) + selWrap(sel, mark) + selWrap(sel, idTxt) + selWrap(sel, titTxt)
-			gap := labelW + 1 - lipgloss.Width(ind+mark+idTxt+titTxt)
+			rowLab := selWrap(sel, pfx) + selWrap(sel, glTxt) + selWrap(sel, titTxt)
+			gap := labelW + 1 - lipgloss.Width(" "+r.branch+glyph+" "+titTxt)
 			if gap < 0 {
 				gap = 0
 			}
@@ -1358,6 +1464,8 @@ func (m tlModel) renderTimeline() []string {
 func barStyle(it tlItem, today time.Time, sel bool) lipgloss.Style {
 	var base lipgloss.Style
 	switch {
+	case it.Status == "done":
+		base = stDim
 	case it.Due != nil && it.Due.Before(today):
 		base = stOverdue
 	case (it.Start != nil && !it.Start.After(today)) || it.Status == "doing":
@@ -1389,7 +1497,7 @@ func boardRun(args ...string) ([]byte, error) {
 }
 
 func newTLModel() *tlModel {
-	m := &tlModel{width: 120, height: 40, selID: tlLoadSel()}
+	m := &tlModel{width: 120, height: 40, selID: tlLoadSel(), collapsed: map[string]bool{}}
 	return m
 }
 
@@ -1403,9 +1511,6 @@ func (m *tlModel) setItems(items []boardItem) {
 	}
 	out := make([]tlItem, 0, len(items))
 	for _, b := range items {
-		if b.Status == "done" {
-			continue
-		}
 		it := tlItem{ID: b.ID, Title: b.Title, Desc: b.Body, Stream: b.Workstream,
 			Folder: strings.Join(b.Folders, "/"), Status: b.Status, Prio: b.Prio, Owner: b.Owner,
 			Ses: sesListFrom(tlSesRe.FindString(b.Body))}
@@ -1653,6 +1758,25 @@ func (m *tlModel) keyTlk(k string, r []rune) tea.Cmd {
 		}
 		return nil
 	}
+	if m.findMode {
+		switch k {
+		case "esc":
+			m.findMode, m.find = false, ""
+		case "enter":
+			m.findMode = false
+		case "backspace":
+			rs := []rune(m.find)
+			if len(rs) > 0 {
+				m.find = string(rs[:len(rs)-1])
+			}
+		default:
+			if len(r) == 1 && r[0] >= 32 {
+				m.find += string(r)
+			}
+		}
+		m.followSel(0)
+		return nil
+	}
 	m.msg = ""
 	switch k {
 	case "esc":
@@ -1715,6 +1839,20 @@ func (m *tlModel) keyTlk(k string, r []rune) tea.Cmd {
 	case "a":
 		m.showAll = !m.showAll
 		m.followSel(0)
+	case "f":
+		if key, ok := m.curFoldKey(); ok {
+			if m.collapsed[key] {
+				delete(m.collapsed, key)
+			} else {
+				m.collapsed[key] = true
+			}
+			m.followSel(0)
+		}
+	case "D":
+		m.showDone = !m.showDone
+		m.followSel(0)
+	case "/":
+		m.findMode = true
 	case "enter":
 		if it := m.selItem(); it != nil {
 			m.draft, m.orig = *it, *it

@@ -244,8 +244,10 @@ func (m *llmQuotaPanelModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.moveAccountCmd(-1)
 		case "d":
 			return m, m.toggleAccountCmd()
-		case "s":
-			return m, m.cycleStrategyCmd()
+		case "enter":
+			if m.interactive(m.cursor) && m.rows[m.cursor].kind == llmQuotaRowHeader {
+				return m, m.cycleStrategyCmd()
+			}
 		}
 	}
 	return m, nil
@@ -419,7 +421,7 @@ func (m *llmQuotaPanelModel) renderProviderHeader(styles paletteStyles, provider
 		caret = styles.selectedLabel.Render("❯ ")
 	}
 	left := caret + styles.panelTitle.Render(name) + "  " + badge
-	right := styles.muted.Render(fmt.Sprintf("%d/%d on · s switch", enabledCount, len(accounts)))
+	right := styles.muted.Render(fmt.Sprintf("%d/%d on · ⏎ switch", enabledCount, len(accounts)))
 	pad := width - lipgloss.Width(left) - lipgloss.Width(right)
 	if pad > 0 {
 		left += strings.Repeat(" ", pad) + right
@@ -640,8 +642,8 @@ func (m *llmQuotaPanelModel) renderFooter(styles paletteStyles, width int) strin
 	pairs := [][2]string{
 		{"u/e", "select"},
 		{"U/E", "order"},
+		{"⏎", "strategy"},
 		{"d", "on/off"},
-		{"s", "strategy"},
 		{"r", "refresh"},
 		{"Esc", "back"},
 		{footerHintToggleKey, "more"},

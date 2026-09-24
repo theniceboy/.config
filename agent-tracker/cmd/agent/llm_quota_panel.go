@@ -319,7 +319,7 @@ func (m *llmQuotaPanelModel) renderRow(styles paletteStyles, index, width int) [
 			}
 			return m.renderAccountWindows(styles, &account, width, 0)
 		}
-		return []string{styles.muted.Render("—")}
+		return []string{""}
 	}
 }
 
@@ -364,6 +364,9 @@ func (m *llmQuotaPanelModel) providerMode(provider string) string {
 
 func (m *llmQuotaPanelModel) renderProviderHeader(styles paletteStyles, provider string, selected bool, width int) string {
 	name := m.providerTitle(provider)
+	if provider == "zai" {
+		return styles.panelTitle.Render("  " + name) + "  " + styles.muted.Render("API key · no routing")
+	}
 	mode := m.providerMode(provider)
 	accounts := m.providerAccounts(provider)
 	badge := styles.keyword.Render("drain ⇅")

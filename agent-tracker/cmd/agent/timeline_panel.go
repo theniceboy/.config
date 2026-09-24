@@ -690,11 +690,11 @@ func pad(s string, w int) string {
 }
 
 func boardTabBar(active int, width int, live string, showAll bool, today time.Time) string {
-	l := " board   "
+	l := " Board   "
 	if active == 0 {
-		l += "● timeline   ○ tree"
+		l += "● Timeline   ○ Tree"
 	} else {
-		l += "○ timeline   ● tree"
+		l += "○ Timeline   ● Tree"
 	}
 	if showAll {
 		l += "   [all]"

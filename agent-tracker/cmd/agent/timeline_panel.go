@@ -1257,7 +1257,7 @@ func (m tlModel) renderTimeline() []string {
 			} else if sel {
 				mark = "▶ "
 			}
-			tw := labelW - (3 + 2*r.depth) - 10
+			tw := labelW + 1 - (3 + 2*r.depth) - 10
 			if tw > 24 {
 				tw = 24
 			}
@@ -1344,7 +1344,7 @@ func (m tlModel) renderTimeline() []string {
 				grid += selWrap(sel, stSoon.Render(fmt.Sprintf(" ▶ +%dd", ahead)))
 			}
 			rowLab := selWrap(sel, ind) + selWrap(sel, mark) + selWrap(sel, idTxt) + selWrap(sel, titTxt)
-			gap := labelW - lipgloss.Width(ind+mark+idTxt+titTxt)
+			gap := labelW + 1 - lipgloss.Width(ind+mark+idTxt+titTxt)
 			if gap < 0 {
 				gap = 0
 			}

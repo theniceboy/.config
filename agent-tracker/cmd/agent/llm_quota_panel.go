@@ -229,7 +229,7 @@ func (m *llmQuotaPanelModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.requestRoutingRefreshCmd()
 		}
 	case llmQuotaSpinnerTickMsg:
-		if m.mutationInFlight {
+		if m.mutationInFlight || m.refreshInFlight {
 			m.spinnerFrame++
 			return m, func() tea.Msg {
 				time.Sleep(120 * time.Millisecond)
@@ -246,7 +246,7 @@ func (m *llmQuotaPanelModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "esc", "ctrl+c":
 			m.requestBack = true
 		}
-		if m.mutationInFlight {
+		if m.mutationInFlight || m.refreshInFlight {
 			return m, nil
 		}
 		switch msg.String() {
@@ -293,8 +293,8 @@ func (m *llmQuotaPanelModel) render(styles paletteStyles, width, height int) str
 		title = title + strings.Repeat(" ", pad) + styles.muted.Render(meta)
 	}
 	body := ""
-	if !m.loaded {
-		body = styles.muted.Render("Loading provider quotas...")
+	if !m.loaded || m.mutationInFlight || m.refreshInFlight {
+		body = m.renderBlockingOverlay(styles, contentWidth, height-lipgloss.Height(title)-2)
 	} else {
 		lines := make([]string, 0, len(m.rows)*2)
 		for i := range m.rows {
@@ -309,6 +309,21 @@ func (m *llmQuotaPanelModel) render(styles paletteStyles, width, height int) str
 	}
 	view := lipgloss.JoinVertical(lipgloss.Left, title, "", body, "", footer)
 	return lipgloss.NewStyle().Width(width).Height(height).Padding(0, 1).Render(view)
+}
+
+func (m *llmQuotaPanelModel) renderBlockingOverlay(styles paletteStyles, width, height int) string {
+	label := "loading quotas…"
+	if m.mutationInFlight {
+		label = "applying routing change…"
+	} else if m.refreshInFlight {
+		label = "refreshing quotas…"
+	}
+	block := lipgloss.JoinVertical(lipgloss.Center,
+		styles.itemTitle.Render(m.spinner()),
+		"",
+		styles.muted.Render(label),
+	)
+	return lipgloss.Place(width, maxInt(3, height), lipgloss.Center, lipgloss.Center, block)
 }
 
 func (m *llmQuotaPanelModel) renderRow(styles paletteStyles, index, width int) []string {
@@ -672,9 +687,9 @@ func (m *llmQuotaPanelModel) renderFooter(styles paletteStyles, width int) strin
 	footer := renderShortcutPairs(func(v string) string { return styles.shortcutKey.Render(v) }, func(v string) string { return styles.shortcutText.Render(v) }, "   ", pairs)
 	left := ""
 	if m.mutationInFlight {
-		left = styles.footer.Render(m.spinner() + " applying — controls paused")
+		left = styles.footer.Render("applying — controls paused")
 	} else if m.refreshInFlight {
-		left = styles.footer.Render("Refreshing...")
+		left = styles.footer.Render("refreshing — controls paused")
 	} else if strings.TrimSpace(m.message) != "" {
 		left = styles.statusBad.Render(truncate(m.message, maxInt(20, width-lipgloss.Width(footer)-3)))
 	} else if !m.snapshot.FetchedAt.IsZero() {
@@ -771,13 +786,19 @@ func (m *llmQuotaPanelModel) requestRefreshCmd(force bool) tea.Cmd {
 		return nil
 	}
 	m.refreshInFlight = true
+	m.spinnerFrame = 0
 	if m.loaded {
 		m.message = ""
 	}
-	return func() tea.Msg {
+	refresh := func() tea.Msg {
 		snapshot, err := fetchLLMQuotaSnapshot(force)
 		return llmQuotaResultMsg{snapshot: snapshot, err: err}
 	}
+	tick := func() tea.Msg {
+		time.Sleep(120 * time.Millisecond)
+		return llmQuotaSpinnerTickMsg{}
+	}
+	return tea.Batch(refresh, tick)
 }
 
 func (m *llmQuotaPanelModel) requestRoutingRefreshCmd() tea.Cmd {

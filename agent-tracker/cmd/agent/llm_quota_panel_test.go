@@ -57,11 +57,13 @@ func TestSortQuotaAccounts(t *testing.T) {
 
 func TestShortWindowLabel(t *testing.T) {
 	cases := map[string]string{
-		"5-hour":       "5h",
-		"weekly":       "wk",
-		"monthly":      "mo",
+		"5-hour":        "5h",
+		"weekly":        "wk",
+		"monthly":       "mo",
 		"Review 5-hour": "rev 5h",
-		"Code weekly":  "wk",
+		"Code weekly":   "wk",
+		"Coding 5-hour": "5h",
+		"Coding weekly": "wk",
 	}
 	for input, want := range cases {
 		if got := shortWindowLabel(input); got != want {

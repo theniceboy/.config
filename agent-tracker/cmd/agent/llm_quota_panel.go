@@ -313,14 +313,48 @@ func (m *llmQuotaPanelModel) renderRow(styles paletteStyles, index, width int) [
 			if m.snapshot.ZAI.Error != "" {
 				return []string{styles.statusBad.Render(truncate(m.snapshot.ZAI.Error, width))}
 			}
-			account := quotaAccount{Label: "Coding", Windows: m.snapshot.ZAI.Windows}
-			if len(account.Windows) == 0 {
-				return []string{styles.muted.Render("No quota windows returned")}
+			if len(m.snapshot.ZAI.Windows) == 0 {
+				return []string{styles.muted.Render("no quota windows returned")}
 			}
-			return m.renderAccountWindows(styles, &account, width, 0)
+			account := quotaAccount{Label: "Coding", Windows: m.snapshot.ZAI.Windows}
+			prefix := "  " + styles.muted.Render("∙ ") + " " +
+				styles.itemTitle.Render(fitCell("Coding", quotaColLabel)) + " " +
+				styles.panelTextDone.Render("●") + " " + strings.Repeat(" ", quotaColPlan+1)
+			indent := lipgloss.Width(prefix)
+			chipLines := m.renderAccountWindows(styles, &account, maxInt(0, width-indent-1), indent)
+			lines := append([]string{prefix + " " + chipLines[0]}, chipLines[1:]...)
+			return lines
 		}
-		return []string{""}
+		return []string{renderQuotaDivider(styles, width)}
 	}
+}
+
+func renderQuotaDivider(styles paletteStyles, width int) string {
+	return lipgloss.NewStyle().Foreground(lipgloss.Color("238")).Render(strings.Repeat("─", maxInt(0, width)))
+}
+
+func fitCell(text string, width int) string {
+	if lipgloss.Width(text) <= width {
+		return text + strings.Repeat(" ", width-lipgloss.Width(text))
+	}
+	if width <= 1 {
+		return "…"
+	}
+	truncated := []rune(text)
+	for len(truncated) > 0 && lipgloss.Width(string(truncated))+1 > width {
+		truncated = truncated[:len(truncated)-1]
+	}
+	return string(truncated) + "…"
+}
+
+func quotaPosLabel(index int, spread bool) string {
+	if spread {
+		return "∙"
+	}
+	if index < 20 && index >= 0 {
+		return string(rune(0x2460 + index))
+	}
+	return fmt.Sprintf("%d", index+1)
 }
 
 func (m *llmQuotaPanelModel) providerAccounts(provider string) []quotaAccount {
@@ -363,89 +397,89 @@ func (m *llmQuotaPanelModel) providerMode(provider string) string {
 }
 
 func (m *llmQuotaPanelModel) renderProviderHeader(styles paletteStyles, provider string, selected bool, width int) string {
-	name := m.providerTitle(provider)
 	if provider == "zai" {
-		return styles.panelTitle.Render("  " + name) + "  " + styles.muted.Render("API key · no routing")
+		line := "  " + styles.panelTitle.Render(m.providerTitle(provider)) + "  " + styles.muted.Render("api key · no routing")
+		return fitCell(line, width)
 	}
+	name := m.providerTitle(provider)
 	mode := m.providerMode(provider)
 	accounts := m.providerAccounts(provider)
-	badge := styles.keyword.Render("drain ⇅")
+	badge := styles.keyword.Render(" drain ⇅ ")
 	if mode == "spread" {
-		badge = styles.todoCheckDone.Render("spread ⇄")
+		badge = styles.selectedLabel.Render(" spread ⇄ ")
 	}
-	left := name
-	if selected {
-		left = "❯ " + name
-	} else {
-		left = "  " + name
-	}
-	label := styles.panelTitle.Render(left) + "  " + badge
 	enabledCount := 0
 	for i := range accounts {
 		if !accounts[i].Disabled {
 			enabledCount++
 		}
 	}
+	caret := "  "
+	if selected {
+		caret = styles.selectedLabel.Render("❯ ")
+	}
+	left := caret + styles.panelTitle.Render(name) + "  " + badge
 	right := styles.muted.Render(fmt.Sprintf("%d/%d on · s switch", enabledCount, len(accounts)))
-	pad := width - lipgloss.Width(label) - lipgloss.Width(right) - 2
+	pad := width - lipgloss.Width(left) - lipgloss.Width(right)
 	if pad > 0 {
-		label += strings.Repeat(" ", pad) + right
+		left += strings.Repeat(" ", pad) + right
 	}
 	if selected {
-		return styles.selectedItem.Render(label)
+		return m.quotaSelStyle(styles).Render(fitCell(left, width))
 	}
-	return label
+	return fitCell(left, width)
+}
+
+func (m *llmQuotaPanelModel) quotaSelStyle(styles paletteStyles) lipgloss.Style {
+	return styles.selectedItem.Copy().Padding(0).MarginBottom(0)
 }
 
 const (
-	quotaColPos     = 4
-	quotaColLabel   = 24
-	quotaColState   = 4
-	quotaColPlan    = 6
-	quotaIndent     = quotaColPos + quotaColLabel + quotaColState + quotaColPlan + 2
+	quotaColLabel   = 26
+	quotaColPlan    = 7
 )
 
 func (m *llmQuotaPanelModel) renderAccount(styles paletteStyles, row llmQuotaRow, selected bool, width int) []string {
 	account := row.account
-	pos := m.accountPosition(row.provider, account)
-	posText := fmt.Sprintf("#%d", pos)
-	if m.providerMode(row.provider) == "spread" {
-		posText = "·"
-	}
-	stateText := "on"
+	pos := quotaPosLabel(m.accountPosition(row.provider, account)-1, m.providerMode(row.provider) == "spread")
+	stateText := "●"
 	stateStyle := styles.panelTextDone
 	if account.Disabled {
-		stateText = "off"
+		stateText = "○"
 		stateStyle = styles.statusBad
 	}
 	labelStyle := styles.itemTitle
 	if account.Disabled {
 		labelStyle = styles.muted
 	}
-	line := styles.muted.Render(fmt.Sprintf("%-*s", quotaColPos, posText)) +
-		labelStyle.Render(truncate(firstNonEmpty(account.Label, account.Name, "account"), quotaColLabel)) +
-		" " + stateStyle.Render(fmt.Sprintf("%-*s", quotaColState, stateText))
-	if account.Plan != "" {
-		line += " " + styles.keyword.Render(fmt.Sprintf("%-*s", quotaColPlan, truncate(strings.ToUpper(account.Plan), quotaColPlan)))
-	} else {
-		line += strings.Repeat(" ", quotaColPlan+1)
+	caret := "  "
+	if selected {
+		caret = styles.selectedLabel.Render("❯ ")
 	}
-	windowWidth := maxInt(0, width-quotaIndent)
+	prefix := caret + styles.muted.Render(fitCell(pos, 2)) + " " +
+		labelStyle.Render(fitCell(truncate(firstNonEmpty(account.Label, account.Name, "account"), quotaColLabel), quotaColLabel)) + " " +
+		stateStyle.Render(fitCell(stateText, 2))
+	if account.Plan != "" {
+		prefix += " " + styles.keyword.Render(fitCell(truncate(strings.ToUpper(account.Plan), quotaColPlan-2), quotaColPlan-2))
+	} else {
+		prefix += strings.Repeat(" ", quotaColPlan+1)
+	}
+	indent := lipgloss.Width(prefix)
+	windowWidth := maxInt(0, width-indent-1)
 	var lines []string
 	if len(account.Windows) == 0 && account.Error == "" {
-		line += " " + styles.muted.Render("no quota data")
+		line := prefix + " " + styles.muted.Render("no quota data")
 		lines = []string{line}
 	} else {
-		chipLines := m.renderAccountWindows(styles, account, windowWidth, quotaIndent)
-		line += " " + chipLines[0]
-		lines = append([]string{line}, chipLines[1:]...)
+		chipLines := m.renderAccountWindows(styles, account, windowWidth, indent)
+		lines = append([]string{prefix + " " + chipLines[0]}, chipLines[1:]...)
 	}
 	if account.Error != "" && !account.Disabled {
-		lines = append(lines, strings.Repeat(" ", quotaIndent)+styles.statusBad.Render(truncate(account.Error, maxInt(10, width-quotaIndent))))
+		lines = append(lines, strings.Repeat(" ", indent)+styles.statusBad.Render(truncate(account.Error, maxInt(10, width-indent))))
 	}
 	if selected {
 		for i := range lines {
-			lines[i] = styles.selectedItem.Render(lines[i])
+			lines[i] = m.quotaSelStyle(styles).Render(fitCell(lines[i], width))
 		}
 	}
 	return lines
@@ -456,44 +490,56 @@ func (m *llmQuotaPanelModel) renderAccountWindows(styles paletteStyles, account 
 		return []string{styles.muted.Render("no quota data")}
 	}
 	dim := account.Disabled
-	type chip struct{ text, label, bar, pct, reset string; free float64 }
+	labelWidth := 0
+	resetWidth := 0
+	type chip struct {
+		label, reset, pct string
+		free              float64
+	}
 	chips := make([]chip, 0, len(account.Windows))
 	for _, window := range account.Windows {
 		free := 100 - clampFloat(window.UsedPercent, 0, 100)
 		label := shortWindowLabel(window.Label)
 		reset := formatQuotaResetShort(window.ResetAt)
-		pct := fmt.Sprintf("%3.0f%%", free)
-		chips = append(chips, chip{label: label, pct: pct, reset: reset, free: free, bar: ""})
+		if w := lipgloss.Width(label); w > labelWidth {
+			labelWidth = w
+		}
+		if w := lipgloss.Width(reset); w > resetWidth {
+			resetWidth = w
+		}
+		chips = append(chips, chip{label: label, reset: reset, pct: fmt.Sprintf("%3.0f%%", free), free: free})
 	}
-	unit := len(chips[0].label) + 1 + 4 + 1 + len(chips[0].pct) + 1 + len(chips[0].reset)
 	perChip := width
 	if len(chips) > 1 {
 		perChip = (width - 2*(len(chips)-1)) / len(chips)
 	}
-	barWidth := maxInt(6, perChip-unit)
+	barWidth := maxInt(4, perChip-labelWidth-7-resetWidth)
+	if barWidth < 8 && resetWidth > 0 {
+		resetWidth = 0
+		barWidth = maxInt(4, perChip-labelWidth-6)
+	}
+	barWidth = minInt(barWidth, 40)
 	var rendered []string
 	var current strings.Builder
 	currentLen := 0
 	for i := range chips {
 		c := &chips[i]
-		bar := renderQuotaBar(c.free, barWidth)
+		barStyle := styles.panelText
 		pctStyle := styles.panelText
 		if dim {
+			barStyle = styles.muted
 			pctStyle = styles.muted
 		} else if c.free <= 10 {
+			barStyle = styles.statusBad
 			pctStyle = styles.statusBad
 		} else if c.free >= 60 {
+			barStyle = styles.todoCheckDone
 			pctStyle = styles.todoCheckDone
 		}
-		labelStyle := styles.muted
-		barStyle := styles.panelText
-		if dim {
-			barStyle = styles.muted
-		}
-		text := labelStyle.Render(fmt.Sprintf("%-*s", len(chips[0].label), c.label)) + " " +
-			barStyle.Render(bar) + " " + pctStyle.Render(c.pct)
-		if c.reset != "" {
-			text += " " + labelStyle.Render(c.reset)
+		text := styles.muted.Render(fitCell(c.label, labelWidth)) + " " +
+			barStyle.Render(renderQuotaBar(c.free, barWidth)) + " " + pctStyle.Render(c.pct)
+		if resetWidth > 0 {
+			text += " " + styles.muted.Render(fitCell(c.reset, resetWidth))
 		}
 		if currentLen > 0 && currentLen+2+lipgloss.Width(text) > width {
 			rendered = append(rendered, current.String())
@@ -528,9 +574,8 @@ func (m *llmQuotaPanelModel) accountPosition(provider string, account *quotaAcco
 
 func shortWindowLabel(label string) string {
 	short := strings.TrimSpace(label)
-	if strings.HasPrefix(short, "Code ") {
-		short = strings.TrimPrefix(short, "Code ")
-	}
+	short = strings.TrimPrefix(short, "Code ")
+	short = strings.TrimPrefix(short, "Coding ")
 	short = strings.ReplaceAll(short, "Review ", "rev ")
 	replacer := strings.NewReplacer("5-hour", "5h", "weekly", "wk", "monthly", "mo")
 	short = replacer.Replace(short)
@@ -564,10 +609,31 @@ func formatQuotaResetShort(resetAt time.Time) string {
 	return resetAt.Local().Format("Jan 2")
 }
 
+var quotaBarPartial = []string{"░", "▏", "▎", "▍", "▌", "▋", "▊", "▉"}
+
 func renderQuotaBar(remaining float64, width int) string {
 	width = maxInt(1, width)
-	filled := int((clampFloat(remaining, 0, 100)/100)*float64(width) + 0.5)
-	return "[" + strings.Repeat("=", filled) + strings.Repeat(".", width-filled) + "]"
+	total := clampFloat(remaining, 0, 100) / 100 * float64(width)
+	full := int(total)
+	var bar strings.Builder
+	for i := 0; i < width; i++ {
+		switch {
+		case i < full:
+			bar.WriteString("█")
+		case i == full:
+			idx := int((total - float64(full)) * 8)
+			if idx >= len(quotaBarPartial) {
+				bar.WriteString("█")
+			} else if idx < 0 {
+				bar.WriteString("░")
+			} else {
+				bar.WriteString(quotaBarPartial[idx])
+			}
+		default:
+			bar.WriteString("░")
+		}
+	}
+	return bar.String()
 }
 
 func (m *llmQuotaPanelModel) renderFooter(styles paletteStyles, width int) string {

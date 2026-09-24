@@ -80,7 +80,7 @@ func TestFormatQuotaResetShort(t *testing.T) {
 	if got := formatQuotaResetShort(time.Now().Add(90 * time.Minute)); got != "1h29m" && got != "1h30m" {
 		t.Fatalf("90 minutes: got %q", got)
 	}
-	if got := formatQuotaResetShort(time.Now().Add(30 * time.Hour)); got != "30h" {
+	if got := formatQuotaResetShort(time.Now().Add(30 * time.Hour)); got != "29h" && got != "30h" {
 		t.Fatalf("30 hours: got %q", got)
 	}
 	if got := formatQuotaResetShort(time.Now().Add(50 * time.Hour)); got != "2d1h" && got != "2d2h" {

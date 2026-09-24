@@ -33,6 +33,8 @@ const (
 	quotaRequestTimeout       = 18 * time.Second
 	codexQuotaRequestTimeout  = 65 * time.Second
 	llmQuotaCacheTTL          = 5 * time.Minute
+
+	llmQuotaSpreadPriority = 50
 )
 
 type llmQuotaWindow struct {
@@ -47,19 +49,23 @@ type llmQuotaProvider struct {
 }
 
 type quotaAccount struct {
-	Label   string           `json:"label"`
-	Plan    string           `json:"plan,omitempty"`
-	Windows []llmQuotaWindow `json:"windows"`
-	Error   string           `json:"error,omitempty"`
+	Label    string           `json:"label"`
+	Plan     string           `json:"plan,omitempty"`
+	Name     string           `json:"name,omitempty"`
+	Disabled bool             `json:"disabled,omitempty"`
+	Priority *int             `json:"priority,omitempty"`
+	Windows  []llmQuotaWindow `json:"windows"`
+	Error    string           `json:"error,omitempty"`
 }
 
 type llmQuotaSnapshot struct {
-	ZAI         llmQuotaProvider `json:"zai"`
-	Codex       []quotaAccount   `json:"codex"`
-	Claude      []quotaAccount   `json:"claude"`
-	CodexError  string           `json:"codex_error,omitempty"`
-	ClaudeError string           `json:"claude_error,omitempty"`
-	FetchedAt   time.Time        `json:"fetched_at"`
+	ZAI             llmQuotaProvider `json:"zai"`
+	Codex           []quotaAccount   `json:"codex"`
+	Claude          []quotaAccount   `json:"claude"`
+	CodexError      string           `json:"codex_error,omitempty"`
+	ClaudeError     string           `json:"claude_error,omitempty"`
+	RoutingStrategy string           `json:"routing_strategy,omitempty"`
+	FetchedAt       time.Time        `json:"fetched_at"`
 }
 
 type llmQuotaResultMsg struct {
@@ -67,17 +73,50 @@ type llmQuotaResultMsg struct {
 	err      error
 }
 
+type llmQuotaRouting struct {
+	Claude   []quotaAccount
+	Codex    []quotaAccount
+	Strategy string
+}
+
+type llmQuotaRoutingMsg struct {
+	routing llmQuotaRouting
+	err     error
+}
+
+type llmQuotaMutationMsg struct {
+	label string
+	err   error
+}
+
+type llmQuotaRowKind int
+
+const (
+	llmQuotaRowHeader llmQuotaRowKind = iota
+	llmQuotaRowAccount
+	llmQuotaRowStatic
+)
+
+type llmQuotaRow struct {
+	kind     llmQuotaRowKind
+	provider string
+	account  *quotaAccount
+}
+
 type llmQuotaPanelModel struct {
-	width           int
-	height          int
-	snapshot        llmQuotaSnapshot
-	loaded          bool
-	message         string
-	refreshInFlight bool
-	pendingRefresh  bool
-	pendingForce    bool
-	showAltHints    bool
-	requestBack     bool
+	width            int
+	height           int
+	snapshot         llmQuotaSnapshot
+	loaded           bool
+	message          string
+	refreshInFlight  bool
+	pendingRefresh   bool
+	pendingForce     bool
+	showAltHints     bool
+	requestBack      bool
+	rows             []llmQuotaRow
+	cursor           int
+	mutationInFlight bool
 }
 
 type cliproxyAuthFile struct {
@@ -88,6 +127,7 @@ type cliproxyAuthFile struct {
 	Name      string `json:"name"`
 	AuthIndex string `json:"auth_index"`
 	Disabled  bool   `json:"disabled"`
+	Priority  *int   `json:"priority"`
 	IDToken   struct {
 		ChatGPTAccountID string `json:"chatgpt_account_id"`
 	} `json:"id_token"`
@@ -160,12 +200,28 @@ func (m *llmQuotaPanelModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.snapshot = msg.snapshot
 			m.loaded = true
 			m.message = ""
+			m.rebuildRows()
 		}
 		if m.pendingRefresh {
 			force := m.pendingForce
 			m.pendingRefresh = false
 			m.pendingForce = false
 			return m, m.requestRefreshCmd(force)
+		}
+	case llmQuotaRoutingMsg:
+		if msg.err != nil {
+			m.message = msg.err.Error()
+		} else {
+			m.applyRouting(msg.routing)
+			m.message = ""
+		}
+	case llmQuotaMutationMsg:
+		m.mutationInFlight = false
+		if msg.err != nil {
+			m.message = msg.err.Error()
+		} else {
+			m.message = ""
+			return m, m.requestRoutingRefreshCmd()
 		}
 	case tea.KeyMsg:
 		if isAltFooterToggleKey(msg) {
@@ -178,6 +234,18 @@ func (m *llmQuotaPanelModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.requestBack = true
 		case "r":
 			return m, m.requestRefreshCmd(true)
+		case "up", "k":
+			m.moveCursor(-1)
+		case "down", "j":
+			m.moveCursor(1)
+		case "J":
+			return m, m.moveAccountCmd(1)
+		case "K":
+			return m, m.moveAccountCmd(-1)
+		case "d":
+			return m, m.toggleAccountCmd()
+		case "s":
+			return m, m.cycleStrategyCmd()
 		}
 	}
 	return m, nil
@@ -195,143 +263,302 @@ func (m *llmQuotaPanelModel) render(styles paletteStyles, width, height int) str
 		height = 28
 	}
 	contentWidth := maxInt(20, width-2)
-	header := lipgloss.JoinVertical(lipgloss.Left,
-		styles.title.Render("LLM Quotas"),
-		styles.meta.Render("Live subscription usage from Z.AI and CLIProxyAPI"),
-	)
+	title := styles.title.Render("LLM Quotas")
+	meta := "routing " + firstNonEmpty(m.snapshot.RoutingStrategy, "—")
+	if !m.snapshot.FetchedAt.IsZero() {
+		meta += " · updated " + m.snapshot.FetchedAt.Local().Format("15:04")
+	}
+	pad := contentWidth - lipgloss.Width(title) - lipgloss.Width(meta)
+	if pad > 0 {
+		title = title + strings.Repeat(" ", pad) + styles.muted.Render(meta)
+	}
 	body := ""
 	if !m.loaded {
 		body = styles.muted.Render("Loading provider quotas...")
 	} else {
-		body = lipgloss.JoinVertical(lipgloss.Left,
-			m.renderZAI(styles, contentWidth),
-			"",
-			m.renderCodex(styles, contentWidth),
-			"",
-			m.renderClaude(styles, contentWidth),
-		)
+		lines := make([]string, 0, len(m.rows)*2)
+		for i := range m.rows {
+			lines = append(lines, m.renderRow(styles, i, contentWidth)...)
+		}
+		body = strings.Join(lines, "\n")
 	}
 	footer := m.renderFooter(styles, contentWidth)
-	bodyHeight := height - lipgloss.Height(header) - lipgloss.Height(footer) - 2
+	bodyHeight := height - lipgloss.Height(title) - lipgloss.Height(footer) - 2
 	if bodyHeight > lipgloss.Height(body) {
 		body = lipgloss.NewStyle().Height(bodyHeight).Render(body)
 	}
-	view := lipgloss.JoinVertical(lipgloss.Left, header, "", body, "", footer)
+	view := lipgloss.JoinVertical(lipgloss.Left, title, "", body, "", footer)
 	return lipgloss.NewStyle().Width(width).Height(height).Padding(0, 1).Render(view)
 }
 
-func (m *llmQuotaPanelModel) renderZAI(styles paletteStyles, width int) string {
-	lines := []string{styles.panelTitle.Render("Z.AI Coding Plan")}
-	if m.snapshot.ZAI.Error != "" {
-		lines = append(lines, styles.statusBad.Render(truncate(m.snapshot.ZAI.Error, width)))
-	}
-	if len(m.snapshot.ZAI.Windows) == 0 && m.snapshot.ZAI.Error == "" {
-		lines = append(lines, styles.muted.Render("No quota windows returned"))
-	}
-	var coding []llmQuotaWindow
-	var rest []llmQuotaWindow
-	for _, window := range m.snapshot.ZAI.Windows {
-		if window.Label == "Coding 5-hour" || window.Label == "Coding weekly" {
-			coding = append(coding, window)
-		} else {
-			rest = append(rest, window)
-		}
-	}
-	if len(coding) > 0 {
-		columnWidth := maxInt(24, (width-2*(len(coding)-1))/len(coding))
-		blocks := make([]string, 0, len(coding)*2-1)
-		for idx, window := range coding {
-			if idx > 0 {
-				blocks = append(blocks, "  ")
+func (m *llmQuotaPanelModel) renderRow(styles paletteStyles, index, width int) []string {
+	row := m.rows[index]
+	selected := index == m.cursor
+	switch row.kind {
+	case llmQuotaRowHeader:
+		return []string{m.renderProviderHeader(styles, row.provider, selected, width)}
+	case llmQuotaRowAccount:
+		return m.renderAccount(styles, row, selected, width)
+	default:
+		switch row.provider {
+		case "claude":
+			if m.snapshot.ClaudeError != "" {
+				return []string{styles.statusBad.Render(truncate(m.snapshot.ClaudeError, width))}
 			}
-			blocks = append(blocks, renderLLMQuotaWindow(styles, window, minInt(columnWidth, width)))
+		case "codex":
+			if m.snapshot.CodexError != "" {
+				return []string{styles.statusBad.Render(truncate(m.snapshot.CodexError, width))}
+			}
+		case "zai":
+			if m.snapshot.ZAI.Error != "" {
+				return []string{styles.statusBad.Render(truncate(m.snapshot.ZAI.Error, width))}
+			}
+			account := quotaAccount{Label: "Coding", Windows: m.snapshot.ZAI.Windows}
+			if len(account.Windows) == 0 {
+				return []string{styles.muted.Render("No quota windows returned")}
+			}
+			return m.renderAccountWindows(styles, &account, width, 0)
 		}
-		lines = append(lines, "", lipgloss.JoinHorizontal(lipgloss.Top, blocks...))
+		return []string{styles.muted.Render("—")}
 	}
-	for _, window := range rest {
-		lines = append(lines, "", renderLLMQuotaWindow(styles, window, width))
-	}
-	return lipgloss.NewStyle().Width(width).Render(strings.Join(lines, "\n"))
 }
 
-func (m *llmQuotaPanelModel) renderCodex(styles paletteStyles, width int) string {
-	lines := []string{styles.panelTitle.Render("Codex via CLIProxyAPI")}
-	if m.snapshot.CodexError != "" {
-		lines = append(lines, styles.statusBad.Render(truncate(m.snapshot.CodexError, width)))
+func (m *llmQuotaPanelModel) providerAccounts(provider string) []quotaAccount {
+	if provider == "claude" {
+		return m.snapshot.Claude
 	}
-	if len(m.snapshot.Codex) == 0 && m.snapshot.CodexError == "" {
-		lines = append(lines, styles.muted.Render("No enabled Codex accounts"))
+	if provider == "codex" {
+		return m.snapshot.Codex
 	}
-	for idx, account := range m.snapshot.Codex {
-		if idx > 0 {
-			lines = append(lines, "")
-		}
-		label := styles.itemTitle.Render(truncate(account.Label, maxInt(12, width-8)))
-		if account.Plan != "" {
-			label += "  " + styles.keyword.Render(strings.ToUpper(account.Plan))
-		}
-		lines = append(lines, label)
-		if account.Error != "" {
-			lines = append(lines, styles.statusBad.Render(truncate(account.Error, width)))
-			continue
-		}
-		if len(account.Windows) == 0 {
-			lines = append(lines, styles.muted.Render("No quota windows returned"))
-			continue
-		}
-		for _, window := range account.Windows {
-			lines = append(lines, renderLLMQuotaWindow(styles, window, width))
-		}
-	}
-	return lipgloss.NewStyle().Width(width).Render(strings.Join(lines, "\n"))
+	return nil
 }
 
-func (m *llmQuotaPanelModel) renderClaude(styles paletteStyles, width int) string {
-	lines := []string{styles.panelTitle.Render("Claude via CLIProxyAPI")}
-	if m.snapshot.ClaudeError != "" {
-		lines = append(lines, styles.statusBad.Render(truncate(m.snapshot.ClaudeError, width)))
+func (m *llmQuotaPanelModel) providerTitle(provider string) string {
+	if provider == "claude" {
+		return "CLAUDE"
 	}
-	if len(m.snapshot.Claude) == 0 && m.snapshot.ClaudeError == "" {
-		lines = append(lines, styles.muted.Render("No enabled Claude accounts"))
+	if provider == "codex" {
+		return "CODEX · CHATGPT"
 	}
-	for idx, account := range m.snapshot.Claude {
-		if idx > 0 {
-			lines = append(lines, "")
-		}
-		lines = append(lines, styles.itemTitle.Render(truncate(account.Label, maxInt(12, width-8))))
-		if account.Error != "" {
-			lines = append(lines, styles.statusBad.Render(truncate(account.Error, width)))
-			continue
-		}
-		if len(account.Windows) == 0 {
-			lines = append(lines, styles.muted.Render("No quota windows returned"))
-			continue
-		}
-		for _, window := range account.Windows {
-			lines = append(lines, renderLLMQuotaWindow(styles, window, width))
-		}
-	}
-	return lipgloss.NewStyle().Width(width).Render(strings.Join(lines, "\n"))
+	return "Z.AI"
 }
 
-func renderLLMQuotaWindow(styles paletteStyles, window llmQuotaWindow, width int) string {
-	used := clampFloat(window.UsedPercent, 0, 100)
-	remaining := 100 - used
-	labelWidth := minInt(20, maxInt(12, width/3))
-	barWidth := maxInt(8, minInt(24, width-labelWidth-18))
-	bar := renderQuotaBar(remaining, barWidth)
-	valueStyle := styles.panelText
-	if remaining <= 10 {
-		valueStyle = styles.statusBad
-	} else if remaining >= 60 {
-		valueStyle = styles.todoCheckDone
+func (m *llmQuotaPanelModel) providerMode(provider string) string {
+	accounts := m.providerAccounts(provider)
+	distinct := map[int]bool{}
+	enabled := 0
+	for i := range accounts {
+		if accounts[i].Disabled {
+			continue
+		}
+		enabled++
+		if accounts[i].Priority != nil {
+			distinct[*accounts[i].Priority] = true
+		}
 	}
-	line := styles.muted.Copy().Width(labelWidth).Render(window.Label) + " " +
-		valueStyle.Render(fmt.Sprintf("%3.0f%% free", remaining)) + "  " + styles.panelText.Render(bar)
-	if !window.ResetAt.IsZero() {
-		line += "\n" + strings.Repeat(" ", labelWidth+1) + styles.muted.Render(formatQuotaReset(window.ResetAt))
+	if enabled > 1 && len(distinct) <= 1 {
+		return "spread"
 	}
-	return line
+	return "drain"
+}
+
+func (m *llmQuotaPanelModel) renderProviderHeader(styles paletteStyles, provider string, selected bool, width int) string {
+	name := m.providerTitle(provider)
+	mode := m.providerMode(provider)
+	accounts := m.providerAccounts(provider)
+	badge := styles.keyword.Render("drain ⇅")
+	if mode == "spread" {
+		badge = styles.todoCheckDone.Render("spread ⇄")
+	}
+	left := name
+	if selected {
+		left = "❯ " + name
+	} else {
+		left = "  " + name
+	}
+	label := styles.panelTitle.Render(left) + "  " + badge
+	enabledCount := 0
+	for i := range accounts {
+		if !accounts[i].Disabled {
+			enabledCount++
+		}
+	}
+	right := styles.muted.Render(fmt.Sprintf("%d/%d on · s switch", enabledCount, len(accounts)))
+	pad := width - lipgloss.Width(label) - lipgloss.Width(right) - 2
+	if pad > 0 {
+		label += strings.Repeat(" ", pad) + right
+	}
+	if selected {
+		return styles.selectedItem.Render(label)
+	}
+	return label
+}
+
+const (
+	quotaColPos     = 4
+	quotaColLabel   = 24
+	quotaColState   = 4
+	quotaColPlan    = 6
+	quotaIndent     = quotaColPos + quotaColLabel + quotaColState + quotaColPlan + 2
+)
+
+func (m *llmQuotaPanelModel) renderAccount(styles paletteStyles, row llmQuotaRow, selected bool, width int) []string {
+	account := row.account
+	pos := m.accountPosition(row.provider, account)
+	posText := fmt.Sprintf("#%d", pos)
+	if m.providerMode(row.provider) == "spread" {
+		posText = "·"
+	}
+	stateText := "on"
+	stateStyle := styles.panelTextDone
+	if account.Disabled {
+		stateText = "off"
+		stateStyle = styles.statusBad
+	}
+	labelStyle := styles.itemTitle
+	if account.Disabled {
+		labelStyle = styles.muted
+	}
+	line := styles.muted.Render(fmt.Sprintf("%-*s", quotaColPos, posText)) +
+		labelStyle.Render(truncate(firstNonEmpty(account.Label, account.Name, "account"), quotaColLabel)) +
+		" " + stateStyle.Render(fmt.Sprintf("%-*s", quotaColState, stateText))
+	if account.Plan != "" {
+		line += " " + styles.keyword.Render(fmt.Sprintf("%-*s", quotaColPlan, truncate(strings.ToUpper(account.Plan), quotaColPlan)))
+	} else {
+		line += strings.Repeat(" ", quotaColPlan+1)
+	}
+	windowWidth := maxInt(0, width-quotaIndent)
+	var lines []string
+	if len(account.Windows) == 0 && account.Error == "" {
+		line += " " + styles.muted.Render("no quota data")
+		lines = []string{line}
+	} else {
+		chipLines := m.renderAccountWindows(styles, account, windowWidth, quotaIndent)
+		line += " " + chipLines[0]
+		lines = append([]string{line}, chipLines[1:]...)
+	}
+	if account.Error != "" && !account.Disabled {
+		lines = append(lines, strings.Repeat(" ", quotaIndent)+styles.statusBad.Render(truncate(account.Error, maxInt(10, width-quotaIndent))))
+	}
+	if selected {
+		for i := range lines {
+			lines[i] = styles.selectedItem.Render(lines[i])
+		}
+	}
+	return lines
+}
+
+func (m *llmQuotaPanelModel) renderAccountWindows(styles paletteStyles, account *quotaAccount, width, indent int) []string {
+	if len(account.Windows) == 0 {
+		return []string{styles.muted.Render("no quota data")}
+	}
+	dim := account.Disabled
+	type chip struct{ text, label, bar, pct, reset string; free float64 }
+	chips := make([]chip, 0, len(account.Windows))
+	for _, window := range account.Windows {
+		free := 100 - clampFloat(window.UsedPercent, 0, 100)
+		label := shortWindowLabel(window.Label)
+		reset := formatQuotaResetShort(window.ResetAt)
+		pct := fmt.Sprintf("%3.0f%%", free)
+		chips = append(chips, chip{label: label, pct: pct, reset: reset, free: free, bar: ""})
+	}
+	unit := len(chips[0].label) + 1 + 4 + 1 + len(chips[0].pct) + 1 + len(chips[0].reset)
+	perChip := width
+	if len(chips) > 1 {
+		perChip = (width - 2*(len(chips)-1)) / len(chips)
+	}
+	barWidth := maxInt(6, perChip-unit)
+	var rendered []string
+	var current strings.Builder
+	currentLen := 0
+	for i := range chips {
+		c := &chips[i]
+		bar := renderQuotaBar(c.free, barWidth)
+		pctStyle := styles.panelText
+		if dim {
+			pctStyle = styles.muted
+		} else if c.free <= 10 {
+			pctStyle = styles.statusBad
+		} else if c.free >= 60 {
+			pctStyle = styles.todoCheckDone
+		}
+		labelStyle := styles.muted
+		barStyle := styles.panelText
+		if dim {
+			barStyle = styles.muted
+		}
+		text := labelStyle.Render(fmt.Sprintf("%-*s", len(chips[0].label), c.label)) + " " +
+			barStyle.Render(bar) + " " + pctStyle.Render(c.pct)
+		if c.reset != "" {
+			text += " " + labelStyle.Render(c.reset)
+		}
+		if currentLen > 0 && currentLen+2+lipgloss.Width(text) > width {
+			rendered = append(rendered, current.String())
+			current.Reset()
+			currentLen = 0
+		}
+		if currentLen > 0 {
+			current.WriteString("  ")
+			currentLen += 2
+		}
+		current.WriteString(text)
+		currentLen += lipgloss.Width(text)
+	}
+	if current.Len() > 0 {
+		rendered = append(rendered, current.String())
+	}
+	for i := 1; i < len(rendered); i++ {
+		rendered[i] = strings.Repeat(" ", indent) + rendered[i]
+	}
+	return rendered
+}
+
+func (m *llmQuotaPanelModel) accountPosition(provider string, account *quotaAccount) int {
+	accounts := m.providerAccounts(provider)
+	for i := range accounts {
+		if accounts[i].Name == account.Name {
+			return i + 1
+		}
+	}
+	return 0
+}
+
+func shortWindowLabel(label string) string {
+	short := strings.TrimSpace(label)
+	if strings.HasPrefix(short, "Code ") {
+		short = strings.TrimPrefix(short, "Code ")
+	}
+	short = strings.ReplaceAll(short, "Review ", "rev ")
+	replacer := strings.NewReplacer("5-hour", "5h", "weekly", "wk", "monthly", "mo")
+	short = replacer.Replace(short)
+	short = strings.TrimSpace(short)
+	if short == "" {
+		short = "?"
+	}
+	return short
+}
+
+func formatQuotaResetShort(resetAt time.Time) string {
+	if resetAt.IsZero() {
+		return ""
+	}
+	delta := time.Until(resetAt)
+	if delta <= 0 {
+		return "now"
+	}
+	if delta < time.Hour {
+		return fmt.Sprintf("%dm", int(delta/time.Minute))
+	}
+	if delta < 10*time.Hour {
+		return fmt.Sprintf("%dh%02dm", int(delta/time.Hour), int((delta%time.Hour)/time.Minute))
+	}
+	if delta < 48*time.Hour {
+		return fmt.Sprintf("%dh", int(delta/time.Hour))
+	}
+	if delta < 8*24*time.Hour {
+		return fmt.Sprintf("%dd%dh", int(delta/(24*time.Hour)), int((delta%(24*time.Hour))/time.Hour))
+	}
+	return resetAt.Local().Format("Jan 2")
 }
 
 func renderQuotaBar(remaining float64, width int) string {
@@ -340,48 +567,40 @@ func renderQuotaBar(remaining float64, width int) string {
 	return "[" + strings.Repeat("=", filled) + strings.Repeat(".", width-filled) + "]"
 }
 
-func formatQuotaReset(resetAt time.Time) string {
-	delta := time.Until(resetAt)
-	if delta <= 0 {
-		return "reset due now"
-	}
-	delta = delta.Round(time.Minute)
-	parts := []string{}
-	if days := int(delta / (24 * time.Hour)); days > 0 {
-		parts = append(parts, fmt.Sprintf("%dd", days))
-		delta -= time.Duration(days) * 24 * time.Hour
-	}
-	if hours := int(delta / time.Hour); hours > 0 {
-		parts = append(parts, fmt.Sprintf("%dh", hours))
-		delta -= time.Duration(hours) * time.Hour
-	}
-	if len(parts) < 2 {
-		if minutes := int(delta / time.Minute); minutes > 0 {
-			parts = append(parts, fmt.Sprintf("%dm", minutes))
-		}
-	}
-	return "resets in " + strings.Join(parts, " ") + "  " + resetAt.Local().Format("Jan 2 15:04")
-}
-
 func (m *llmQuotaPanelModel) renderFooter(styles paletteStyles, width int) string {
-	pairs := [][2]string{{"r", "refresh"}, {"Esc", "back"}, {footerHintToggleKey, "more"}}
+	pairs := [][2]string{
+		{"↑/↓", "select"},
+		{"J/K", "order"},
+		{"d", "on/off"},
+		{"s", "strategy"},
+		{"r", "refresh"},
+		{"Esc", "back"},
+		{footerHintToggleKey, "more"},
+	}
 	if m.showAltHints {
 		pairs = [][2]string{{"Alt-S", "close"}, {footerHintToggleKey, "hide"}}
 	}
 	footer := renderShortcutPairs(func(v string) string { return styles.shortcutKey.Render(v) }, func(v string) string { return styles.shortcutText.Render(v) }, "   ", pairs)
-	if !m.snapshot.FetchedAt.IsZero() && !m.refreshInFlight {
-		stamp := styles.muted.Render("Updated " + m.snapshot.FetchedAt.Local().Format("15:04:05"))
-		if lipgloss.Width(stamp)+3+lipgloss.Width(footer) <= width {
-			footer = stamp + "   " + footer
-		}
+	left := ""
+	if m.mutationInFlight {
+		left = styles.footer.Render("Applying routing change...")
+	} else if m.refreshInFlight {
+		left = styles.footer.Render("Refreshing...")
+	} else if strings.TrimSpace(m.message) != "" {
+		left = styles.statusBad.Render(truncate(m.message, maxInt(20, width-lipgloss.Width(footer)-3)))
+	} else if !m.snapshot.FetchedAt.IsZero() {
+		left = styles.muted.Render("Updated " + m.snapshot.FetchedAt.Local().Format("15:04:05"))
 	}
-	if m.refreshInFlight {
-		footer = styles.footer.Render("Refreshing...")
+	if left != "" && lipgloss.Width(left)+3+lipgloss.Width(footer) <= width {
+		footer = left + "   " + footer
 	}
 	return lipgloss.NewStyle().Width(width).Render(footer)
 }
 
 func (m *llmQuotaPanelModel) currentStatus() string {
+	if m.mutationInFlight {
+		return "Applying routing change..."
+	}
 	if m.refreshInFlight {
 		return "Refreshing LLM quotas..."
 	}
@@ -389,6 +608,71 @@ func (m *llmQuotaPanelModel) currentStatus() string {
 		return "LLM quotas updated"
 	}
 	return strings.TrimSpace(m.message)
+}
+
+func (m *llmQuotaPanelModel) rebuildRows() {
+	rows := make([]llmQuotaRow, 0, 12)
+	if len(m.snapshot.Claude) > 0 || m.snapshot.ClaudeError != "" {
+		rows = append(rows, llmQuotaRow{kind: llmQuotaRowHeader, provider: "claude"})
+		for i := range m.snapshot.Claude {
+			rows = append(rows, llmQuotaRow{kind: llmQuotaRowAccount, provider: "claude", account: &m.snapshot.Claude[i]})
+		}
+		rows = append(rows, llmQuotaRow{kind: llmQuotaRowStatic, provider: "claude"})
+	}
+	if len(m.snapshot.Codex) > 0 || m.snapshot.CodexError != "" {
+		rows = append(rows, llmQuotaRow{kind: llmQuotaRowHeader, provider: "codex"})
+		for i := range m.snapshot.Codex {
+			rows = append(rows, llmQuotaRow{kind: llmQuotaRowAccount, provider: "codex", account: &m.snapshot.Codex[i]})
+		}
+		rows = append(rows, llmQuotaRow{kind: llmQuotaRowStatic, provider: "codex"})
+	}
+	rows = append(rows, llmQuotaRow{kind: llmQuotaRowHeader, provider: "zai"})
+	rows = append(rows, llmQuotaRow{kind: llmQuotaRowStatic, provider: "zai"})
+	m.rows = rows
+	m.cursor = clampInt(m.cursor, 0, maxInt(0, len(rows)-1))
+	m.ensureCursorInteractive()
+}
+
+func (m *llmQuotaPanelModel) interactive(i int) bool {
+	if i < 0 || i >= len(m.rows) {
+		return false
+	}
+	row := m.rows[i]
+	return row.provider == "claude" || row.provider == "codex"
+}
+
+func (m *llmQuotaPanelModel) ensureCursorInteractive() {
+	if len(m.rows) == 0 {
+		m.cursor = 0
+		return
+	}
+	m.cursor = clampInt(m.cursor, 0, len(m.rows)-1)
+	for i := m.cursor; i < len(m.rows); i++ {
+		if m.interactive(i) {
+			m.cursor = i
+			return
+		}
+	}
+	for i := m.cursor; i >= 0; i-- {
+		if m.interactive(i) {
+			m.cursor = i
+			return
+		}
+	}
+	m.cursor = 0
+}
+
+func (m *llmQuotaPanelModel) moveCursor(delta int) {
+	if len(m.rows) == 0 {
+		return
+	}
+	step := delta
+	for next := m.cursor + step; next >= 0 && next < len(m.rows); next += step {
+		if m.interactive(next) {
+			m.cursor = next
+			return
+		}
+	}
 }
 
 func (m *llmQuotaPanelModel) requestRefreshCmd(force bool) tea.Cmd {
@@ -407,6 +691,239 @@ func (m *llmQuotaPanelModel) requestRefreshCmd(force bool) tea.Cmd {
 	}
 }
 
+func (m *llmQuotaPanelModel) requestRoutingRefreshCmd() tea.Cmd {
+	return func() tea.Msg {
+		routing, err := fetchLLMQuotaRouting()
+		return llmQuotaRoutingMsg{routing: routing, err: err}
+	}
+}
+
+func (m *llmQuotaPanelModel) mutate(label string, fn func(baseURL string, client *http.Client, key string) error) tea.Cmd {
+	if m.mutationInFlight {
+		return nil
+	}
+	m.mutationInFlight = true
+	m.message = ""
+	return func() tea.Msg {
+		baseURL, client, key, err := cliproxyMutator()
+		if err == nil {
+			err = fn(baseURL, client, key)
+		}
+		return llmQuotaMutationMsg{label: label, err: err}
+	}
+}
+
+func cliproxyMutator() (string, *http.Client, string, error) {
+	key, err := loadCLIProxyManagementKey()
+	if err != nil {
+		return "", nil, "", err
+	}
+	baseURL := strings.TrimRight(firstNonEmpty(os.Getenv("CLIPROXY_MANAGEMENT_URL"), defaultCLIProxyManagement), "/")
+	return baseURL, &http.Client{Timeout: quotaRequestTimeout}, key, nil
+}
+
+func (m *llmQuotaPanelModel) selectedAccount() (string, *quotaAccount) {
+	if !m.interactive(m.cursor) {
+		return "", nil
+	}
+	row := m.rows[m.cursor]
+	if row.kind != llmQuotaRowAccount {
+		return "", nil
+	}
+	return row.provider, row.account
+}
+
+func (m *llmQuotaPanelModel) moveAccountCmd(delta int) tea.Cmd {
+	provider, account := m.selectedAccount()
+	if account == nil {
+		return nil
+	}
+	if m.providerMode(provider) != "drain" {
+		m.message = "spread: order has no effect — press s to drain first"
+		return nil
+	}
+	accounts := m.providerAccounts(provider)
+	idx := -1
+	for i := range accounts {
+		if accounts[i].Name == account.Name {
+			idx = i
+			break
+		}
+	}
+	target := idx + delta
+	if idx < 0 || target < 0 || target >= len(accounts) {
+		return nil
+	}
+	accounts[idx], accounts[target] = accounts[target], accounts[idx]
+	m.applyDrainLadderLocal(provider)
+	m.rebuildRows()
+	for i := range m.rows {
+		if m.rows[i].kind == llmQuotaRowAccount && m.rows[i].provider == provider && m.rows[i].account.Name == account.Name {
+			m.cursor = i
+			break
+		}
+	}
+	providerCopy := append([]quotaAccount(nil), accounts...)
+	strategy := m.snapshot.RoutingStrategy
+	return m.applyPrioritiesCmd(provider, providerCopy, strategy)
+}
+
+func (m *llmQuotaPanelModel) applyPrioritiesCmd(provider string, accounts []quotaAccount, strategy string) tea.Cmd {
+	return m.mutate(provider, func(baseURL string, client *http.Client, key string) error {
+		if strategy != "round-robin" {
+			if err := patchRoutingStrategy(client, key, baseURL, "round-robin"); err != nil {
+				return err
+			}
+		}
+		return patchAccountPriorities(client, key, baseURL, accounts)
+	})
+}
+
+func (m *llmQuotaPanelModel) toggleAccountCmd() tea.Cmd {
+	provider, account := m.selectedAccount()
+	if account == nil {
+		return nil
+	}
+	if strings.TrimSpace(account.Name) == "" {
+		m.message = "missing auth filename — press r to refresh"
+		return nil
+	}
+	newDisabled := !account.Disabled
+	account.Disabled = newDisabled
+	m.rebuildRows()
+	name := account.Name
+	return m.mutate(provider, func(baseURL string, client *http.Client, key string) error {
+		return patchAuthFileStatus(client, key, baseURL, name, newDisabled)
+	})
+}
+
+func (m *llmQuotaPanelModel) cycleStrategyCmd() tea.Cmd {
+	if !m.interactive(m.cursor) {
+		return nil
+	}
+	provider := m.rows[m.cursor].provider
+	accounts := m.providerAccounts(provider)
+	if len(accounts) == 0 {
+		return nil
+	}
+	for i := range accounts {
+		if strings.TrimSpace(accounts[i].Name) == "" {
+			m.message = "missing auth filename — press r to refresh"
+			return nil
+		}
+	}
+	mode := m.providerMode(provider)
+	next := "spread"
+	if mode == "spread" {
+		next = "drain"
+	}
+	if next == "spread" {
+		even := llmQuotaSpreadPriority
+		for i := range accounts {
+			accounts[i].Priority = &even
+		}
+	} else {
+		for i := range accounts {
+			value := 100 - 10*i
+			accounts[i].Priority = &value
+		}
+	}
+	m.rebuildRows()
+	providerCopy := append([]quotaAccount(nil), accounts...)
+	strategy := m.snapshot.RoutingStrategy
+	label := provider + " → " + next
+	return m.mutate(label, func(baseURL string, client *http.Client, key string) error {
+		if strategy != "round-robin" {
+			if err := patchRoutingStrategy(client, key, baseURL, "round-robin"); err != nil {
+				return err
+			}
+		}
+		return patchAccountPriorities(client, key, baseURL, providerCopy)
+	})
+}
+
+func (m *llmQuotaPanelModel) applyDrainLadderLocal(provider string) {
+	accounts := m.providerAccounts(provider)
+	for i := range accounts {
+		value := 100 - 10*i
+		accounts[i].Priority = &value
+	}
+}
+
+func (m *llmQuotaPanelModel) applyRouting(routing llmQuotaRouting) {
+	merge := func(old []quotaAccount, fresh []quotaAccount) []quotaAccount {
+		for i := range fresh {
+			for j := range old {
+				if old[j].Name != "" && old[j].Name == fresh[i].Name {
+					fresh[i].Windows = old[j].Windows
+					fresh[i].Plan = old[j].Plan
+					fresh[i].Error = old[j].Error
+					break
+				}
+			}
+		}
+		sortQuotaAccounts(fresh)
+		return fresh
+	}
+	if routing.Claude != nil {
+		m.snapshot.Claude = merge(m.snapshot.Claude, routing.Claude)
+	}
+	if routing.Codex != nil {
+		m.snapshot.Codex = merge(m.snapshot.Codex, routing.Codex)
+	}
+	if routing.Strategy != "" {
+		m.snapshot.RoutingStrategy = routing.Strategy
+	}
+	m.rebuildRows()
+}
+
+func patchAccountPriorities(client *http.Client, key, baseURL string, accounts []quotaAccount) error {
+	for i := range accounts {
+		if strings.TrimSpace(accounts[i].Name) == "" || accounts[i].Priority == nil {
+			continue
+		}
+		body := map[string]any{"name": accounts[i].Name, "priority": *accounts[i].Priority}
+		var out struct {
+			Status string `json:"status"`
+		}
+		if err := cliproxyManagementJSON(client, key, http.MethodPatch, baseURL+"/auth-files/fields", body, &out); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func patchAuthFileStatus(client *http.Client, key, baseURL, name string, disabled bool) error {
+	body := map[string]any{"name": name, "disabled": disabled}
+	var out struct {
+		Status string `json:"status"`
+	}
+	return cliproxyManagementJSON(client, key, http.MethodPatch, baseURL+"/auth-files/status", body, &out)
+}
+
+func patchRoutingStrategy(client *http.Client, key, baseURL, value string) error {
+	body := map[string]any{"value": value}
+	var out struct {
+		Status string `json:"status"`
+	}
+	return cliproxyManagementJSON(client, key, http.MethodPatch, baseURL+"/routing/strategy", body, &out)
+}
+
+func sortQuotaAccounts(accounts []quotaAccount) {
+	sort.SliceStable(accounts, func(i, j int) bool {
+		pi, pj := accounts[i].Priority, accounts[j].Priority
+		switch {
+		case pi != nil && pj != nil && *pi != *pj:
+			return *pi > *pj
+		case pi != nil && pj == nil:
+			return true
+		case pi == nil && pj != nil:
+			return false
+		}
+		return strings.ToLower(accounts[i].Label) < strings.ToLower(accounts[j].Label)
+	})
+}
+
 func fetchLLMQuotaSnapshot(force bool) (llmQuotaSnapshot, error) {
 	if !force {
 		if snapshot, ok := loadLLMQuotaCache(); ok {
@@ -416,7 +933,7 @@ func fetchLLMQuotaSnapshot(force bool) (llmQuotaSnapshot, error) {
 	client := &http.Client{Timeout: quotaRequestTimeout}
 	var snapshot llmQuotaSnapshot
 	var wg sync.WaitGroup
-	wg.Add(3)
+	wg.Add(4)
 	go func() {
 		defer wg.Done()
 		snapshot.ZAI = fetchZAIQuota(client)
@@ -429,10 +946,57 @@ func fetchLLMQuotaSnapshot(force bool) (llmQuotaSnapshot, error) {
 		defer wg.Done()
 		snapshot.Claude, snapshot.ClaudeError = fetchClaudeQuotas()
 	}()
+	go func() {
+		defer wg.Done()
+		routing, err := fetchLLMQuotaRouting()
+		if err == nil {
+			snapshot.RoutingStrategy = routing.Strategy
+		}
+	}()
 	wg.Wait()
 	snapshot.FetchedAt = time.Now()
 	_ = saveLLMQuotaCache(snapshot)
 	return snapshot, nil
+}
+
+func fetchLLMQuotaRouting() (llmQuotaRouting, error) {
+	var routing llmQuotaRouting
+	key, err := loadCLIProxyManagementKey()
+	if err != nil {
+		return routing, err
+	}
+	baseURL := strings.TrimRight(firstNonEmpty(os.Getenv("CLIPROXY_MANAGEMENT_URL"), defaultCLIProxyManagement), "/")
+	client := &http.Client{Timeout: quotaRequestTimeout}
+	var authPayload struct {
+		Files []cliproxyAuthFile `json:"files"`
+	}
+	if err := cliproxyManagementJSON(client, key, http.MethodGet, baseURL+"/auth-files", nil, &authPayload); err != nil {
+		return routing, err
+	}
+	for _, file := range authPayload.Files {
+		provider := firstNonEmpty(file.Provider, file.Type)
+		account := quotaAccount{
+			Label:    firstNonEmpty(file.Label, file.Email, file.Name, "account"),
+			Name:     file.Name,
+			Disabled: file.Disabled,
+			Priority: file.Priority,
+		}
+		switch {
+		case strings.EqualFold(provider, "claude"):
+			routing.Claude = append(routing.Claude, account)
+		case strings.EqualFold(provider, "codex"):
+			routing.Codex = append(routing.Codex, account)
+		}
+	}
+	sortQuotaAccounts(routing.Claude)
+	sortQuotaAccounts(routing.Codex)
+	var strategyPayload struct {
+		Strategy string `json:"strategy"`
+	}
+	if err := cliproxyManagementJSON(client, key, http.MethodGet, baseURL+"/routing/strategy", nil, &strategyPayload); err == nil {
+		routing.Strategy = strategyPayload.Strategy
+	}
+	return routing, nil
 }
 
 func llmQuotaCachePath() string {
@@ -451,6 +1015,16 @@ func loadLLMQuotaCache() (llmQuotaSnapshot, bool) {
 	var snapshot llmQuotaSnapshot
 	if err := json.Unmarshal(data, &snapshot); err != nil || snapshot.FetchedAt.IsZero() {
 		return llmQuotaSnapshot{}, false
+	}
+	for i := range snapshot.Codex {
+		if strings.TrimSpace(snapshot.Codex[i].Name) == "" {
+			return llmQuotaSnapshot{}, false
+		}
+	}
+	for i := range snapshot.Claude {
+		if strings.TrimSpace(snapshot.Claude[i].Name) == "" {
+			return llmQuotaSnapshot{}, false
+		}
 	}
 	age := time.Since(snapshot.FetchedAt)
 	if age < 0 || age >= llmQuotaCacheTTL {
@@ -574,13 +1148,22 @@ func fetchCLIProxyAccountQuotas(providerName string, fetchAccount func(*http.Cli
 	files := make([]cliproxyAuthFile, 0, len(authPayload.Files))
 	for _, file := range authPayload.Files {
 		provider := firstNonEmpty(file.Provider, file.Type)
-		if strings.EqualFold(provider, providerName) && !file.Disabled {
+		if strings.EqualFold(provider, providerName) {
 			files = append(files, file)
 		}
 	}
 	accounts := make([]quotaAccount, len(files))
 	var wg sync.WaitGroup
 	for idx, file := range files {
+		if file.Disabled {
+			accounts[idx] = quotaAccount{
+				Label:    firstNonEmpty(file.Label, file.Email, file.Name, "account"),
+				Name:     file.Name,
+				Disabled: true,
+				Priority: file.Priority,
+			}
+			continue
+		}
 		wg.Add(1)
 		go func(idx int, file cliproxyAuthFile) {
 			defer wg.Done()
@@ -588,7 +1171,7 @@ func fetchCLIProxyAccountQuotas(providerName string, fetchAccount func(*http.Cli
 		}(idx, file)
 	}
 	wg.Wait()
-	sort.SliceStable(accounts, func(i, j int) bool { return strings.ToLower(accounts[i].Label) < strings.ToLower(accounts[j].Label) })
+	sortQuotaAccounts(accounts)
 	return accounts, ""
 }
 
@@ -601,7 +1184,11 @@ func fetchClaudeQuotas() ([]quotaAccount, string) {
 }
 
 func fetchCodexAccountQuota(client *http.Client, baseURL, key string, file cliproxyAuthFile) quotaAccount {
-	account := quotaAccount{Label: firstNonEmpty(file.Label, file.Email, file.Name, "Codex account")}
+	account := quotaAccount{
+		Label:    firstNonEmpty(file.Label, file.Email, file.Name, "Codex account"),
+		Name:     file.Name,
+		Priority: file.Priority,
+	}
 	if strings.TrimSpace(file.AuthIndex) == "" {
 		account.Error = "Missing auth index"
 		return account
@@ -650,7 +1237,11 @@ func fetchCodexAccountQuota(client *http.Client, baseURL, key string, file clipr
 }
 
 func fetchClaudeAccountQuota(client *http.Client, baseURL, key string, file cliproxyAuthFile) quotaAccount {
-	account := quotaAccount{Label: firstNonEmpty(file.Label, file.Email, file.Name, "Claude account")}
+	account := quotaAccount{
+		Label:    firstNonEmpty(file.Label, file.Email, file.Name, "Claude account"),
+		Name:     file.Name,
+		Priority: file.Priority,
+	}
 	if strings.TrimSpace(file.AuthIndex) == "" {
 		account.Error = "Missing auth index"
 		return account

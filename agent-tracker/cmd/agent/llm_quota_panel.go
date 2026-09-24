@@ -89,6 +89,10 @@ type llmQuotaMutationMsg struct {
 	err   error
 }
 
+type llmQuotaSpinnerTickMsg struct{}
+
+var llmQuotaSpinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+
 type llmQuotaRowKind int
 
 const (
@@ -117,6 +121,7 @@ type llmQuotaPanelModel struct {
 	rows             []llmQuotaRow
 	cursor           int
 	mutationInFlight bool
+	spinnerFrame     int
 }
 
 type cliproxyAuthFile struct {
@@ -223,6 +228,14 @@ func (m *llmQuotaPanelModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.message = ""
 			return m, m.requestRoutingRefreshCmd()
 		}
+	case llmQuotaSpinnerTickMsg:
+		if m.mutationInFlight {
+			m.spinnerFrame++
+			return m, func() tea.Msg {
+				time.Sleep(120 * time.Millisecond)
+				return llmQuotaSpinnerTickMsg{}
+			}
+		}
 	case tea.KeyMsg:
 		if isAltFooterToggleKey(msg) {
 			m.showAltHints = !m.showAltHints
@@ -232,6 +245,11 @@ func (m *llmQuotaPanelModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "esc", "ctrl+c":
 			m.requestBack = true
+		}
+		if m.mutationInFlight {
+			return m, nil
+		}
+		switch msg.String() {
 		case "r":
 			return m, m.requestRefreshCmd(true)
 		case "up", "u":
@@ -654,7 +672,7 @@ func (m *llmQuotaPanelModel) renderFooter(styles paletteStyles, width int) strin
 	footer := renderShortcutPairs(func(v string) string { return styles.shortcutKey.Render(v) }, func(v string) string { return styles.shortcutText.Render(v) }, "   ", pairs)
 	left := ""
 	if m.mutationInFlight {
-		left = styles.footer.Render("Applying routing change...")
+		left = styles.footer.Render(m.spinner() + " applying — controls paused")
 	} else if m.refreshInFlight {
 		left = styles.footer.Render("Refreshing...")
 	} else if strings.TrimSpace(m.message) != "" {
@@ -774,14 +792,24 @@ func (m *llmQuotaPanelModel) mutate(label string, fn func(baseURL string, client
 		return nil
 	}
 	m.mutationInFlight = true
+	m.spinnerFrame = 0
 	m.message = ""
-	return func() tea.Msg {
+	work := func() tea.Msg {
 		baseURL, client, key, err := cliproxyMutator()
 		if err == nil {
 			err = fn(baseURL, client, key)
 		}
 		return llmQuotaMutationMsg{label: label, err: err}
 	}
+	tick := func() tea.Msg {
+		time.Sleep(120 * time.Millisecond)
+		return llmQuotaSpinnerTickMsg{}
+	}
+	return tea.Batch(work, tick)
+}
+
+func (m *llmQuotaPanelModel) spinner() string {
+	return llmQuotaSpinnerFrames[m.spinnerFrame%len(llmQuotaSpinnerFrames)]
 }
 
 func cliproxyMutator() (string, *http.Client, string, error) {
@@ -825,11 +853,12 @@ func (m *llmQuotaPanelModel) moveAccountCmd(delta int) tea.Cmd {
 	if idx < 0 || target < 0 || target >= len(accounts) {
 		return nil
 	}
+	movedName := account.Name
 	accounts[idx], accounts[target] = accounts[target], accounts[idx]
 	m.applyDrainLadderLocal(provider)
 	m.rebuildRows()
 	for i := range m.rows {
-		if m.rows[i].kind == llmQuotaRowAccount && m.rows[i].provider == provider && m.rows[i].account.Name == account.Name {
+		if m.rows[i].kind == llmQuotaRowAccount && m.rows[i].provider == provider && m.rows[i].account.Name == movedName {
 			m.cursor = i
 			break
 		}

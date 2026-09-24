@@ -1661,6 +1661,13 @@ func (m *paletteModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.board.tl.update(msg)
 		}
 		return m, nil
+	case remDoneMsg:
+		if m.board != nil {
+			m.board.tl.update(msg)
+			m.board.forceRems = true
+			m.board.reload()
+		}
+		return m, nil
 	case tlEditDoneMsg:
 		if m.board != nil && m.board.tl != nil {
 			m.board.tl.update(msg)

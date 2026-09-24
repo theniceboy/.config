@@ -50,6 +50,7 @@ type tlItem struct {
 	Owner  string
 	Start  *time.Time
 	Due    *time.Time
+	Time   string
 	Ses    []string
 }
 
@@ -394,6 +395,11 @@ func (m *tlModel) update(msg tea.Msg) tea.Cmd {
 		return nil
 	case tlLiveMsg:
 		m.sesPane, m.tasks, m.paneWin = msg.sesPane, msg.tasks, msg.paneWin
+		return nil
+	case remDoneMsg:
+		if msg.err != "" {
+			m.msg = msg.err
+		}
 		return nil
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
@@ -1021,27 +1027,34 @@ func (m tlModel) footer() string {
 		case it.Due != nil:
 			seg = " · due " + fmtDate(*it.Due)
 		}
-		dat = fmt.Sprintf("%s · %s · %s%s", it.ID, it.Stream, it.Prio, seg)
-		if ls := m.itemLinks(*it); len(ls) > 0 {
-			b := bestLink(ls)
-			st := linkState(*b)
-			extra := " · " + stateEmoji(st) + " " + b.win.Window + " @" + b.win.Session
-			switch st {
-			case "q":
-				extra += " · waiting on you"
-			case "w":
-				ph := b.task.Phase
-				if ph == "" {
-					ph = "working"
+		if it.Stream == "reminders" {
+			dat = "SPQ · apple reminder" + seg
+			if it.Time != "" {
+				dat += " · at " + it.Time
+			}
+		} else {
+			dat = fmt.Sprintf("%s · %s · %s%s", it.ID, it.Stream, it.Prio, seg)
+			if ls := m.itemLinks(*it); len(ls) > 0 {
+				b := bestLink(ls)
+				st := linkState(*b)
+				extra := " · " + stateEmoji(st) + " " + b.win.Window + " @" + b.win.Session
+				switch st {
+				case "q":
+					extra += " · waiting on you"
+				case "w":
+					ph := b.task.Phase
+					if ph == "" {
+						ph = "working"
+					}
+					extra += " · " + ph + " " + sinceShort(b.task.StartedAt)
+				case "n":
+					extra += " · done · unack"
 				}
-				extra += " · " + ph + " " + sinceShort(b.task.StartedAt)
-			case "n":
-				extra += " · done · unack"
+				if len(ls) > 1 {
+					extra += fmt.Sprintf(" +%d more", len(ls)-1)
+				}
+				dat += stActive.Render(extra)
 			}
-			if len(ls) > 1 {
-				extra += fmt.Sprintf(" +%d more", len(ls)-1)
-			}
-			dat += stActive.Render(extra)
 		}
 	}
 	msg := ""
@@ -1583,6 +1596,9 @@ func (m tlModel) renderTimeline() []string {
 			it := *r.it
 			sel := it.ID == m.selID
 			glyph, gcol := boardStatusGlyph(it.Status)
+			if it.Stream == "reminders" {
+				glyph, gcol = "♢", "220"
+			}
 			gSty := lipgloss.NewStyle().Foreground(lipgloss.Color(gcol))
 			if ls := m.itemLinks(it); len(ls) > 0 {
 				st := linkState(*bestLink(ls))
@@ -1735,7 +1751,7 @@ func (m *tlModel) setItems(items []boardItem, folders []boardFolder) {
 	for _, b := range items {
 		it := tlItem{ID: b.ID, Title: b.Title, Desc: b.Body, Stream: b.Workstream,
 			Folder: strings.Join(b.Folders, "/"), Status: b.Status, Prio: b.Prio, Owner: b.Owner,
-			Order: b.Order, Ses: sesListFrom(tlSesRe.FindString(b.Body))}
+			Order: b.Order, Time: b.Time, Ses: sesListFrom(tlSesRe.FindString(b.Body))}
 		if s := b.Start; s != "" && s != "-" {
 			if t, err := time.ParseInLocation("2006-01-02", s, today.Location()); err == nil {
 				it.Start = &t
@@ -1791,6 +1807,21 @@ func (m *tlModel) setItems(items []boardItem, folders []boardFolder) {
 	}
 	if len(out) > 0 {
 		m.selID = out[0].ID
+	}
+}
+
+type remDoneMsg struct{ err string }
+
+func remDoneCmd(id string) tea.Cmd {
+	return func() tea.Msg {
+		bin := remindBinPath()
+		if bin == "" {
+			return remDoneMsg{err: "remind binary not found"}
+		}
+		if out, err := exec.Command(bin, "done", id).CombinedOutput(); err != nil {
+			return remDoneMsg{err: strings.TrimSpace(string(out))}
+		}
+		return remDoneMsg{}
 	}
 }
 
@@ -1994,8 +2025,10 @@ func (m *tlModel) keyTlk(k string, r []rune) tea.Cmd {
 				m.find = string(rs[:len(rs)-1])
 			}
 		default:
-			if len(r) == 1 && r[0] >= 32 {
-				m.find += string(r)
+			for _, c := range r {
+				if c >= 32 {
+					m.find += string(c)
+				}
 			}
 		}
 		m.followSel(0)
@@ -2082,11 +2115,19 @@ func (m *tlModel) keyTlk(k string, r []rune) tea.Cmd {
 		m.findMode = true
 	case "enter":
 		if it := m.selItem(); it != nil {
+			if it.Stream == "reminders" {
+				m.msg = ""
+				return remDoneCmd(strings.TrimPrefix(it.ID, "REM:"))
+			}
 			m.draft, m.orig = *it, *it
 			m.editing, m.typing, m.focus, m.input, m.msg = true, false, 0, "", ""
 		}
 	case "d":
-		m.enterDateMode()
+		if it := m.selItem(); it != nil && it.Stream == "reminders" {
+			m.msg = "Apple owns reminder dates — reschedule with `remind at`"
+		} else {
+			m.enterDateMode()
+		}
 	case "L":
 		live := []string{}
 		for _, id := range m.order() {

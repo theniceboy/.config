@@ -32,6 +32,7 @@ type boardItem struct {
 	Order      int      `json:"order"`
 	Path       string   `json:"path"`
 	Body       string   `json:"body"`
+	Time       string   `json:"-"`
 }
 
 type boardFolder struct {
@@ -69,6 +70,100 @@ func loadBoardExport() (*boardExport, error) {
 		return nil, fmt.Errorf("board export: %w", err)
 	}
 	return &data, nil
+}
+
+type remItem struct {
+	ID    string `json:"id"`
+	Title string `json:"title"`
+	Due   string `json:"due"`
+	Time  string `json:"time"`
+	Recur string `json:"recur"`
+	Done  bool   `json:"done"`
+}
+
+type remCache struct {
+	Fetched time.Time `json:"fetched"`
+	Items   []remItem `json:"items"`
+}
+
+const remTTL = 5 * time.Minute
+
+func remindBinPath() string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return ""
+	}
+	return filepath.Join(home, ".local", "bin", "remind")
+}
+
+func remCachePath() string {
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".cache", "agent", "board-reminders.json")
+}
+
+func readRemCache() []remItem {
+	b, err := os.ReadFile(remCachePath())
+	if err != nil {
+		return nil
+	}
+	var c remCache
+	if json.Unmarshal(b, &c) != nil {
+		return nil
+	}
+	return c.Items
+}
+
+func loadReminders(force bool) []remItem {
+	if !force {
+		if b, err := os.ReadFile(remCachePath()); err == nil {
+			var c remCache
+			if json.Unmarshal(b, &c) == nil && time.Since(c.Fetched) < remTTL {
+				return c.Items
+			}
+		}
+	}
+	bin := remindBinPath()
+	if bin == "" {
+		return nil
+	}
+	out, err := exec.Command(bin, "ls", "--json").Output()
+	if err != nil {
+		return readRemCache()
+	}
+	var wrap struct {
+		Items []remItem `json:"items"`
+	}
+	if json.Unmarshal(out, &wrap) != nil {
+		return nil
+	}
+	_ = os.MkdirAll(filepath.Dir(remCachePath()), 0o755)
+	if b, err := json.Marshal(remCache{Fetched: time.Now(), Items: wrap.Items}); err == nil {
+		_ = os.WriteFile(remCachePath(), b, 0o644)
+	}
+	return wrap.Items
+}
+
+func synthReminders(rs []remItem) []boardItem {
+	out := make([]boardItem, 0, len(rs))
+	for i, r := range rs {
+		if r.Done {
+			continue
+		}
+		id := r.ID
+		if len(id) > 8 {
+			id = id[:8]
+		}
+		body := ""
+		if r.Recur != "" {
+			body = "repeats " + r.Recur
+		}
+		out = append(out, boardItem{
+			ID: "REM:" + id, Title: r.Title, Status: "todo", Prio: "normal",
+			Owner: "-", Order: i + 1, Due: r.Due, Workstream: "reminders",
+			Time: r.Time, Body: body,
+		})
+	}
+	return out
 }
 
 type boardRow struct {
@@ -112,6 +207,7 @@ type boardPanelModel struct {
 	status       string
 	statusUntil  time.Time
 	requestBack  bool
+	forceRems    bool
 	loadErr      string
 	loadedCount  int
 	tab          int
@@ -132,10 +228,15 @@ func (m *boardPanelModel) reload() {
 		return
 	}
 	m.loadErr = ""
-	m.items = data.Items
+	force := m.forceRems
+	m.forceRems = false
+	combined := make([]boardItem, 0, len(data.Items)+8)
+	combined = append(combined, data.Items...)
+	combined = append(combined, synthReminders(loadReminders(force))...)
+	m.items = combined
 	m.folders = data.Folders
 	m.loadedCount = data.Count
-	m.tl.setItems(data.Items, data.Folders)
+	m.tl.setItems(combined, data.Folders)
 	m.rebuild()
 }
 
@@ -181,6 +282,8 @@ func boardWSRank(ws string) int {
 		return 4
 	case "inbox":
 		return 5
+	case "reminders":
+		return 90
 	}
 	return 9
 }
@@ -653,6 +756,7 @@ func (m *boardPanelModel) handleKey(key string) {
 	case "esc", "q", "alt+n":
 		m.requestBack = true
 	case "r", "R":
+		m.forceRems = true
 		m.reload()
 		m.setStatus("reloaded", 1200*time.Millisecond)
 	case "u", "up":
@@ -802,6 +906,7 @@ func (m *boardPanelModel) detailLines(styles paletteStyles, it *boardItem, width
 	meta("prio", it.Prio)
 	meta("owner", it.Owner)
 	meta("due", it.Due)
+	meta("time", it.Time)
 	meta("type", it.Type)
 	if len(it.Folders) > 0 {
 		meta("folder", strings.Join(it.Folders, " / "))
@@ -976,6 +1081,9 @@ func (m *boardPanelModel) render(styles paletteStyles, width, height int) string
 				prefix = strings.Repeat("  ", row.depth)
 			}
 			glyph, color := boardStatusGlyph(it.Status)
+			if it.Workstream == "reminders" {
+				glyph, color = "♢", "220"
+			}
 			glyphStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(color))
 			branchStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
 			titleStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("252"))

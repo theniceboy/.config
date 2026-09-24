@@ -741,11 +741,22 @@ func pad(s string, w int) string {
 	return s + strings.Repeat(" ", gap)
 }
 
-func (m tlModel) header() string {
-	l := " board   ● timeline   ○ tree"
-	if m.showAll {
+func boardTabBar(active int, width int, live string, showAll bool, today time.Time) string {
+	l := " board   "
+	if active == 0 {
+		l += "● timeline   ○ tree"
+	} else {
+		l += "○ timeline   ● tree"
+	}
+	if showAll {
 		l += "   [all]"
 	}
+	l += live
+	l = pad(l, width-17) + today.Format("Mon 2006-01-02")
+	return stBold.Render(l)
+}
+
+func (m tlModel) header() string {
 	cnt := map[string]int{}
 	for _, it := range m.items {
 		if ls := m.itemLinks(it); len(ls) > 0 {
@@ -761,9 +772,7 @@ func (m tlModel) header() string {
 	if cnt["i"] > 0 {
 		live += stDim.Render(fmt.Sprintf("  ·%d", cnt["i"]))
 	}
-	l += live
-	l = pad(l, m.width-17) + m.today.Format("Mon 2006-01-02")
-	return stBold.Render(l)
+	return boardTabBar(0, m.width, live, m.showAll, m.today)
 }
 
 func (m tlModel) bodyWidth() int {

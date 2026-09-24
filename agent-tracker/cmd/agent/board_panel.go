@@ -434,7 +434,7 @@ func (m *boardPanelModel) rowsVisible() int {
 	if h <= 0 {
 		h = 28
 	}
-	// header(2) + two gaps(2) + footer (may wrap at narrow widths); search costs blank+line(2)
+	// tab bar(1) + stats(1) + two gaps(2) + footer (may wrap at narrow widths); search costs blank+line(2)
 	budget := h - 4 - lipgloss.Height(m.renderFooter(newPaletteStyles(), w))
 	if m.searching {
 		budget -= 2
@@ -848,7 +848,7 @@ func (m *boardPanelModel) render(styles paletteStyles, width, height int) string
 	}
 	statsLine := fmt.Sprintf("%d items · %d doing · %d done · %d overdue · read-only", len(m.items), doing, done, overdue)
 	header := lipgloss.JoinVertical(lipgloss.Left,
-		styles.title.Render("Board"),
+		boardTabBar(1, width, "", false, time.Now()),
 		styles.meta.Render(statsLine),
 	)
 	if m.width != width || m.height != height {
@@ -1055,12 +1055,13 @@ func (m *boardPanelModel) render(styles paletteStyles, width, height int) string
 	}
 	body := lipgloss.JoinVertical(lipgloss.Left, bodyLines...)
 	footer := m.renderFooter(styles, width)
-	parts := []string{header}
+	parts := []string{}
 	if searchLine != "" {
 		parts = append(parts, "", searchLine)
 	}
 	parts = append(parts, "", lipgloss.NewStyle().MaxWidth(width-2).Render(body), "", footer)
-	return lipgloss.NewStyle().Width(width).Height(height).Padding(0, 1).Render(lipgloss.JoinVertical(lipgloss.Left, parts...))
+	rest := lipgloss.NewStyle().Width(width).Height(height-2).Padding(0, 1).Render(lipgloss.JoinVertical(lipgloss.Left, parts...))
+	return lipgloss.JoinVertical(lipgloss.Left, header, rest)
 }
 
 func (m *boardPanelModel) renderFooter(styles paletteStyles, width int) string {

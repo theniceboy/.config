@@ -1624,9 +1624,9 @@ func (m tlModel) renderTimeline() []string {
 			if ghost {
 				lo, hi = m.dStart, m.dDue
 			}
-			spanCh, solidCh, stepCh := "▓", "█", "▒"
+			spanCh, solidCh := "▓", "█"
 			if ghost {
-				spanCh, solidCh, stepCh = "⣿", "⣿", "⣾"
+				spanCh, solidCh = "⣿", "⣿"
 			}
 			if lo == nil && hi != nil {
 				lo = hi
@@ -1644,29 +1644,47 @@ func (m tlModel) renderTimeline() []string {
 			isMSDay := func(d time.Time) bool {
 				return isMS && d.Equal(*hi)
 			}
-			cellToday := func(d time.Time, cell string, sty lipgloss.Style) string {
-				if !sameDay(d, m.today) || len([]rune(cell)) != 4 {
-					return sty.Render(cell)
-				}
+			uniform4 := func(cell string, sty lipgloss.Style) [4]string {
+				var rs [4]string
 				r := []rune(cell)
-				return sty.Render(string(r[:1])) + stToday.Render("│") + sty.Render(string(r[2:]))
+				for k := 0; k < 4 && k < len(r); k++ {
+					rs[k] = sty.Render(string(r[k]))
+				}
+				return rs
+			}
+			cellRunes := func(d time.Time, rs [4]string) string {
+				if sameDay(d, m.today) {
+					rs[1] = stToday.Render("│")
+				}
+				var b strings.Builder
+				for _, s := range rs {
+					b.WriteString(s)
+				}
+				return b.String()
 			}
 			for i := 0; i < vis; i++ {
 				d := m.origin.AddDate(0, 0, i)
 				solid4 := strings.Repeat(solidCh, 4)
-				span4 := stepCh + strings.Repeat(spanCh, 3)
 				switch {
 				case isMSDay(d):
-					grid += selWrap(sel, cellToday(d, solid4, barStyle(it, m.today, sel)))
+					grid += selWrap(sel, cellRunes(d, uniform4(solid4, barStyle(it, m.today, sel))))
 				case lo != nil && hi != nil && !d.Before(*lo) && !d.After(*hi):
 					sty := barStyle(it, m.today, sel)
 					switch {
 					case i == 0 && leftClip:
-						grid += selWrap(sel, cellToday(d, "◀"+strings.Repeat(spanCh, 3), sty))
+						grid += selWrap(sel, cellRunes(d, uniform4("◀"+strings.Repeat(spanCh, 3), sty)))
 					case i == vis-1 && rightClip:
-						grid += selWrap(sel, cellToday(d, strings.Repeat(spanCh, 3)+"▶", sty))
+						grid += selWrap(sel, cellRunes(d, uniform4(strings.Repeat(spanCh, 3)+"▶", sty)))
+					case ghost:
+						grid += selWrap(sel, cellRunes(d, uniform4(strings.Repeat(spanCh, 4), sty)))
 					default:
-						grid += selWrap(sel, cellToday(d, span4, sty))
+						key := barColor(it, m.today)
+						seam := lipgloss.NewStyle().Foreground(lipgloss.Color(barSeamDark[key]))
+						if i != hiIdx {
+							seam = seam.Background(lipgloss.Color(key))
+						}
+						rs := [4]string{sty.Render(spanCh), sty.Render(spanCh), sty.Render(spanCh), seam.Render("▌")}
+						grid += selWrap(sel, cellRunes(d, rs))
 					}
 				case sameDay(d, m.today):
 					grid += selWrap(sel, stToday.Render(" │  "))
@@ -1698,18 +1716,30 @@ func (m tlModel) renderTimeline() []string {
 	return L
 }
 
-func barStyle(it tlItem, today time.Time, sel bool) lipgloss.Style {
-	var base lipgloss.Style
+func barColor(it tlItem, today time.Time) string {
 	switch {
 	case it.Status == "done":
-		base = stDim
+		return "245"
 	case it.Due != nil && it.Due.Before(today):
-		base = stOverdue
+		return "203"
 	case (it.Start != nil && !it.Start.After(today)) || it.Status == "doing":
-		base = stActive
+		return "81"
 	default:
-		base = stSoon
+		return "114"
 	}
+}
+
+// barSeamDark holds a ~12% darker truecolor shade per bar palette color,
+// used for the half-block day-seam glyph.
+var barSeamDark = map[string]string{
+	"81":  "#54bde0",
+	"114": "#77e077",
+	"203": "#e05454",
+	"245": "#797979",
+}
+
+func barStyle(it tlItem, today time.Time, sel bool) lipgloss.Style {
+	base := lipgloss.NewStyle().Foreground(lipgloss.Color(barColor(it, today)))
 	if sel {
 		base = base.Bold(true)
 	}

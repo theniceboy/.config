@@ -1347,6 +1347,15 @@ func (m tlModel) markerLine() string {
 	return strings.Repeat(" ", col) + stToday.Render("│")
 }
 
+func tlCenter4(s string) string {
+	if len(s) >= 4 {
+		return s[:4]
+	}
+	l := (4 - len(s)) / 2
+	r := 4 - len(s) - l
+	return strings.Repeat(" ", l) + s + strings.Repeat(" ", r)
+}
+
 func (m tlModel) renderRuler() []string {
 	vis := (m.bodyWidth() - labelW - 4) / dayW
 	if vis < 7 {
@@ -1356,19 +1365,18 @@ func (m tlModel) renderRuler() []string {
 	dn := strings.Repeat(" ", labelW+1)
 	for i := 0; i < vis; i++ {
 		d := m.origin.AddDate(0, 0, i)
-		w := d.Format("Mon")[:2]
-		wCell := fmt.Sprintf("%-4s", w)
+		wCell := tlCenter4(d.Weekday().String()[:2])
 		if d.Weekday() == time.Saturday || d.Weekday() == time.Sunday {
 			wd += stDim.Render(wCell)
 		} else {
 			wd += wCell
 		}
-		numCell := fmt.Sprintf("%-4s", strconv.Itoa(d.Day()))
+		numCell := tlCenter4(strconv.Itoa(d.Day()))
 		switch {
 		case sameDay(d, m.today):
 			dn += stToday.Render(numCell)
 		case d.Day() == 1:
-			dn += stToday.Render(fmt.Sprintf("%-4s", d.Format("Jan")))
+			dn += stToday.Render(tlCenter4(d.Format("Jan")))
 		default:
 			dn += numCell
 		}

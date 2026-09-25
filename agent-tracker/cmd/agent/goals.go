@@ -23,15 +23,15 @@ type Goal struct {
 }
 
 type Thread struct {
-	ID         string    `json:"id"`
-	Name       string    `json:"name"`
-	GoalID     string    `json:"goal_id,omitempty"`
-	Order      int       `json:"order,omitempty"`
-	BlockedBy  []string  `json:"blocked_by,omitempty"`
-	WindowID   string    `json:"window_id,omitempty"`
-	Done       bool      `json:"done,omitempty"`
-	CreatedAt  time.Time `json:"created_at,omitempty"`
-	UpdatedAt  time.Time `json:"updated_at,omitempty"`
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`
+	GoalID    string    `json:"goal_id,omitempty"`
+	Order     int       `json:"order,omitempty"`
+	BlockedBy []string  `json:"blocked_by,omitempty"`
+	WindowID  string    `json:"window_id,omitempty"`
+	Done      bool      `json:"done,omitempty"`
+	CreatedAt time.Time `json:"created_at,omitempty"`
+	UpdatedAt time.Time `json:"updated_at,omitempty"`
 }
 
 type GoalStore struct {
@@ -233,12 +233,12 @@ func appendChildren(store *GoalStore, parentID string, depth int, list *flatList
 // ── status computation ──────────────────────────────────────
 
 const (
-	threadStatusRunning  = "running"
-	threadStatusReady    = "ready"
-	threadStatusBlocked  = "blocked"
-	threadStatusDone     = "done"
-	threadStatusPlanned  = "planned"
-	threadStatusIdle     = "idle"
+	threadStatusRunning = "running"
+	threadStatusReady   = "ready"
+	threadStatusBlocked = "blocked"
+	threadStatusDone    = "done"
+	threadStatusPlanned = "planned"
+	threadStatusIdle    = "idle"
 )
 
 func computeThreadStatus(store *GoalStore, t *Thread, runningWindows map[string]bool) string {

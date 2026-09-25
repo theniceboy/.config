@@ -10,18 +10,18 @@ import (
 )
 
 type deviceSwitchPanelModel struct {
-	devices     []string
-	current     string
-	filter      []rune
+	devices      []string
+	current      string
+	filter       []rune
 	filterCursor int
-	selected    int
-	width       int
-	height      int
-	status      string
-	statusUntil time.Time
-	requestBack bool
-	requestDone bool
-	chosen      string
+	selected     int
+	width        int
+	height       int
+	status       string
+	statusUntil  time.Time
+	requestBack  bool
+	requestDone  bool
+	chosen       string
 }
 
 func newDeviceSwitchPanelModel(current string) *deviceSwitchPanelModel {

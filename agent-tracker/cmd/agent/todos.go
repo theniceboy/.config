@@ -190,12 +190,12 @@ func importLegacyYamlTodos(store *tmuxTodoStore) error {
 		if err := yaml.Unmarshal(data, &list); err != nil {
 			continue
 		}
-	scope := todoScopeGlobal
-	scopeID := "global"
-	switch {
-	case name == "global.yaml":
-		scope = todoScopeGlobal
-	case strings.HasPrefix(name, "window_") && strings.HasSuffix(name, ".yaml"):
+		scope := todoScopeGlobal
+		scopeID := "global"
+		switch {
+		case name == "global.yaml":
+			scope = todoScopeGlobal
+		case strings.HasPrefix(name, "window_") && strings.HasSuffix(name, ".yaml"):
 			scope = todoScopeWindow
 			id := strings.TrimSuffix(strings.TrimPrefix(name, "window_"), ".yaml")
 			if strings.HasPrefix(id, "_") {

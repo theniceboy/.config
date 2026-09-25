@@ -43,15 +43,15 @@ type goalActionMsg struct {
 }
 
 type goalPanelModel struct {
-	runtime *paletteRuntime
-	width   int
-	height  int
-	list    *flatList
-	cursor  int
+	runtime  *paletteRuntime
+	width    int
+	height   int
+	list     *flatList
+	cursor   int
 	expanded map[string]bool
 
-	mode    goalPanelMode
-	status  string
+	mode        goalPanelMode
+	status      string
 	statusUntil time.Time
 
 	// move mode
@@ -74,18 +74,18 @@ type goalPanelModel struct {
 	pickerSelected string // thread id the picker acts on
 
 	// promote form
-	promoteWindow  string
-	promoteName    []rune
-	promoteCursor  int
-	promoteGoal    string
-	promoteBind    string // existing thread id, or ""
-	promoteTab     int    // 0=create, 1=bind
-	promoteNoGoal       bool   // promote-goal mode: cursor on "no goal"
-	promoteCreateGoal   bool   // creating new goal from promote mode
+	promoteWindow     string
+	promoteName       []rune
+	promoteCursor     int
+	promoteGoal       string
+	promoteBind       string // existing thread id, or ""
+	promoteTab        int    // 0=create, 1=bind
+	promoteNoGoal     bool   // promote-goal mode: cursor on "no goal"
+	promoteCreateGoal bool   // creating new goal from promote mode
 
 	// confirm modes
-	confirmThread string
-	confirmGoal   string
+	confirmThread   string
+	confirmGoal     string
 	confirmMergeSrc string
 	confirmMergeTgt string
 
@@ -98,9 +98,9 @@ type goalPanelModel struct {
 
 func newGoalPanelModel(runtime *paletteRuntime) *goalPanelModel {
 	m := &goalPanelModel{
-		runtime:   runtime,
-		expanded:  map[string]bool{},
-		mode:      goalModeList,
+		runtime:          runtime,
+		expanded:         map[string]bool{},
+		mode:             goalModeList,
 		showAssignedOnly: true,
 	}
 	m.reload()
@@ -231,10 +231,10 @@ func (m *goalPanelModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateMove(key)
 		case goalModeRename, goalModeAddGoal, goalModeAddThread, goalModeAddTodo:
 			return m.updateTextInput(key)
-	case goalModeSetGoal, goalModeSetBlocker, goalModeMoreOptions:
-		return m.updatePicker(key)
-	case goalModePromoteGoal:
-		return m.updatePromoteGoal(key)
+		case goalModeSetGoal, goalModeSetBlocker, goalModeMoreOptions:
+			return m.updatePicker(key)
+		case goalModePromoteGoal:
+			return m.updatePromoteGoal(key)
 		case goalModePromote:
 			return m.updatePromote(key)
 		case goalModeConfirmDeleteGoal:

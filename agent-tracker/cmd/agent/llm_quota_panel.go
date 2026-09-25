@@ -502,8 +502,8 @@ func (m *llmQuotaPanelModel) quotaSelStyle(styles paletteStyles) lipgloss.Style 
 }
 
 const (
-	quotaColLabel   = 26
-	quotaColPlan    = 7
+	quotaColLabel = 26
+	quotaColPlan  = 7
 )
 
 func (m *llmQuotaPanelModel) renderAccount(styles paletteStyles, row llmQuotaRow, selected bool, width int) []string {

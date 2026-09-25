@@ -32,9 +32,9 @@ const (
 	jobStatusDone    = "done"
 	jobStatusError   = "error"
 
-	jobsFinishedKeep  = 30
-	jobsFinishedTTL   = time.Hour
-	jobsRunningStale  = 30 * time.Minute
+	jobsFinishedKeep = 30
+	jobsFinishedTTL  = time.Hour
+	jobsRunningStale = 30 * time.Minute
 )
 
 type jobKindDef struct {

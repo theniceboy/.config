@@ -119,11 +119,11 @@ func printTodoScope(label, scopeID string, current bool, items []tmuxTodoItem, o
 }
 
 type todosJSON struct {
-	Scope   string        `json:"scope"`
-	Window  string        `json:"window,omitempty"`
-	Open    int           `json:"open"`
-	Total   int           `json:"total"`
-	Todos   []tmuxTodoItem `json:"todos"`
+	Scope  string         `json:"scope"`
+	Window string         `json:"window,omitempty"`
+	Open   int            `json:"open"`
+	Total  int            `json:"total"`
+	Todos  []tmuxTodoItem `json:"todos"`
 }
 
 func encodeTodosJSON(scope, windowID string, items []tmuxTodoItem) error {

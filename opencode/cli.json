@@ -27,7 +27,8 @@
   },
   "animations": true,
   "tabs": {
-    "enabled": false
+    "enabled": false,
+    "layout": "vertical"
   },
   "prompt": {
     "editor": false

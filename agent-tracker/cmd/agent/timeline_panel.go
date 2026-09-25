@@ -1624,9 +1624,9 @@ func (m tlModel) renderTimeline() []string {
 			if ghost {
 				lo, hi = m.dStart, m.dDue
 			}
-			spanCh, solidCh := "▓", "█"
+			spanCh, solidCh, stepCh := "▓", "█", "▒"
 			if ghost {
-				spanCh, solidCh = "⣿", "⣿"
+				spanCh, solidCh, stepCh = "⣿", "⣿", "⣾"
 			}
 			if lo == nil && hi != nil {
 				lo = hi
@@ -1654,7 +1654,7 @@ func (m tlModel) renderTimeline() []string {
 			for i := 0; i < vis; i++ {
 				d := m.origin.AddDate(0, 0, i)
 				solid4 := strings.Repeat(solidCh, 4)
-				span4 := strings.Repeat(spanCh, 4)
+				span4 := stepCh + strings.Repeat(spanCh, 3)
 				switch {
 				case isMSDay(d):
 					grid += selWrap(sel, cellToday(d, solid4, barStyle(it, m.today, sel)))
